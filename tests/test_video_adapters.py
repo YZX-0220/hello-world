@@ -223,4 +223,4 @@ def test_ark_preset_and_profiles_registered() -> None:
     assert preset.official_base_url == BASE
 
     profiles = list_profiles("ark_seedance_v1")
-    assert {p.code for p in profiles} == {"doubao-seedance-1-5-pro", "doubao-seedance-2-0"}
+    assert {p.code for p in profiles} == {"doubao-seedance-1-5-pro", "doubao-seedance-2-0", "doubao-seedance-1-0-pro-fast"}

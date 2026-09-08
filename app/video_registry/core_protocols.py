@@ -200,4 +200,28 @@ ARK_PROFILES: tuple[ModelProfile, ...] = (
         provider_direct_url_ttl=86400,
         enabled=True,
     ),
+    # ---- Seedance 1.0 Pro Fast（火山方舟接入点绑定；调用时 model=ep-…）----
+    ModelProfile(
+        code="doubao-seedance-1-0-pro-fast",
+        display_name="Doubao Seedance 1.0 Pro Fast",
+        protocol_code="ark_seedance_v1",
+        template_code=None,
+        remote_model_id="ep-20260908233754-lwzxm",
+        capability_profile_code="text_reference_media",
+        modes=(
+            VideoMode.TEXT_TO_VIDEO.value,
+            VideoMode.FIRST_FRAME_TO_VIDEO.value,
+            VideoMode.FIRST_LAST_FRAME_TO_VIDEO.value,
+            VideoMode.REFERENCE_IMAGE_TO_VIDEO.value,
+        ),
+        durations_seconds=(5, 8, 10, 12),
+        aspect_ratios=("16:9", "9:16", "1:1"),
+        resolutions=("480p", "720p", "1080p"),
+        generation_options={"generate_audio": True},
+        max_reference_images=1,
+        max_source_videos=0,
+        allows_provider_direct_url=True,
+        provider_direct_url_ttl=86400,
+        enabled=True,
+    ),
 )

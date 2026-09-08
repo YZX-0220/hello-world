@@ -1,6 +1,8 @@
-"""内置视频协议数据：generic_async_json_v1（通用异步 JSON 中转协议）。
+"""内置视频协议数据：generic_async_json_v1（通用异步 JSON 中转协议）与
+ark_seedance_v1（火山方舟 Seedance 官方原生协议，无模板）。
 
-阶段 6~9 只注册 generic_async_json_v1（含模板 v1_videos_json_v1 与示例模型 Profile）。
+generic 含模板 v1_videos_json_v1 与示例模型 Profile；ark 为原生协议，只注册
+preset 与多个模型 Profile，由 Adapter（app/providers/video/ark_seedance_v1.py）原生调用。
 dashscope_async_v1 / fal_queue_v1 待阶段 10/11 真实化后再按相同结构注册（届时需联网核验）。
 
 协议语义（内置约定，用户只需提供 base_url + key + remote_model_id）：
@@ -119,6 +121,83 @@ GENERIC_PROFILES: tuple[ModelProfile, ...] = (
         # 双轨：允许结果降级为厂商直链（下载失败/服务器不支持时）
         allows_provider_direct_url=True,
         provider_direct_url_ttl=3600,
+        enabled=True,
+    ),
+)
+
+# ---- 火山方舟 Seedance 官方原生协议（无模板，Adapter 原生调用） ----
+ARK_PRESET = ProtocolPreset(
+    code="ark_seedance_v1",
+    name="火山方舟 Seedance 视频生成",
+    version=1,
+    source_types=(ApiSourceType.OFFICIAL.value,),
+    allows_custom_base_url=False,  # 官方原生协议，固定官方地址，不允许自定义
+    official_base_url="https://ark.cn-beijing.volces.com",
+    auth_fields=(
+        DynamicField(
+            name="api_key",
+            label="API 密钥",
+            required=True,
+            is_secret=True,
+            source="header",
+            placeholder="Bearer <ark-...>",
+        ),
+    ),
+    option_fields=(
+        DynamicField(name="region", label="地域（可选）", required=False, source="body"),
+    ),
+    adapter_code="ark_seedance_v1",
+    enabled=True,
+)
+
+# ---- Ark 模型 Profile：一个 Adapter 挂多个模型（1.5 Pro / 2.0） ----
+ARK_PROFILES: tuple[ModelProfile, ...] = (
+    ModelProfile(
+        code="doubao-seedance-1-5-pro",
+        display_name="Doubao Seedance 1.5 Pro",
+        protocol_code="ark_seedance_v1",
+        template_code=None,  # 原生协议无模板
+        remote_model_id="doubao-seedance-1-5-pro-251215",
+        capability_profile_code="text_reference_media",
+        modes=(
+            VideoMode.TEXT_TO_VIDEO.value,
+            VideoMode.FIRST_FRAME_TO_VIDEO.value,
+            VideoMode.FIRST_LAST_FRAME_TO_VIDEO.value,
+            VideoMode.REFERENCE_IMAGE_TO_VIDEO.value,
+        ),
+        durations_seconds=(4, 5, 8, 10, 12, 15),
+        aspect_ratios=("16:9", "9:16", "4:3", "3:4", "1:1", "21:9"),
+        resolutions=("480p", "720p", "1080p"),
+        generation_options={"generate_audio": True},
+        max_reference_images=1,
+        max_source_videos=0,
+        # 双轨：Ark 返回 24h 的 video_url 直链，下载失败时回退为直链交付
+        allows_provider_direct_url=True,
+        provider_direct_url_ttl=86400,
+        enabled=True,
+    ),
+    ModelProfile(
+        code="doubao-seedance-2-0",
+        display_name="Doubao Seedance 2.0",
+        protocol_code="ark_seedance_v1",
+        template_code=None,  # 原生协议无模板
+        remote_model_id="doubao-seedance-2-0-260128",
+        capability_profile_code="text_reference_media",
+        modes=(
+            VideoMode.TEXT_TO_VIDEO.value,
+            VideoMode.FIRST_FRAME_TO_VIDEO.value,
+            VideoMode.FIRST_LAST_FRAME_TO_VIDEO.value,
+            VideoMode.REFERENCE_IMAGE_TO_VIDEO.value,
+        ),
+        durations_seconds=(4, 5, 8, 10, 12, 15),
+        aspect_ratios=("16:9", "9:16", "4:3", "3:4", "1:1", "21:9"),
+        # 2.0 支持 4k
+        resolutions=("480p", "720p", "1080p", "4k"),
+        generation_options={"generate_audio": True},
+        max_reference_images=1,
+        max_source_videos=0,
+        allows_provider_direct_url=True,
+        provider_direct_url_ttl=86400,
         enabled=True,
     ),
 )

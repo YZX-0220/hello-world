@@ -4,15 +4,21 @@
 Contract Test 通过 + enabled=true。阶段 6~9 仅 generic_async_json_v1 满足。
 """
 
-from app.video_registry.core_protocols import GENERIC_PRESET, GENERIC_PROFILES, V1_VIDEOS_TEMPLATE
+from app.video_registry.core_protocols import (
+    ARK_PRESET,
+    ARK_PROFILES,
+    GENERIC_PRESET,
+    GENERIC_PROFILES,
+    V1_VIDEOS_TEMPLATE,
+)
 from app.video_registry.models import ModelProfile, ProtocolPreset, ProtocolTemplate
 
-_PRESETS: dict[str, ProtocolPreset] = {p.code: p for p in (GENERIC_PRESET,)}
+_PRESETS: dict[str, ProtocolPreset] = {p.code: p for p in (GENERIC_PRESET, ARK_PRESET)}
 _TEMPLATES: dict[tuple[str, str], ProtocolTemplate] = {
     (t.protocol_code, t.template_code): t for t in (V1_VIDEOS_TEMPLATE,)
 }
 _PROFILES: dict[tuple[str, str], ModelProfile] = {
-    (p.protocol_code, p.code): p for p in GENERIC_PROFILES
+    (p.protocol_code, p.code): p for p in (*GENERIC_PROFILES, *ARK_PROFILES)
 }
 
 

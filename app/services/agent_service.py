@@ -164,6 +164,47 @@ class AgentService:
         output.agent_run_id = agent_run.id
         return output
 
+    async def refine_with_search(
+        self,
+        user_id: str,
+        conversation_id: str,
+        history: list[dict[str, str]],
+        user_content: str,
+        search_results_text: str,
+    ) -> str | None:
+        """第二阶段：把检索结果回流给模型，让它基于检索结果重写最终回复。
+
+        背景：第一阶段模型若通过 search_requests 请求了联网搜索，后端执行搜索后不能把结果
+        简单"附"在回复末尾（旧实现），而要真正喂给模型重新生成，这是 function-calling 的
+        落地形态之一。
+
+        消息结构与第一阶段复用 build_context（system + 历史 + 当前用户消息），再追加：
+          - 一条用户侧提示："请依据以下检索结果给出最终回复，并指出引用的来源。"
+          - 一条检索结果注入消息：默认用 role="assistant" 承载（多数 OpenAI 兼容 API 的
+            role="tool" 需要 tool_call_id，直接传会被拒绝），这里在注释中明确这是"检索结果注入"，
+            避免被误读为真实历史。
+
+        用相同 provider 以 structured=False 再调一次。任何异常或空回复都返回 None，由调用方
+        保留初版 reply，保证不丢消息、不报错。
+        """
+        if not search_results_text.strip():
+            return None
+        brief_dict = await self._projects.get_current_brief(user_id, conversation_id)
+        brief = VideoBrief.model_validate(brief_dict) if brief_dict else VideoBrief()
+        context = build_context(brief, history, user_content)
+        messages: list[dict[str, str]] = [
+            *context,
+            {"role": "user", "content": "请依据以下检索结果给出最终回复，并指出引用的来源。"},
+            # 检索结果注入（role="assistant" 承载，见方法注释）
+            {"role": "assistant", "content": f"【检索结果】\n{search_results_text}"},
+        ]
+        try:
+            result = await self._provider.generate(messages, structured=False)
+        except TextProviderError:
+            return None
+        reply = (result.reply or "").strip()
+        return reply or None
+
     async def bind_assistant_message(self, agent_run_id: str, assistant_message_id: str) -> None:
         """把本轮生成的 assistant 消息 id 写回 AgentRun（在其创建完成后调用）。"""
         agent_run = await self._session.get(AgentRun, agent_run_id)

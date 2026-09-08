@@ -98,24 +98,49 @@ class ConversationService:
                 suggested_prompt=output.suggested_prompt,
             )
 
-        # 联网搜索：模型请求过、且用户开启联网 → 记录工具调用、执行搜索、保存引用并把来源附到回复
+        # 联网搜索：模型请求过、且用户开启联网 → 记录工具调用、执行搜索、保存引用，
+        # 并把检索结果回流给模型二次生成最终回复（真正的 function-calling）。
         if web_search_enabled and output.search_requests:
-            await self._run_search(assistant_message, output.search_requests, agent_run_id)
+            await self._run_search(
+                assistant_message,
+                output.search_requests,
+                agent_run_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                history=history,
+                user_content=content,
+            )
 
         await self._convs.touch_last_message_at(conversation_id)
         project = await self._projects.get_current_brief(user_id, conversation_id)
         return user_message, assistant_message, project
 
-    async def _run_search(self, assistant_message: Message, queries: list[str], agent_run_id: str | None) -> None:
-        """执行搜索并保存来源引用。
+    async def _run_search(
+        self,
+        assistant_message: Message,
+        queries: list[str],
+        agent_run_id: str | None,
+        *,
+        user_id: str,
+        conversation_id: str,
+        history: list[dict[str, str]],
+        user_content: str,
+    ) -> None:
+        """执行搜索、保存来源引用，并把检索结果回流给模型二次生成最终回复。
 
         每个查询记录一条 ToolExecution（web_search），并把该轮每个来源 MessageCitation
         的 tool_execution_id 指向对应工具调用。单条搜索失败不阻断回复，仅标记工具失败并跳过。
         agent_run_id 为 None 时不落工具调用（保留原有仅存引用的行为）。
+
+        若本轮至少拿到一条检索结果，就调用 AgentService.refine_with_search 让模型基于检索结果
+        重写最终回复并替换 assistant_message 正文；若二次生成失败或没有结果（无检索文本），
+        则保留初版 reply 作为正文——不丢消息、不报错。旧实现里的"【检索到的参考资料】"固定
+        文案追加被移除，来源依旧结构化落库到 message_citations 供前端展示。
         """
         provider = get_search_provider()
         citations: list[MessageCitation] = []
         tools: list[ToolExecution] = []
+        result_blocks: list[str] = []  # 每个查询一组可读检索结果文本（供第二阶段喂给模型）
         position = 0
         sequence = 0
         for query in queries[: settings.search_max_calls]:
@@ -154,6 +179,13 @@ class ConversationService:
                     ensure_ascii=False,
                 )
                 tools.append(tool)
+            # 组装该查询的可读结果文本段（供第二阶段回流给模型）
+            lines = [f"查询：{query}"]
+            for idx, r in enumerate(results, 1):
+                lines.append(f"{idx}. {r.title}")
+                lines.append(f"   链接：{r.url}")
+                lines.append(f"   摘要：{r.snippet[:400]}")
+            result_blocks.append("\n".join(lines))
             for result in results:
                 citations.append(
                     MessageCitation(
@@ -176,9 +208,18 @@ class ConversationService:
         await self._session.commit()
         if tools and agent_run_id is not None:
             await self._agent.set_tool_call_count(agent_run_id, len(tools))
-        lines = [f"{i}. {c.title}：{c.url}" for i, c in enumerate(citations, 1)]
-        assistant_message.content += "\n\n【检索到的参考资料】\n" + "\n".join(lines)
-        await self._session.commit()
+        search_results_text = "\n\n".join(result_blocks)
+        if search_results_text.strip():
+            final_reply = await self._agent.refine_with_search(
+                user_id,
+                conversation_id,
+                history,
+                user_content,
+                search_results_text,
+            )
+            if final_reply:
+                assistant_message.content = final_reply
+                await self._session.commit()
 
     async def _find_reply(self, user_message: Message) -> Message | None:
         """找到某条用户消息对应的助手回复。"""

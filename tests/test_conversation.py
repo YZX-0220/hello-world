@@ -99,25 +99,46 @@ async def test_confirm_project_and_manual_patch(client: httpx.AsyncClient) -> No
 
 
 async def test_search_tool_records_citations(client: httpx.AsyncClient, monkeypatch) -> None:
-    """联网搜索：模型请求 search_requests → 后端执行搜索 → 回复附来源并落库引用。"""
+    """联网搜索：模型请求 search_requests → 后端搜索 → 检索结果回流给模型二次生成最终回复。
+
+    断言证明了"第二次生成确实拿到了检索结果"：
+    - provider.refine_calls == 1 说明第二阶段真实触发；
+    - provider.received_messages[1] 里含检索结果注入消息，说明搜索文本被传回模型；
+    - 最终正文是模型基于检索结果重写的回复（含"根据检索结果"与来源 URL），而非旧版固定文案。
+    """
     from app.providers.text.base import TextCapabilities, TextProvider, TextResult
     from app.services import agent_service as ag
 
-    class SearchTriggerProvider(TextProvider):
-        code = "searchtrigger"
+    class SearchThenRefineProvider(TextProvider):
+        code = "searchthenrefine"
+
+        def __init__(self) -> None:
+            self.refine_calls = 0
+            self.received_messages: list[list[dict[str, str]]] = []
 
         @property
         def capabilities(self) -> TextCapabilities:
             return TextCapabilities(supports_structured_output=True)
 
         async def generate(self, messages, *, structured: bool = False) -> TextResult:
+            self.received_messages.append(messages)
+            # 检测第二阶段：消息里含检索结果注入（注入标记为中文书名号 【检索结果】）
+            injected = any("【检索结果】" in (m.get("content") or "") for m in messages)
+            if injected:
+                self.refine_calls += 1
+                return TextResult(
+                    reply="根据检索结果：故宫夜景很适合做成电影感宣传片，参考资料：https://example.com/reference/1（Fake 数据）",
+                    model="fake-model",
+                    structured=None,
+                )
             return TextResult(
                 reply="好的，我核实一下资料并附上来源。",
                 structured={"reply": "好的，我核实一下资料并附上来源。", "state_patch": {}, "search_requests": ["故宫 夜景 宣传片"]},
                 model="fake-model",
             )
 
-    monkeypatch.setattr(ag, "get_text_provider", lambda: SearchTriggerProvider())
+    provider = SearchThenRefineProvider()
+    monkeypatch.setattr(ag, "get_text_provider", lambda: provider)
 
     await _register(client)
     headers = _csrf_headers(client)
@@ -131,8 +152,15 @@ async def test_search_tool_records_citations(client: httpx.AsyncClient, monkeypa
     )
     assert msg.status_code == 201
     content = msg.json()["assistant_message"]["content"]
-    assert "检索到的参考资料" in content
+    # 正文取自模型基于检索结果重写的最终回复（不再含旧版固定文案"【检索到的参考资料】"）
+    assert "根据检索结果" in content
     assert "https://example.com" in content
+    assert "检索到的参考资料" not in content
+
+    # 证明第二次生成确实拿到了检索结果
+    assert provider.refine_calls == 1
+    assert len(provider.received_messages) == 2
+    assert any("【检索结果】" in (m.get("content") or "") for m in provider.received_messages[1])
 
     # citations 应以结构化列表返回（而不是只附在正文文本里）
     listed = (await client.get(f"/api/v1/conversations/{cid}/messages")).json()
@@ -204,3 +232,60 @@ async def test_agent_run_and_tool_execution_persist(client, db_engine, monkeypat
         cites = (await session.exec(select(MessageCitation))).all()
         assert len(cites) >= 1
         assert all(c.tool_execution_id == tool.id for c in cites)
+
+
+async def test_search_refine_failure_keeps_original_reply(client: httpx.AsyncClient, monkeypatch) -> None:
+    """联网搜索二次生成失败时：保留初版 reply 作为正文，不丢消息、不报错，引用仍结构化落库。"""
+    from app.providers.text.base import (
+        TextCapabilities,
+        TextProvider,
+        TextProviderError,
+        TextResult,
+    )
+    from app.services import agent_service as ag
+
+    class FailRefineProvider(TextProvider):
+        code = "failrefine"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        @property
+        def capabilities(self) -> TextCapabilities:
+            return TextCapabilities(supports_structured_output=True)
+
+        async def generate(self, messages, *, structured: bool = False) -> TextResult:
+            self.calls += 1
+            if self.calls >= 2:  # 第二阶段：模拟二次生成失败
+                raise TextProviderError("TEXT_PROVIDER_TIMEOUT", "二次生成失败", retryable=True)
+            return TextResult(
+                reply="好的，我核实一下资料并附上来源。",
+                structured={
+                    "reply": "好的，我核实一下资料并附上来源。",
+                    "state_patch": {},
+                    "search_requests": ["故宫 夜景 宣传片"],
+                },
+                model="fake-model",
+            )
+
+    monkeypatch.setattr(ag, "get_text_provider", lambda: FailRefineProvider())
+
+    await _register(client)
+    headers = _csrf_headers(client)
+    conv = await client.post("/api/v1/conversations", json={"title": "搜索失败回退"}, headers=headers)
+    cid = conv.json()["conversation"]["id"]
+
+    msg = await client.post(
+        f"/api/v1/conversations/{cid}/messages",
+        json={"content": "帮我查一下故宫夜景宣传片资料", "client_request_id": str(uuid.uuid4()), "web_search_enabled": True},
+        headers=headers,
+    )
+    assert msg.status_code == 201
+    content = msg.json()["assistant_message"]["content"]
+    # 二次生成失败：正文保留初版 reply，不丢消息（接口照常返回 201）
+    assert content == "好的，我核实一下资料并附上来源。"
+    # 引用仍结构化落库
+    listed = (await client.get(f"/api/v1/conversations/{cid}/messages")).json()
+    assistant = next(m for m in listed["items"] if m["role"] == "assistant")
+    assert len(assistant["citations"]) >= 1
+    assert assistant["citations"][0]["url"].startswith("https://example.com")

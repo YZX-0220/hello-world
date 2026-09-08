@@ -411,3 +411,162 @@ async def test_conversations_cursor_pagination_no_dup_no_missing(client) -> None
     assert len(set(collected)) == N
     assert set(collected) == set(created_ids)
     assert collected == canonical_ids
+
+
+async def test_build_context_compresses_when_summary_present() -> None:
+    """构造上下文：存在摘要时把摘要边界（含）之前的历史压缩成一条 system 摘要消息，边界之后的消息保留。
+
+    同时验证：未生成摘要时回退到完整最近历史（旧消息不被吞掉）。
+    """
+    from app.schemas.agent import VideoBrief
+    from app.services.context_builder import build_context
+
+    history = [
+        {"id": "m0", "role": "user", "content": "old-0"},
+        {"id": "m1", "role": "assistant", "content": "old-1"},
+        {"id": "m2", "role": "user", "content": "old-2"},
+        {"id": "m3", "role": "assistant", "content": "old-3"},
+        {"id": "m4", "role": "user", "content": "new-4"},
+        {"id": "m5", "role": "assistant", "content": "new-5"},
+    ]
+
+    # 摘要覆盖到 m3（含 m3），m4/m5 保留
+    msgs = build_context(
+        VideoBrief(), history, "current", summary_text="要点ABC", summary_through_message_id="m3"
+    )
+    assert msgs[0]["role"] == "system"
+    # 摘要作为一条独立 system 消息跟在系统提示之后
+    assert msgs[1]["role"] == "system"
+    assert "对话摘要：要点ABC" in msgs[1]["content"]
+    contents = [m.get("content") or "" for m in msgs]
+    # 被压缩的旧消息不出现；摘要边界之后的较新消息保留；当前用户消息在最后
+    for old in ("old-0", "old-1", "old-2", "old-3"):
+        assert all(old not in c for c in contents)
+    assert any("new-4" in c for c in contents)
+    assert any("new-5" in c for c in contents)
+    assert msgs[-1]["content"] == "current"
+
+    # 无摘要时回退到完整最近历史（这里历史只有 6 条 < 12，全部保留）
+    msgs2 = build_context(VideoBrief(), history, "current")
+    contents2 = [m.get("content") or "" for m in msgs2]
+    assert any("old-0" in c for c in contents2)
+    assert msgs2[-1]["content"] == "current"
+
+
+async def _backdate_messages(db_engine, conversation_id: str, count: int) -> list[str]:
+    """向库里插入 count 条 created_at 明显早于当前时刻的 user 消息（绕过 Agent）。
+
+    与上方分页测试不同：这里把 created_at 回拨到 now()-10s 之前，确保其后经 API 发起的
+    实时消息在摘要统计的 time 序中排在这些消息之后，从而让边界定位确定。
+    """
+    sf = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    base = now() - timedelta(seconds=count + 10)
+    ids: list[str] = []
+    async with sf() as session:
+        for i in range(count):
+            msg_id = new_id()
+            ids.append(msg_id)
+            session.add(
+                Message(
+                    id=msg_id,
+                    conversation_id=conversation_id,
+                    role=MessageRole.USER.value,
+                    content=f"paging-{i}",
+                    status=MessageStatus.COMPLETED.value,
+                    client_request_id=f"summ-{i}-{uuid.uuid4().hex[:8]}",
+                    created_at=base + timedelta(seconds=i),
+                )
+            )
+        await session.commit()
+    return ids
+
+
+async def test_long_conversation_generates_summary_and_compresses(
+    client, db_engine, monkeypatch
+) -> None:
+    """长对话（超过阈值）自动生成摘要并压缩发给模型的上下文。
+
+    覆盖缺口⑥三个要求：a) 生成摘要并正确记录 summary_text / summary_through_message_id；
+    b) 后续轮次构建的上下文含"对话摘要"、不再包含被压缩的旧消息、仍包含摘要边界之后的较新消息；
+    c) 短对话（现有测试场景）不受影响（由既有用例覆盖）。
+    """
+    from app.core.config import settings
+    from app.db.models.conversation import ConversationContext
+    from app.providers.text.base import TextCapabilities, TextProvider, TextResult
+    from app.services import agent_service as ag
+
+    class SummaryProvider(TextProvider):
+        code = "summaryprov"
+
+        def __init__(self) -> None:
+            self.received: list[tuple[bool, list[dict[str, str]]]] = []
+
+        @property
+        def capabilities(self) -> TextCapabilities:
+            return TextCapabilities(supports_structured_output=True)
+
+        async def generate(self, messages, *, structured: bool = False) -> TextResult:
+            self.received.append((structured, messages))
+            if structured:
+                # 主对话：返回结构化输出（空 patch，不触发方案版本更新/搜索）
+                return TextResult(
+                    reply="好的，已记录。",
+                    structured={"reply": "好的，已记录。", "state_patch": {}},
+                    model="fake-model",
+                )
+            # 摘要调用：返回一段固定中文摘要
+            return TextResult(reply="【摘要】已压缩历史要点", model="fake-model", structured=None)
+
+    provider = SummaryProvider()
+    monkeypatch.setattr(ag, "get_text_provider", lambda: provider)
+    monkeypatch.setattr(settings, "history_summary_threshold", 3)
+
+    await _register(client)
+    headers = _csrf_headers(client)
+    conv = await client.post("/api/v1/conversations", json={"title": "长对话摘要测试"}, headers=headers)
+    cid = conv.json()["conversation"]["id"]
+
+    # 先造 5 条较早历史：总消息数因此超过阈值(3)
+    expected_ids = await _backdate_messages(db_engine, cid, 5)
+
+    # 第 1 轮：发起一条实时消息 → 本轮结束时应生成摘要
+    r1 = await client.post(
+        f"/api/v1/conversations/{cid}/messages",
+        json={"content": "补充一点：时长30秒", "client_request_id": str(uuid.uuid4())},
+        headers=headers,
+    )
+    assert r1.status_code == 201
+
+    # a) 摘要已生成且边界正确：summarize 了最早 4 条（paging-0..3），边界 = 第 4 条插入消息
+    async with async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)() as session:
+        ctx = await session.get(ConversationContext, cid)
+        assert ctx is not None
+        assert ctx.summary_text == "【摘要】已压缩历史要点"
+        assert ctx.summary_through_message_id == expected_ids[3]
+        assert ctx.summary_model == "summaryprov"
+
+    # 第 2 轮：发起一条新消息 → 本轮构建给模型的上下文应已压缩
+    r2 = await client.post(
+        f"/api/v1/conversations/{cid}/messages",
+        json={"content": "再补充：16:9 画幅", "client_request_id": str(uuid.uuid4())},
+        headers=headers,
+    )
+    assert r2.status_code == 201
+
+    # b) 取"第 2 轮主对话"发送给模型的上下文（最后一次 structured=True 的 generate）
+    last_structured: list[dict[str, str]] | None = None
+    for structured, msgs in provider.received:
+        if structured:
+            last_structured = msgs
+    assert last_structured is not None
+    contents = [m.get("content") or "" for m in last_structured]
+    # 上下文里出现摘要标记
+    assert any("对话摘要" in c for c in contents)
+    # 已压缩的最早 4 条旧消息不再出现
+    for i in range(4):
+        assert all(f"paging-{i}" not in c for c in contents)
+    # 摘要边界之后的较新消息仍保留
+    assert any("paging-4" in c for c in contents)
+
+    # 触发过摘要调用（第 1 轮 + 第 2 轮结尾各一次 structured=False）
+    assert any(not structured for structured, _msgs in provider.received)

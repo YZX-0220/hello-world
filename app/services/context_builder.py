@@ -57,6 +57,20 @@ negative_prompt 用于描述应避免的画面问题（如现代建筑、车辆�
 # 每轮只取最近若干条消息进上下文（保守预算）
 _MAX_HISTORY_MESSAGES = 12
 
+# ---- 长对话摘要 ----
+SUMMARY_PREFIX = "对话摘要："
+# 摘要正文上限（字符），防止模型一次抛出超长文本
+MAX_SUMMARY_LENGTH = 2000
+SUMMARY_SYSTEM_PROMPT = """你是「Hello World」AI 视频平台的长对话摘要助手。
+请把给定的多轮对话压缩成一段简洁的中文要点摘要，供后续轮次继续对话时作为历史背景使用。
+
+要求：
+- 先概括对话主题与用户的创作目标；
+- 列出已经确定的关键方案字段（主体/场景/镜头/光线/画幅/时长/视觉风格/负面提示等），已占用的首尾帧、参考图等素材；
+- 保留用户的偏好与已下达的约束条件；
+- 标注仍缺少、需要用户进一步明确的信息；
+- 不要复述整段对话，摘要正文控制在 500 字以内，只输出摘要正文，不要任何前缀/标题/Markdown。"""
+
 
 def brief_to_text(brief: VideoBrief) -> str:
     """把当前结构化方案 + 素材占用转成一段人可读摘要，便于模型了解现状。"""
@@ -87,14 +101,63 @@ def brief_to_text(brief: VideoBrief) -> str:
     return "；".join(parts) if parts else "（目前方案为空）"
 
 
-def build_context(brief: VideoBrief, history: list[dict[str, str]], user_content: str) -> list[dict[str, str]]:
+def build_summary_prompt(messages: list[dict[str, str]], prev_summary: str = "") -> list[dict[str, str]]:
+    """构造交给文本模型做摘要的消息列表。
+
+    messages 为待压缩的 [{"role","content"}]（按时间顺序）；prev_summary 为既有历史摘要，
+    若有则作为前缀注入，让模型在旧摘要基础上继续扩展，避免信息丢失。
+    """
+    lines: list[str] = []
+    if prev_summary:
+        lines.append(f"已有摘要：{prev_summary}")
+    lines.append("请对以下这一小段多轮对话做中文要点摘要：")
+    for m in messages:
+        role = m.get("role", "user")
+        label = "用户" if role == "user" else ("助手" if role == "assistant" else str(role))
+        lines.append(f"{label}：{m.get('content', '')}")
+    return [
+        {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
+        {"role": "user", "content": "\n".join(lines)},
+    ]
+
+
+def _message_index(history: list[dict[str, str]], message_id: str) -> int | None:
+    """在按时间顺序的 history 中定位某条消息 id 的下标；找不到返回 None。"""
+    for i, item in enumerate(history):
+        if item.get("id") == message_id:
+            return i
+    return None
+
+
+def build_context(
+    brief: VideoBrief,
+    history: list[dict[str, str]],
+    user_content: str,
+    *,
+    summary_text: str = "",
+    summary_through_message_id: str | None = None,
+) -> list[dict[str, str]]:
     """构造发送给模型的消息列表。
 
-    history 为 [{"role","content"}]，按时间顺序；只取最近 N 条。
+    history 为 [{"id","role","content"}]（id 可选），按时间顺序。
+    - 当存在摘要（summary_text 非空且 summary_through_message_id 有值）时，把该 id **及之前**的
+      历史替换成一条 role=system 的摘要消息，该 id 之后的消息照常加入，避免重复/缺失；
+    - 否则回退到只取最近 N 条的历史（首期保守预算）。
     """
     messages: list[dict[str, str]] = [
         {"role": "system", "content": f"{DEFAULT_SYSTEM_PROMPT}\n\n【当前状态】当前方案：{brief_to_text(brief)}"}
     ]
+
+    summary = (summary_text or "").strip()
+    if summary and summary_through_message_id:
+        boundary_idx = _message_index(history, summary_through_message_id)
+        if boundary_idx is not None:
+            messages.append({"role": "system", "content": f"{SUMMARY_PREFIX}{summary}"})
+            messages.extend(history[boundary_idx + 1 :])
+            messages.append({"role": "user", "content": user_content})
+            return messages
+
+    # 未压缩回退：只取最近 N 条
     for item in history[-_MAX_HISTORY_MESSAGES:]:
         messages.append({"role": item.get("role", "user"), "content": item.get("content", "")})
     messages.append({"role": "user", "content": user_content})

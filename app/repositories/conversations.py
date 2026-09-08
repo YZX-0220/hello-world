@@ -9,7 +9,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.constants import CONVERSATION_TITLE_DEFAULT
 from app.core.cursor import decode_cursor_pair, parse_ts
-from app.core.enums import ConversationStatus, MessageRole, VersionSource
+from app.core.enums import ConversationStatus, MessageRole, MessageStatus, VersionSource
 from app.core.time import now
 from app.db.models.agent import MessageCitation
 from app.db.models.conversation import Conversation, ConversationContext, Message
@@ -139,6 +139,27 @@ class ConversationRepository:
         stmt = (
             stmt.order_by(Message.created_at.asc(), Message.id.asc())  # type: ignore[attr-defined]
             .limit(limit + 1)
+        )
+        result = await self._session.exec(stmt)
+        return list(result.all())
+
+    async def get_context(self, conversation_id: str) -> ConversationContext | None:
+        """读取某对话的长对话摘要上下文（conversation_id 为其主键）。"""
+        return await self._session.get(ConversationContext, conversation_id)
+
+    async def list_context_messages(self, conversation_id: str) -> list[Message]:
+        """返回用于摘要统计/压缩的对话消息：user/assistant、已完成或失败、正文非空，按时间正序。
+
+        与 ConversationService._history 的过滤规则保持一致，确保摘要边界在该列表与历史中均可定位。
+        """
+        stmt = (
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .where(Message.role != MessageRole.TOOL.value)
+            .where(Message.role != MessageRole.SYSTEM.value)
+            .where(Message.status != MessageStatus.PENDING.value)
+            .where(Message.content != "")
+            .order_by(Message.created_at.asc(), Message.id.asc())  # type: ignore[attr-defined]
         )
         result = await self._session.exec(stmt)
         return list(result.all())

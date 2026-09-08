@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     search_api_key: str = ""
     search_timeout: int = 15
     search_max_calls: int = 3
+    # 长对话摘要：对话内部 user/assistant 消息数超过该值时，把较早历史交给文本模型生成摘要并压缩上下文
+    history_summary_threshold: int = 20
 
     # ---- 视频生成（外部厂商调用）----
     # video_provider: fake（开发，返回可控假状态）或 generic_v1（通用异步 JSON 协议）

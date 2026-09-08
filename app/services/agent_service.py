@@ -20,7 +20,7 @@ from app.db.models.agent import AgentRun
 from app.providers.text import get_text_provider
 from app.providers.text.base import TextProvider, TextProviderError
 from app.schemas.agent import AgentOutput, VideoBrief, VideoBriefPatch
-from app.services.context_builder import build_context
+from app.services.context_builder import MAX_SUMMARY_LENGTH, build_context
 from app.services.project_service import ProjectService
 
 
@@ -29,6 +29,24 @@ class AgentService:
         self._session = session
         self._provider: TextProvider = get_text_provider()
         self._projects = ProjectService(session)
+
+    @property
+    def provider_code(self) -> str:
+        """当前文本 Provider 的标识码（用于摘要落库的 summary_model 字段）。"""
+        return self._provider.code
+
+    async def summarize_history(self, prompt_messages: list[dict[str, str]]) -> str | None:
+        """用文本 Provider 生成对话摘要。
+
+        prompt_messages 由调用方（build_summary_prompt）构造。任何失败（超时/不可用等）都
+        静默返回 None，不抛出、不阻塞聊天，等待下一轮再试；返回的摘要按 MAX_SUMMARY_LENGTH 截断。
+        """
+        try:
+            result = await self._provider.generate(prompt_messages, structured=False)
+        except TextProviderError:
+            return None
+        summary = (result.reply or "").strip()
+        return summary[:MAX_SUMMARY_LENGTH] or None
 
     # 常见模型字段别名 → VideoBrief 标准字段；不在标准集合内的视为多余并丢弃
     _PATCH_ALIASES: ClassVar[dict[str, str]] = {
@@ -115,16 +133,22 @@ class AgentService:
         user_message_id: str,
         user_content: str,
         history: list[dict[str, str]],
+        *,
+        summary_text: str = "",
+        summary_through_message_id: str | None = None,
     ) -> AgentOutput:
         """执行一轮对话，返回结构与用户回复，并把本轮 AgentRun 落库。
 
         生命周期：创建 AgentRun(running，记录调用开始时的方案版本) → 调用文本 Provider →
         成功记为 succeeded（带模型名/Token 用量/结束时间），失败记为 failed（带错误码与脱敏错误），
         并把 agent_run_id 挂到 AgentOutput 上，供上层关联工具调用与引用。
+        summary_text / summary_through_message_id 由上层传入，用于在构造上下文时压缩旧历史。
         """
         brief_dict = await self._projects.get_current_brief(user_id, conversation_id)
         brief = VideoBrief.model_validate(brief_dict) if brief_dict else VideoBrief()
-        context = build_context(brief, history, user_content)
+        context = build_context(
+            brief, history, user_content, summary_text=summary_text, summary_through_message_id=summary_through_message_id
+        )
 
         base_spec_version = await self._projects.get_current_spec_version(user_id, conversation_id)
         agent_run = AgentRun(
@@ -171,6 +195,9 @@ class AgentService:
         history: list[dict[str, str]],
         user_content: str,
         search_results_text: str,
+        *,
+        summary_text: str = "",
+        summary_through_message_id: str | None = None,
     ) -> str | None:
         """第二阶段：把检索结果回流给模型，让它基于检索结果重写最终回复。
 
@@ -191,7 +218,9 @@ class AgentService:
             return None
         brief_dict = await self._projects.get_current_brief(user_id, conversation_id)
         brief = VideoBrief.model_validate(brief_dict) if brief_dict else VideoBrief()
-        context = build_context(brief, history, user_content)
+        context = build_context(
+            brief, history, user_content, summary_text=summary_text, summary_through_message_id=summary_through_message_id
+        )
         messages: list[dict[str, str]] = [
             *context,
             {"role": "user", "content": "请依据以下检索结果给出最终回复，并指出引用的来源。"},

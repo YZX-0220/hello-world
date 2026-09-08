@@ -14,12 +14,13 @@ from app.core.enums import MessageRole, ToolExecutionStatus, VersionSource
 from app.core.errors import CONVERSATION_NOT_FOUND, IDEMPOTENCY_KEY_REUSED, AppError
 from app.core.time import now
 from app.db.models.agent import MessageCitation, ToolExecution
-from app.db.models.conversation import Conversation, Message
+from app.db.models.conversation import Conversation, ConversationContext, Message
 from app.providers.search import get_search_provider
 from app.providers.search.base import SearchProviderError
 from app.repositories.conversations import ConversationRepository
 from app.schemas.conversation import CitationView, MessageView
 from app.services.agent_service import AgentService
+from app.services.context_builder import build_summary_prompt
 from app.services.project_service import ProjectService
 
 
@@ -72,7 +73,20 @@ class ConversationService:
         # 构造历史（本轮之前的所有 user/assistant 消息）
         history = await self._history(conversation_id)
 
-        output = await self._agent.run_turn(user_id, conversation_id, user_message.id, content, history)
+        # 长对话摘要：读取当前摘要状态，供本轮构造上下文时压缩旧历史（尚未生成摘要时不会压缩）
+        ctx = await self._convs.get_context(conversation_id)
+        summary_text = ctx.summary_text if ctx is not None else ""
+        summary_through_message_id = ctx.summary_through_message_id if ctx is not None else None
+
+        output = await self._agent.run_turn(
+            user_id,
+            conversation_id,
+            user_message.id,
+            content,
+            history,
+            summary_text=summary_text,
+            summary_through_message_id=summary_through_message_id,
+        )
         agent_run_id = output.agent_run_id
 
         assistant_message = await self._convs.add_message(
@@ -110,9 +124,15 @@ class ConversationService:
                 conversation_id=conversation_id,
                 history=history,
                 user_content=content,
+                summary_text=summary_text,
+                summary_through_message_id=summary_through_message_id,
             )
 
         await self._convs.touch_last_message_at(conversation_id)
+
+        # 长对话摘要：本轮结束时检查是否把较早历史压缩成摘要（不足阈值时不触发、不额外开销）
+        await self._maybe_summarize(conversation_id)
+
         project = await self._projects.get_current_brief(user_id, conversation_id)
         return user_message, assistant_message, project
 
@@ -126,6 +146,8 @@ class ConversationService:
         conversation_id: str,
         history: list[dict[str, str]],
         user_content: str,
+        summary_text: str = "",
+        summary_through_message_id: str | None = None,
     ) -> None:
         """执行搜索、保存来源引用，并把检索结果回流给模型二次生成最终回复。
 
@@ -217,6 +239,8 @@ class ConversationService:
                 history,
                 user_content,
                 search_results_text,
+                summary_text=summary_text,
+                summary_through_message_id=summary_through_message_id,
             )
             if final_reply:
                 assistant_message.content = final_reply
@@ -231,7 +255,10 @@ class ConversationService:
         return None
 
     async def _history(self, conversation_id: str) -> list[dict[str, str]]:
-        """构造发送给模型的历史消息（本轮之前的 user/assistant，按时间顺序）。"""
+        """构造发送给模型的历史消息（本轮之前的 user/assistant，按时间顺序）。
+
+        每个元素带 "id"，供 build_context 在存在摘要时按 summary_through_message_id 匹配压缩。
+        """
         rows = await self._convs.list_messages(conversation_id, 1000, None)
         out: list[dict[str, str]] = []
         for row in rows:
@@ -239,8 +266,50 @@ class ConversationService:
                 continue
             if row.content == "" or row.status not in ("completed", "failed"):
                 continue
-            out.append({"role": row.role, "content": row.content})
+            out.append({"id": row.id, "role": row.role, "content": row.content})
         return out
+
+    async def _maybe_summarize(self, conversation_id: str) -> None:
+        """当消息数超过阈值且仍有未摘要历史时，把较早的历史交给文本模型生成摘要并落库。
+
+        触发条件（缺一不可，any 不满足则直接返回，不做任何事）：
+        1. 当前 user/assistant 消息总数 > settings.history_summary_threshold；
+        2. 距上次摘要边界（summary_through_message_id）之后还有至少一条可摘要的新消息。
+        摘要生成失败（如 Provider 超时）静默跳过，不阻塞本轮聊天，下一轮再试。
+        """
+        messages = await self._convs.list_context_messages(conversation_id)
+        total = len(messages)
+        if total <= settings.history_summary_threshold:
+            return
+
+        ctx = await self._convs.get_context(conversation_id)
+        boundary_idx = -1
+        if ctx is not None and ctx.summary_through_message_id:
+            for i, m in enumerate(messages):
+                if m.id == ctx.summary_through_message_id:
+                    boundary_idx = i
+                    break
+
+        # 保留最近 threshold 条不摘要，把更早的压缩进摘要；target_idx 为最后一条纳入摘要的下标
+        target_idx = total - settings.history_summary_threshold - 1
+        if target_idx <= boundary_idx:
+            return  # 边界后无新增可摘要消息
+
+        to_summarize = [{"role": row.role, "content": row.content} for row in messages[boundary_idx + 1 : target_idx + 1]]
+        prev_summary = (ctx.summary_text if ctx is not None else "") or ""
+        summary = await self._agent.summarize_history(build_summary_prompt(to_summarize, prev_summary=prev_summary))
+        if not summary:
+            return  # 生成失败：静默跳过，不阻塞聊天
+
+        if ctx is None:
+            ctx = ConversationContext(conversation_id=conversation_id)
+        ctx.summary_text = summary
+        ctx.summary_through_message_id = messages[target_idx].id
+        ctx.summary_model = self._agent.provider_code
+        ctx.summary_prompt_version = "v1"
+        ctx.updated_at = now()
+        self._session.add(ctx)
+        await self._session.commit()
 
     async def list_conversations(self, user_id: str, status: str | None, limit: int, cursor: str | None):
         """返回 (page_rows, next_cursor)。page_rows 长度不超过 limit；next_cursor=None 表示已到末尾。"""

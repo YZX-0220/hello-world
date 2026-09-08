@@ -731,3 +731,20 @@ async def test_send_message_stream_search_event(client: httpx.AsyncClient, monke
     listed = (await client.get(f"/api/v1/conversations/{cid}/messages")).json()
     assistant = next(m for m in listed["items"] if m["role"] == "assistant")
     assert len(assistant["citations"]) >= 1
+
+
+async def test_sync_endpoint_idempotent_replay(client: httpx.AsyncClient) -> None:
+    """同步 POST /messages 幂等命中不应因元组解包而报错，且不重复落库。"""
+    await _register(client)
+    headers = _csrf_headers(client)
+    conv = await client.post("/api/v1/conversations", json={"title": "幂等回放"}, headers=headers)
+    cid = conv.json()["conversation"]["id"]
+    rid = str(uuid.uuid4())
+    payload = {"content": "雨夜古城门", "client_request_id": rid}
+    first = await client.post(f"/api/v1/conversations/{cid}/messages", json=payload, headers=headers)
+    assert first.status_code == 201
+    second = await client.post(f"/api/v1/conversations/{cid}/messages", json=payload, headers=headers)
+    assert second.status_code == 201
+    assert second.json()["run_id"] == first.json()["run_id"]
+    listed = (await client.get(f"/api/v1/conversations/{cid}/messages")).json()
+    assert len(listed["items"]) == 2  # 仅 user+assistant 各一条，未重复

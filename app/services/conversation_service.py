@@ -67,7 +67,7 @@ class ConversationService:
         ):
             pass
         if result.get("replayed"):
-            return result["user_message"], result["assistant_message"]
+            return result["user_message"], result["assistant_message"], None
         return result["user_message"], result["assistant_message"], result["project"]
 
     async def _iter_message_pipeline(

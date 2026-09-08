@@ -6,6 +6,7 @@
 import json
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import db_session, get_current_user, require_csrf
@@ -135,6 +136,39 @@ async def send_message(
         "assistant_message": await svc.message_view(assistant_message) if assistant_message else None,
         "project": _project_view(project, sp) if project else None,
     }
+
+
+def _sse_event(event: str, data: dict) -> str:
+    """SSE 编码：`event:` 一行 + `data:` 一行（JSON）+ 空行分隔，便于前端逐帧解析。"""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@router.post("/conversations/{conversation_id}/messages/stream")
+async def send_message_stream(
+    conversation_id: str,
+    payload: SendMessageRequest,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+):
+    """SSE 事件流式发送消息：逐步推送 run_started / text_delta / patch_applied / searched / run_completed。
+
+    落库与同步 POST /messages 完全一致（复用同一流水线，含幂等）。出错推 event: error，
+    返回流式响应 media_type=text/event-stream。
+    """
+    svc = ConversationService(session)
+
+    async def event_stream():
+        async for event_type, data in svc.stream_message_events(
+            user.id, conversation_id, payload.content, payload.client_request_id, payload.web_search_enabled
+        ):
+            yield _sse_event(event_type, data)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/conversations/{conversation_id}/project")

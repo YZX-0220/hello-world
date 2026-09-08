@@ -5,6 +5,7 @@ MVP 采用同步处理（发消息请求内等待模型返回并落库）。
 
 import hashlib
 import json
+import logging
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -22,6 +23,8 @@ from app.schemas.conversation import CitationView, MessageView
 from app.services.agent_service import AgentService
 from app.services.context_builder import build_summary_prompt
 from app.services.project_service import ProjectService
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationService:
@@ -48,19 +51,68 @@ class ConversationService:
     async def send_message(
         self, user_id: str, conversation_id: str, content: str, client_request_id: str, web_search_enabled: bool = False
     ):
-        """保存用户消息并运行 Agent，返回 (user_message, assistant_message, project)。"""
+        """保存用户消息并运行 Agent，返回 (user_message, assistant_message, project)。
+
+        幂等命中时返回既有用户消息 + 对应助手消息（历史契约）。实际执行委托给
+        _iter_message_pipeline，与流式端点复用同一条流水线，保证落库一致。
+        """
+        result: dict = {}
+        async for _event in self._iter_message_pipeline(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            content=content,
+            client_request_id=client_request_id,
+            web_search_enabled=web_search_enabled,
+            result=result,
+        ):
+            pass
+        if result.get("replayed"):
+            return result["user_message"], result["assistant_message"]
+        return result["user_message"], result["assistant_message"], result["project"]
+
+    async def _iter_message_pipeline(
+        self,
+        *,
+        user_id: str,
+        conversation_id: str,
+        content: str,
+        client_request_id: str,
+        web_search_enabled: bool,
+        result: dict,
+    ):
+        """逐步执行发送流水线，yield (event_type, payload)。
+
+        - 每条事件在对应产物可用后即刻产出，方便流式端逐段推送；
+        - result 字典在生成器结束时携带最终状态：user_message / assistant_message /
+          project / replayed，供同步端点换算返回值；
+        - 幂等命中直接回放既有结果，不重复创建用户消息 / AgentRun。
+        """
+        # ---- 权限与幂等前置 ----
         await self.get_or_404(user_id, conversation_id)
         fingerprint = self._fingerprint(content)
 
-        # 幂等：同一对话同一 client_request_id
         existing = await self._convs.get_message_by_client_request_id(conversation_id, client_request_id)
         if existing is not None:
             if existing.request_fingerprint != fingerprint:
                 raise AppError(IDEMPOTENCY_KEY_REUSED)
             # 幂等命中：返回既有用户消息、对应助手消息（若有）与当前方案
             assistant = await self._find_reply(existing)
-            return existing, assistant
+            result.update(user_message=existing, assistant_message=assistant, replayed=True)
+            yield (
+                "run_started",
+                {"conversation_id": conversation_id, "client_request_id": client_request_id, "replayed": True},
+            )
+            yield (
+                "run_completed",
+                {
+                    "user_message_id": existing.id,
+                    "assistant_message_id": assistant.id if assistant is not None else None,
+                    "replayed": True,
+                },
+            )
+            return
 
+        # ---- 新消息流程：创建用户消息 ----
         user_message = await self._convs.add_message(
             conversation_id,
             MessageRole.USER,
@@ -68,6 +120,11 @@ class ConversationService:
             client_request_id=client_request_id,
             request_fingerprint=fingerprint,
             status="completed",
+        )
+        result.update(user_message=user_message, assistant_message=None, replayed=False)
+        yield (
+            "run_started",
+            {"conversation_id": conversation_id, "client_request_id": client_request_id, "replayed": False},
         )
 
         # 构造历史（本轮之前的所有 user/assistant 消息）
@@ -96,10 +153,22 @@ class ConversationService:
             reply_to_message_id=user_message.id,
             status="completed",
         )
+        result["assistant_message"] = assistant_message
 
         # 把本轮 assistant 消息 id 关联回 AgentRun
         if agent_run_id is not None:
             await self._agent.bind_assistant_message(agent_run_id, assistant_message.id)
+
+        # 文本回复已生成（非逐 token 流式，一次性推全量回复）
+        yield (
+            "text_delta",
+            {
+                "content": output.reply,
+                "user_message_id": user_message.id,
+                "assistant_message_id": assistant_message.id,
+                "agent_run_id": agent_run_id,
+            },
+        )
 
         # 若本轮修改了方案字段，则提交新版本
         patch = output.state_patch.model_dump(exclude_unset=True)
@@ -112,11 +181,13 @@ class ConversationService:
                 source_message_id=assistant_message.id,
                 suggested_prompt=output.suggested_prompt,
             )
+            current_version = await self._projects.get_current_spec_version(user_id, conversation_id)
+            yield ("patch_applied", {"version": current_version})
 
         # 联网搜索：模型请求过、且用户开启联网 → 记录工具调用、执行搜索、保存引用，
         # 并把检索结果回流给模型二次生成最终回复（真正的 function-calling）。
         if web_search_enabled and output.search_requests:
-            await self._run_search(
+            citation_count = await self._run_search(
                 assistant_message,
                 output.search_requests,
                 agent_run_id,
@@ -127,6 +198,7 @@ class ConversationService:
                 summary_text=summary_text,
                 summary_through_message_id=summary_through_message_id,
             )
+            yield ("searched", {"citations": citation_count, "query_count": len(output.search_requests)})
 
         await self._convs.touch_last_message_at(conversation_id)
 
@@ -134,7 +206,43 @@ class ConversationService:
         await self._maybe_summarize(conversation_id)
 
         project = await self._projects.get_current_brief(user_id, conversation_id)
-        return user_message, assistant_message, project
+        result["project"] = project
+        final_version = await self._projects.get_current_spec_version(user_id, conversation_id)
+        yield (
+            "run_completed",
+            {
+                "user_message_id": user_message.id,
+                "assistant_message_id": assistant_message.id,
+                "agent_run_id": agent_run_id,
+                "project_version": final_version,
+                "content": assistant_message.content,
+                "project": project,
+            },
+        )
+
+    async def stream_message_events(
+        self, user_id: str, conversation_id: str, content: str, client_request_id: str, web_search_enabled: bool = False
+    ):
+        """事件流式发送消息：逐阶段 yield (event_type, payload)。
+
+        落库与 send_message 完全一致（复用同一流水线）。任何流水线错误在方法内部转成
+        ("error", payload) 事件，不向调用方抛异常，保证 SSE 流能干净结束。
+        """
+        try:
+            async for event in self._iter_message_pipeline(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                content=content,
+                client_request_id=client_request_id,
+                web_search_enabled=web_search_enabled,
+                result={},
+            ):
+                yield event
+        except AppError as exc:
+            yield ("error", {"code": exc.code, "message": exc.message, "details": exc.details})
+        except Exception:
+            logger.exception("发送消息流式事件时发生未预期错误")
+            yield ("error", {"code": "INTERNAL_ERROR", "message": "服务器内部错误"})
 
     async def _run_search(
         self,
@@ -148,8 +256,10 @@ class ConversationService:
         user_content: str,
         summary_text: str = "",
         summary_through_message_id: str | None = None,
-    ) -> None:
+    ) -> int:
         """执行搜索、保存来源引用，并把检索结果回流给模型二次生成最终回复。
+
+        返回本轮结构化落库的引用总数目（用于 SSE searched 事件）。同步端点忽略该返回值。
 
         每个查询记录一条 ToolExecution（web_search），并把该轮每个来源 MessageCitation
         的 tool_execution_id 指向对应工具调用。单条搜索失败不阻断回复，仅标记工具失败并跳过。
@@ -223,7 +333,7 @@ class ConversationService:
                 )
                 position += 1
         if not tools and not citations:
-            return
+            return 0
         if tools:
             self._session.add_all(tools)
         if citations:
@@ -245,6 +355,7 @@ class ConversationService:
             if final_reply:
                 assistant_message.content = final_reply
                 await self._session.commit()
+        return len(citations)
 
     async def _find_reply(self, user_message: Message) -> Message | None:
         """找到某条用户消息对应的助手回复。"""

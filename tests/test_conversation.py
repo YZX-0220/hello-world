@@ -1,5 +1,6 @@
 """对话与消息链路测试：注册 → 建对话 → 发消息（Fake 模型）→ 读消息/项目。"""
 
+import json
 import uuid
 from datetime import timedelta
 
@@ -28,6 +29,39 @@ async def _register(client: httpx.AsyncClient) -> None:
 
 def _csrf_headers(client: httpx.AsyncClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies.get("hw_csrf", ""), "Origin": ORIGIN}
+
+
+def _parse_sse(text: str) -> list[dict[str, str]]:
+    """把 SSE 响应体解析为 [{event, data}, ...]，data 为 JSON 原文（供下断言 json.loads）。"""
+    events: list[dict[str, str]] = []
+    for block in text.split("\n\n"):
+        block = block.strip()
+        if not block:
+            continue
+        item: dict[str, str] = {}
+        for line in block.split("\n"):
+            key, sep, value = line.partition(":")
+            if not sep:
+                continue
+            value = value[1:] if value.startswith(" ") else value
+            if key == "event":
+                item["event"] = value
+            elif key == "data":
+                item["data"] = value
+        if item:
+            events.append(item)
+    return events
+
+
+async def _read_sse(client: httpx.AsyncClient, method: str, url: str, json: dict, headers: dict) -> str:
+    """用 httpx stream 方式读取 SSE 响应体并返回全文。"""
+    body = b""
+    async with client.stream(method, url, json=json, headers=headers) as resp:
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        async for chunk in resp.aiter_bytes():
+            body += chunk
+    return body.decode("utf-8")
 
 
 async def test_create_conversation_and_send_message(client: httpx.AsyncClient) -> None:
@@ -570,3 +604,130 @@ async def test_long_conversation_generates_summary_and_compresses(
 
     # 触发过摘要调用（第 1 轮 + 第 2 轮结尾各一次 structured=False）
     assert any(not structured for structured, _msgs in provider.received)
+
+
+async def test_send_message_stream_events_and_persist(client: httpx.AsyncClient) -> None:
+    """SSE 事件流式发消息：收到 run_started / run_completed（及中间阶段事件），data 均合法 JSON，
+    且随后 GET /messages 能查到 user + assistant 各 1 条（落库与同步端点一致）。"""
+    await _register(client)
+    headers = _csrf_headers(client)
+    conv = await client.post("/api/v1/conversations", json={"title": "SSE 流式测试"}, headers=headers)
+    cid = conv.json()["conversation"]["id"]
+
+    text = await _read_sse(
+        client,
+        "POST",
+        f"/api/v1/conversations/{cid}/messages/stream",
+        json={"content": "拍摄雨夜中的古城门，电影感", "client_request_id": str(uuid.uuid4())},
+        headers=headers,
+    )
+    events = _parse_sse(text)
+    assert events, "SSE 流应至少产出一条事件"
+
+    # 事件序列：run_started 在最前，run_completed 在最后，且含 text_delta / patch_applied
+    types = [e["event"] for e in events]
+    assert types[0] == "run_started", types
+    assert types[-1] == "run_completed", types
+    assert "text_delta" in types
+    assert "patch_applied" in types  # 默认 fake 模型返回 subject state_patch，触发方案更新
+
+    # 每条 data 都是合法 JSON
+    for e in events:
+        parsed = json.loads(e["data"])
+        assert isinstance(parsed, dict)
+
+    # run_completed 携带 user/assistant 两 id
+    completed = json.loads(events[-1]["data"])
+    assert completed["user_message_id"]
+    assert completed["assistant_message_id"]
+
+    # 落库一致：随后列表能查到 user + assistant 各 1 条
+    listed = (await client.get(f"/api/v1/conversations/{cid}/messages")).json()
+    roles = [m["role"] for m in listed["items"]]
+    assert roles == ["user", "assistant"]
+
+
+async def test_send_message_stream_idempotent_replay(client: httpx.AsyncClient) -> None:
+    """同一 client_request_id 再次发起流式幂等：不重复创建消息/AgentRun，回放已有结果。"""
+    await _register(client)
+    headers = _csrf_headers(client)
+    conv = await client.post("/api/v1/conversations", json={"title": "SSE 幂等"}, headers=headers)
+    cid = conv.json()["conversation"]["id"]
+    rid = str(uuid.uuid4())
+    payload = {"content": "主体是雨夜古城门", "client_request_id": rid}
+
+    first = await _read_sse(client, "POST", f"/api/v1/conversations/{cid}/messages/stream", json=payload, headers=headers)
+    first_types = [e["event"] for e in _parse_sse(first)]
+    assert first_types[-1] == "run_completed"
+
+    second = await _read_sse(client, "POST", f"/api/v1/conversations/{cid}/messages/stream", json=payload, headers=headers)
+    second_events = _parse_sse(second)
+    second_types = [e["event"] for e in second_events]
+    assert second_types[0] == "run_started"
+    assert second_types[-1] == "run_completed"
+    # 幂等回放：run_completed 标记 replayed=True 且重复出现不新增消息
+    replayed = json.loads(second_events[-1]["data"])
+    assert replayed["replayed"] is True
+
+    # 仍只有 user + assistant 各 1 条（未因重复请求而重复落库）
+    listed = (await client.get(f"/api/v1/conversations/{cid}/messages")).json()
+    assert [m["role"] for m in listed["items"]] == ["user", "assistant"]
+
+
+async def test_send_message_stream_search_event(client: httpx.AsyncClient, monkeypatch) -> None:
+    """web_search_enabled=True 且模型请求了 search_requests：流中产出 searched 事件（带引用数），
+    且检索结果回流给模型二次生成最终回复（事件序列正确、端到端可用）。"""
+    from app.providers.text.base import TextCapabilities, TextProvider, TextResult
+    from app.services import agent_service as ag
+
+    class SearchStreamProvider(TextProvider):
+        code = "searchstream"
+
+        @property
+        def capabilities(self) -> TextCapabilities:
+            return TextCapabilities(supports_structured_output=True)
+
+        async def generate(self, messages, *, structured: bool = False) -> TextResult:
+            if any("【检索结果】" in (m.get("content") or "") for m in messages):
+                return TextResult(
+                    reply="根据检索结果：故宫夜景很适合做成电影感宣传片，参考资料：https://example.com/reference/1",
+                    model="fake-model",
+                    structured=None,
+                )
+            return TextResult(
+                reply="好的，我核实一下资料并附上来源。",
+                structured={"reply": "好的，我核实一下资料并附上来源。", "state_patch": {}, "search_requests": ["故宫 夜景 宣传片"]},
+                model="fake-model",
+            )
+
+    monkeypatch.setattr(ag, "get_text_provider", lambda: SearchStreamProvider())
+
+    await _register(client)
+    headers = _csrf_headers(client)
+    conv = await client.post("/api/v1/conversations", json={"title": "SSE 搜索"}, headers=headers)
+    cid = conv.json()["conversation"]["id"]
+
+    text = await _read_sse(
+        client,
+        "POST",
+        f"/api/v1/conversations/{cid}/messages/stream",
+        json={"content": "帮我查一下故宫夜景宣传片的资料", "client_request_id": str(uuid.uuid4()), "web_search_enabled": True},
+        headers=headers,
+    )
+    events = _parse_sse(text)
+    types = [e["event"] for e in events]
+    assert types[0] == "run_started"
+    assert types[-1] == "run_completed"
+    assert "searched" in types
+
+    searched = json.loads(next(e["data"] for e in events if e["event"] == "searched"))
+    assert searched["citations"] >= 1  # fake_search 每条查询至少返回 1 条引用
+
+    # 最终回复是模型基于检索结果二次生成的（含"根据检索结果"与来源 URL）
+    completed = json.loads(events[-1]["data"])
+    assert "根据检索结果" in completed["content"]
+
+    # 落库：引用结构化返回
+    listed = (await client.get(f"/api/v1/conversations/{cid}/messages")).json()
+    assistant = next(m for m in listed["items"] if m["role"] == "assistant")
+    assert len(assistant["citations"]) >= 1

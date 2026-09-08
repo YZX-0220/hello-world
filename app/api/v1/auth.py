@@ -33,7 +33,7 @@ def _set_auth_cookies(response: Response, token: str) -> None:
         samesite=settings.cookie_samesite,
         secure=settings.cookie_secure,
         max_age=settings.session_ttl_seconds,
-        path="/api",
+        path="/",
     )
     response.set_cookie(
         key=settings.csrf_cookie_name,
@@ -42,14 +42,14 @@ def _set_auth_cookies(response: Response, token: str) -> None:
         samesite=settings.cookie_samesite,
         secure=settings.cookie_secure,
         max_age=settings.session_ttl_seconds,
-        path="/api",
+        path="/",
     )
 
 
 def _clear_auth_cookies(response: Response) -> None:
     """登出时清除两个 Cookie。"""
-    response.delete_cookie(settings.session_cookie_name, path="/api")
-    response.delete_cookie(settings.csrf_cookie_name, path="/api")
+    response.delete_cookie(settings.session_cookie_name, path="/")
+    response.delete_cookie(settings.csrf_cookie_name, path="/")
 
 
 @router.post("/auth/email-codes", status_code=202)

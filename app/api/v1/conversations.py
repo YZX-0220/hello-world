@@ -73,10 +73,11 @@ async def list_conversations(
     session: AsyncSession = Depends(db_session),
     limit: int = Query(default=_LIMIT_DEFAULT, ge=1, le=_LIMIT_MAX),
     status: str | None = Query(default=None),
+    cursor: str | None = Query(default=None),
 ):
     svc = ConversationService(session)
-    rows = await svc.list_conversations(user.id, status, limit, 0)
-    return Page(items=[ConversationView.model_validate(r) for r in rows], next_cursor=None)
+    rows, next_cursor = await svc.list_conversations(user.id, status, limit, cursor)
+    return Page(items=[ConversationView.model_validate(r) for r in rows], next_cursor=next_cursor)
 
 
 @router.get("/conversations/{conversation_id}")
@@ -106,10 +107,11 @@ async def list_messages(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(db_session),
     limit: int = Query(default=_LIMIT_DEFAULT, ge=1, le=_LIMIT_MAX),
+    cursor: str | None = Query(default=None),
 ):
     svc = ConversationService(session)
-    rows = await svc.list_messages(user.id, conversation_id, limit, 0)
-    return Page(items=[await svc.message_view(r) for r in rows], next_cursor=None)
+    rows, next_cursor = await svc.list_messages(user.id, conversation_id, limit, cursor)
+    return Page(items=[await svc.message_view(r) for r in rows], next_cursor=next_cursor)
 
 
 @router.post("/conversations/{conversation_id}/messages", status_code=201)

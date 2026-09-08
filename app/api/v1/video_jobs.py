@@ -45,11 +45,12 @@ async def list_video_jobs(
     conversation_id: str | None = Query(default=None),
     status: str | None = Query(default=None),
     download_status: str | None = Query(default=None),
+    cursor: str | None = Query(default=None),
 ):
     svc = _service(session, redis)
-    rows = await svc.list_jobs(user.id, conversation_id, status, download_status)
-    items = [await svc.to_view(j) for j in rows[:limit]]
-    return Page(items=items, next_cursor=None)
+    rows, next_cursor = await svc.list_jobs(user.id, conversation_id, status, download_status, limit, cursor)
+    items = [await svc.to_view(j) for j in rows]
+    return Page(items=items, next_cursor=next_cursor)
 
 
 @router.get("/video-jobs/{job_id}", response_model=VideoJobView)

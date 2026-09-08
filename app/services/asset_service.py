@@ -14,6 +14,7 @@ from PIL import Image, UnidentifiedImageError
 from sqlmodel import select
 
 from app.core.config import settings
+from app.core.cursor import encode_cursor
 from app.core.errors import (
     ASSET_CONTENT_INVALID,
     ASSET_IN_USE,
@@ -160,9 +161,23 @@ class AssetService:
         row = await self._repo.add(asset)
         return self._to_view(row)
 
-    async def list(self, user_id: str, conversation_id: str | None, kind: str | None, purpose: str | None) -> list[AssetView]:
-        rows = await self._repo.list_for_user(user_id, conversation_id, kind, purpose)
-        return [self._to_view(r) for r in rows]
+    async def list(
+        self,
+        user_id: str,
+        conversation_id: str | None = None,
+        kind: str | None = None,
+        purpose: str | None = None,
+        status: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> tuple[list[AssetView], str | None]:
+        """按 (created_at desc, id desc) 游标分页，返回 (views, next_cursor)。"""
+        rows = await self._repo.list_for_user(user_id, conversation_id, kind, purpose, status, limit, cursor)
+        has_more = len(rows) > limit if limit else False
+        page = rows[:limit] if limit else rows
+        views = [self._to_view(r) for r in page]
+        next_cursor = encode_cursor(page[-1].created_at, page[-1].id) if page and has_more else None
+        return views, next_cursor
 
     async def get(self, user_id: str, asset_id: str) -> AssetView:
         asset = await self._repo.get_for_user(asset_id, user_id)

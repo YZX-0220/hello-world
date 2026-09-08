@@ -49,10 +49,11 @@ async def list_video_api_configs(
     limit: int = Query(default=20, ge=1, le=100),
     status: str | None = Query(default=None),
     protocol_code: str | None = Query(default=None, max_length=64),
+    cursor: str | None = Query(default=None),
 ):
-    """配置列表。游标分页待后补，此处简化返回全部符合条件的项。"""
-    rows = await VideoApiConfigService(session).list(user.id, protocol_code, status)
-    return Page(items=rows, next_cursor=None)
+    """配置列表（按 created_at,id desc 游标分页）；next_cursor 为空表示已到末尾。"""
+    views, next_cursor = await VideoApiConfigService(session).list(user.id, protocol_code, status, limit, cursor)
+    return Page(items=views, next_cursor=next_cursor)
 
 
 @router.get("/video-api-configs/{config_id}", response_model=VideoApiConfigView)

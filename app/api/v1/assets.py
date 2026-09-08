@@ -41,9 +41,10 @@ async def list_assets(
     kind: str | None = Query(default=None, max_length=20),
     purpose: str | None = Query(default=None, max_length=30),
     status: str | None = Query(default=None, max_length=20),
+    cursor: str | None = Query(default=None),
 ):
-    rows = await AssetService(session).list(user.id, conversation_id, kind, purpose)
-    return Page(items=rows[:limit], next_cursor=None)
+    views, next_cursor = await AssetService(session).list(user.id, conversation_id, kind, purpose, status, limit, cursor)
+    return Page(items=views, next_cursor=next_cursor)
 
 
 @router.get("/assets/{asset_id}", response_model=AssetView)

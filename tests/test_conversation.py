@@ -1,9 +1,16 @@
 """对话与消息链路测试：注册 → 建对话 → 发消息（Fake 模型）→ 读消息/项目。"""
 
 import uuid
+from datetime import timedelta
 
 import httpx
+from app.core.enums import MessageRole, MessageStatus
+from app.core.ids import new_id
+from app.core.time import now
+from app.db.models.conversation import Message
 from app.providers.email.fake import fake_instance
+from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 EMAIL = "chat@test.com"
 PASSWORD = "password123"
@@ -289,3 +296,118 @@ async def test_search_refine_failure_keeps_original_reply(client: httpx.AsyncCli
     assistant = next(m for m in listed["items"] if m["role"] == "assistant")
     assert len(assistant["citations"]) >= 1
     assert assistant["citations"][0]["url"].startswith("https://example.com")
+
+
+async def _insert_messages(db_engine, conversation_id: str, count: int) -> list[str]:
+    """直接向库里插入 count 条 created_at 严格递增的消息（绕过 Agent，便于造超过 limit 条数）。"""
+    sf = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    base = now()
+    ids: list[str] = []
+    async with sf() as session:
+        for i in range(count):
+            msg_id = new_id()
+            ids.append(msg_id)
+            session.add(
+                Message(
+                    id=msg_id,
+                    conversation_id=conversation_id,
+                    role=MessageRole.USER.value,
+                    content=f"paging-{i}",
+                    status=MessageStatus.COMPLETED.value,
+                    client_request_id=f"paging-{i}-{uuid.uuid4().hex[:8]}",
+                    created_at=base + timedelta(seconds=i),
+                )
+            )
+        await session.commit()
+    return ids
+
+
+async def test_messages_cursor_pagination_no_dup_no_missing(client, db_engine) -> None:
+    """消息列表（created_at asc, id asc）：造 7 条 > limit=3，连续翻页取全。
+
+    断言：每页不超过 limit；非末页 next_cursor 非空、末页为空；拼接后顺序与全量一致、
+    无重复、无遗漏；无 cursor 的第 1 页返回最前 limit 条。
+    """
+    await _register(client)
+    headers = _csrf_headers(client)
+    conv = await client.post("/api/v1/conversations", json={"title": "分页测试"}, headers=headers)
+    cid = conv.json()["conversation"]["id"]
+
+    expected_ids = await _insert_messages(db_engine, cid, 7)
+
+    # 规范顺序（limit 足够大时即按 created_at asc, id asc）
+    all_resp = await client.get(f"/api/v1/conversations/{cid}/messages", params={"limit": 100})
+    assert all_resp.status_code == 200
+    canonical_ids = [m["id"] for m in all_resp.json()["items"]]
+    assert canonical_ids == expected_ids  # 插入即按 createdAt 递增
+
+    # 第 1 页无 cursor：返回最前 limit 条，且 next_cursor 非空
+    limit = 3
+    first = (await client.get(f"/api/v1/conversations/{cid}/messages", params={"limit": limit})).json()
+    assert len(first["items"]) == limit
+    assert first["items"][0]["id"] == canonical_ids[0]
+    assert first["items"][1]["id"] == canonical_ids[1]
+    assert first["items"][2]["id"] == canonical_ids[2]
+    assert first["next_cursor"] is not None
+
+    # 连续翻页取全
+    collected: list[str] = []
+    cursor: str | None = None
+    page = 0
+    while True:
+        params = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        resp = (await client.get(f"/api/v1/conversations/{cid}/messages", params=params)).json()
+        page += 1
+        assert len(resp["items"]) <= limit, f"第 {page} 页超出 limit"
+        collected.extend(m["id"] for m in resp["items"])
+        if resp["next_cursor"] is None:
+            break
+        cursor = resp["next_cursor"]
+        assert cursor  # 非末页时 next_cursor 必须非空
+
+    # 不重、不漏、顺序与规范顺序一致
+    assert len(collected) == 7
+    assert len(set(collected)) == 7
+    assert collected == canonical_ids
+
+
+async def test_conversations_cursor_pagination_no_dup_no_missing(client) -> None:
+    """对话列表（updated_at desc, id desc）：造 N 条，连续翻页取全。
+
+    说明：对话排序按 updated_at desc，同 updated_at 时按 id desc 兜底，因此这里不断言具体
+    顺序，只断言不重、不漏、页大小与 next_cursor 语义正确，且拼接顺序与全量规范顺序一致。
+    """
+    await _register(client)
+    headers = _csrf_headers(client)
+    N = 5
+    created_ids: list[str] = []
+    for i in range(N):
+        c = await client.post("/api/v1/conversations", json={"title": f"会话{i}"}, headers=headers)
+        assert c.status_code == 201
+        created_ids.append(c.json()["conversation"]["id"])
+
+    all_resp = (await client.get("/api/v1/conversations", params={"limit": 100})).json()
+    canonical_ids = [x["id"] for x in all_resp["items"]]
+    assert len(canonical_ids) == N
+
+    collected: list[str] = []
+    cursor: str | None = None
+    limit = 2
+    while True:
+        params = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        resp = (await client.get("/api/v1/conversations", params=params)).json()
+        assert len(resp["items"]) <= limit
+        collected.extend(x["id"] for x in resp["items"])
+        if resp["next_cursor"] is None:
+            break
+        cursor = resp["next_cursor"]
+        assert cursor
+
+    assert len(collected) == N
+    assert len(set(collected)) == N
+    assert set(collected) == set(created_ids)
+    assert collected == canonical_ids

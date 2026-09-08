@@ -4,9 +4,11 @@ config 表只存「配置身份」，实际协议/地址/凭据/能力在 revisi
 视频任务固定引用创建时的 revision，用户后续修改不破坏旧任务。
 """
 
+from sqlalchemy import and_, or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.cursor import decode_cursor_pair, parse_ts
 from app.db.models.video_api_config import VideoApiConfig, VideoApiConfigRevision
 
 
@@ -22,14 +24,37 @@ class VideoApiConfigRepository:
         result = await self._session.exec(stmt)
         return result.first()
 
-    async def list_for_user(self, user_id: str, status: str | None = None) -> list[VideoApiConfig]:
-        """返回某用户未删除的配置列表。protocol_code 过滤由 Service 层按最新 revision 处理。"""
+    async def list_for_user(
+        self,
+        user_id: str,
+        status: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> list[VideoApiConfig]:
+        """按 (created_at desc, id desc) 游标分页，返回不超过 limit 条。
+
+        注意这里用 limit 而非 limit+1：Service 层会先拉取这批配置、再按最新 revision
+        的 protocol_code 过滤，所以"是否还有下一页"由 Service 层的 pagination 循环判定。
+        protocol_code 过滤由 Service 层按最新 revision 处理。
+        """
         stmt = select(VideoApiConfig).where(
             VideoApiConfig.user_id == user_id,
             VideoApiConfig.status != "deleted",
         )
         if status is not None and status != "deleted":
             stmt = stmt.where(VideoApiConfig.status == status)
+        if cursor is not None:
+            t, cid = decode_cursor_pair(cursor)
+            ts = parse_ts(t)
+            stmt = stmt.where(
+                or_(
+                    VideoApiConfig.created_at < ts,  # type: ignore[arg-type]
+                    and_(VideoApiConfig.created_at == ts, VideoApiConfig.id < cid),  # type: ignore[arg-type]
+                )
+            )
+        stmt = stmt.order_by(VideoApiConfig.created_at.desc(), VideoApiConfig.id.desc())  # type: ignore[attr-defined]
+        if limit is not None:
+            stmt = stmt.limit(limit)
         result = await self._session.exec(stmt)
         return list(result.all())
 

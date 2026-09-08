@@ -9,6 +9,7 @@ import json
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import settings
+from app.core.cursor import encode_cursor
 from app.core.enums import MessageRole, ToolExecutionStatus, VersionSource
 from app.core.errors import CONVERSATION_NOT_FOUND, IDEMPOTENCY_KEY_REUSED, AppError
 from app.core.time import now
@@ -223,7 +224,7 @@ class ConversationService:
 
     async def _find_reply(self, user_message: Message) -> Message | None:
         """找到某条用户消息对应的助手回复。"""
-        rows = await self._convs.list_messages(user_message.conversation_id, 1000, 0)
+        rows = await self._convs.list_messages(user_message.conversation_id, 1000, None)
         for row in rows:
             if row.role == MessageRole.ASSISTANT.value and row.reply_to_message_id == user_message.id:
                 return row
@@ -231,7 +232,7 @@ class ConversationService:
 
     async def _history(self, conversation_id: str) -> list[dict[str, str]]:
         """构造发送给模型的历史消息（本轮之前的 user/assistant，按时间顺序）。"""
-        rows = await self._convs.list_messages(conversation_id, 1000, 0)
+        rows = await self._convs.list_messages(conversation_id, 1000, None)
         out: list[dict[str, str]] = []
         for row in rows:
             if row.role not in (MessageRole.USER.value, MessageRole.ASSISTANT.value):
@@ -241,12 +242,21 @@ class ConversationService:
             out.append({"role": row.role, "content": row.content})
         return out
 
-    async def list_conversations(self, user_id: str, status: str | None, limit: int, skip: int):
-        return await self._convs.list_conversations(user_id, status, limit, skip)
+    async def list_conversations(self, user_id: str, status: str | None, limit: int, cursor: str | None):
+        """返回 (page_rows, next_cursor)。page_rows 长度不超过 limit；next_cursor=None 表示已到末尾。"""
+        rows = await self._convs.list_conversations(user_id, status, limit, cursor)
+        has_more = len(rows) > limit
+        page = rows[:limit]
+        next_cursor = encode_cursor(page[-1].updated_at, page[-1].id) if page and has_more else None
+        return page, next_cursor
 
-    async def list_messages(self, user_id: str, conversation_id: str, limit: int, skip: int):
+    async def list_messages(self, user_id: str, conversation_id: str, limit: int, cursor: str | None):
         await self.get_or_404(user_id, conversation_id)
-        return await self._convs.list_messages(conversation_id, limit, skip)
+        rows = await self._convs.list_messages(conversation_id, limit, cursor)
+        has_more = len(rows) > limit
+        page = rows[:limit]
+        next_cursor = encode_cursor(page[-1].created_at, page[-1].id) if page and has_more else None
+        return page, next_cursor
 
     async def message_view(self, message: Message) -> MessageView:
         """组装消息视图，并填充真实结构化引用列表（来自 message_citations 表）。"""

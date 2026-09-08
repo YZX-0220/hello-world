@@ -1,8 +1,10 @@
 """视频任务三张表仓储。"""
 
+from sqlalchemy import and_, or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.cursor import decode_cursor_pair, parse_ts
 from app.db.models.video_job import VideoJob, VideoJobAsset, VideoJobEvent
 
 
@@ -26,7 +28,10 @@ class VideoJobRepository:
         conversation_id: str | None = None,
         status: str | None = None,
         download_status: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
     ) -> list[VideoJob]:
+        """按 (created_at desc, id desc) 游标分页；返回不超过 limit+1 条。"""
         stmt = select(VideoJob).where(VideoJob.user_id == user_id)
         if conversation_id is not None:
             stmt = stmt.where(VideoJob.conversation_id == conversation_id)
@@ -34,7 +39,18 @@ class VideoJobRepository:
             stmt = stmt.where(VideoJob.status == status)
         if download_status is not None:
             stmt = stmt.where(VideoJob.download_status == download_status)
-        stmt = stmt.order_by(VideoJob.created_at.desc())  # type: ignore[attr-defined]
+        if cursor is not None:
+            t, cid = decode_cursor_pair(cursor)
+            ts = parse_ts(t)
+            stmt = stmt.where(
+                or_(
+                    VideoJob.created_at < ts,  # type: ignore[arg-type]
+                    and_(VideoJob.created_at == ts, VideoJob.id < cid),  # type: ignore[arg-type]
+                )
+            )
+        stmt = stmt.order_by(VideoJob.created_at.desc(), VideoJob.id.desc())  # type: ignore[attr-defined]
+        if limit is not None:
+            stmt = stmt.limit(limit + 1)
         result = await self._session.exec(stmt)
         return list(result.all())
 

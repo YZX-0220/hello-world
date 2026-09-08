@@ -3,10 +3,12 @@
 所有查询同时带用户条件（跨用户访问返回不存在）。
 """
 
+from sqlalchemy import and_, or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.constants import CONVERSATION_TITLE_DEFAULT
+from app.core.cursor import decode_cursor_pair, parse_ts
 from app.core.enums import ConversationStatus, MessageRole, VersionSource
 from app.core.time import now
 from app.db.models.agent import MessageCitation
@@ -53,13 +55,27 @@ class ConversationRepository:
         result = await self._session.exec(stmt)
         return result.first()
 
-    async def list_conversations(self, user_id: str, status: str | None, limit: int, skip: int) -> list[Conversation]:
+    async def list_conversations(self, user_id: str, status: str | None, limit: int, cursor: str | None) -> list[Conversation]:
+        """按 (updated_at desc, id desc) 游标分页。
+
+        返回不超过 limit+1 条：多出的 1 条用于判定是否还有下一页。
+        游标为上一页最后一条的 (updated_at, id) 编码；无游标返回第一页。
+        """
         stmt = select(Conversation).where(Conversation.user_id == user_id)
         if status:
             stmt = stmt.where(Conversation.status == status)
         else:
             stmt = stmt.where(Conversation.status != ConversationStatus.DELETED.value)
-        stmt = stmt.order_by(Conversation.updated_at.desc(), Conversation.id.desc()).limit(limit).offset(skip)  # type: ignore[attr-defined]
+        if cursor is not None:
+            t, cid = decode_cursor_pair(cursor)
+            ts = parse_ts(t)
+            stmt = stmt.where(
+                or_(
+                    Conversation.updated_at < ts,  # type: ignore[arg-type]
+                    and_(Conversation.updated_at == ts, Conversation.id < cid),  # type: ignore[arg-type]
+                )
+            )
+        stmt = stmt.order_by(Conversation.updated_at.desc(), Conversation.id.desc()).limit(limit + 1)  # type: ignore[attr-defined]
         result = await self._session.exec(stmt)
         return list(result.all())
 
@@ -108,13 +124,21 @@ class ConversationRepository:
         result = await self._session.exec(stmt)
         return result.first()
 
-    async def list_messages(self, conversation_id: str, limit: int, skip: int) -> list[Message]:
+    async def list_messages(self, conversation_id: str, limit: int, cursor: str | None) -> list[Message]:
+        """按 (created_at asc, id asc) 游标分页。游标为上一页最后一条的 (created_at, id)。"""
+        stmt = select(Message).where(Message.conversation_id == conversation_id)
+        if cursor is not None:
+            t, cid = decode_cursor_pair(cursor)
+            ts = parse_ts(t)
+            stmt = stmt.where(
+                or_(
+                    Message.created_at > ts,  # type: ignore[arg-type]
+                    and_(Message.created_at == ts, Message.id > cid),  # type: ignore[arg-type]
+                )
+            )
         stmt = (
-            select(Message)
-            .where(Message.conversation_id == conversation_id)
-            .order_by(Message.created_at.asc(), Message.id.asc())  # type: ignore[attr-defined]
-            .limit(limit)
-            .offset(skip)
+            stmt.order_by(Message.created_at.asc(), Message.id.asc())  # type: ignore[attr-defined]
+            .limit(limit + 1)
         )
         result = await self._session.exec(stmt)
         return list(result.all())

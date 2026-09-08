@@ -8,9 +8,11 @@
 """
 
 import json
+from datetime import datetime
 from typing import Any
 
 from app.core.config import settings
+from app.core.cursor import encode_cursor
 from app.core.errors import (
     VIDEO_API_CONFIG_NOT_FOUND,
     VIDEO_CONFIG_INVALID,
@@ -34,6 +36,10 @@ from app.schemas.video_api_config import (
 )
 from app.services.video_registry_service import ProtocolReferences
 from app.services.video_verification_service import _build_detection, _validate_constraints
+
+# 类内定义了名为 list 的方法，会遮蔽 builtin list；这里在模块级固化类型别名，避免注解里
+# `list[...]` 被解析成 `VideoApiConfigService.list[...]`。
+_ConfigViews = list[VideoApiConfigView]
 
 
 def build_key_hint(auth: dict[str, str]) -> dict[str, str]:
@@ -109,15 +115,69 @@ class VideoApiConfigService:
         revision = await self._current_revision(config)
         return self._to_view(config, revision)
 
-    async def list(self, user_id: str, protocol_code: str | None = None, status: str | None = None) -> list[VideoApiConfigView]:
-        configs = await self._repo.list_for_user(user_id, status)
+    async def list(
+        self,
+        user_id: str,
+        protocol_code: str | None = None,
+        status: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> tuple[_ConfigViews, str | None]:
+        """按 (created_at desc, id desc) 游标分页，并在 Service 层按最新 revision 过滤 protocol_code。
+
+        因为 protocol_code 过滤发生在 Python（依赖每条配置的最新 revision），仓库层无法直接
+        用它下推 WHERE，所以这里在仓库分页的基础之上再做一次"凑满 limit 条匹配项"循环：
+        每轮拉取 limit 条候选配置，剔除 protocol_code 不匹配的，直到凑满 limit 或候选耗尽。
+        limit 为 None 时保持旧行为——返回全部匹配配置（不设 next_cursor）。
+        """
+        if limit is None:
+            configs = await self._repo.list_for_user(user_id, status)
+            views: list[VideoApiConfigView] = []
+            for config in configs:
+                revision = await self._current_revision(config)
+                if protocol_code is not None and revision.protocol_code != protocol_code:
+                    continue
+                views.append(self._to_view(config, revision))
+            return views, None
+
+        return await self._matched_views(user_id, protocol_code, status, limit, cursor)
+
+    async def _matched_views(
+        self,
+        user_id: str,
+        protocol_code: str | None,
+        status: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> tuple[_ConfigViews, str | None]:
+        """迭代库内分页，凑满 limit 条匹配 protocol_code 的配置视图。
+
+        返回 (views, next_cursor)。next_cursor 只在匹配项取满时才有值；候选耗尽则 None。
+        """
         views: list[VideoApiConfigView] = []
-        for config in configs:
-            revision = await self._current_revision(config)
-            if protocol_code is not None and revision.protocol_code != protocol_code:
-                continue
-            views.append(self._to_view(config, revision))
-        return views
+        keys: list[tuple[datetime, str]] = []
+        page_cursor = cursor
+        while len(views) < limit:
+            configs = await self._repo.list_for_user(user_id, status, limit=limit, cursor=page_cursor)
+            if not configs:
+                break
+            for config in configs:
+                revision = await self._current_revision(config)
+                if protocol_code is not None and revision.protocol_code != protocol_code:
+                    continue
+                views.append(self._to_view(config, revision))
+                keys.append((config.created_at, config.id))
+                if len(views) == limit:
+                    break
+            if len(views) >= limit:
+                break
+            if len(configs) < limit:
+                break  # 仓库层候选已耗尽
+            page_cursor = encode_cursor(configs[-1].created_at, configs[-1].id)
+        if len(views) == limit:
+            t, cid = keys[-1]
+            return views, encode_cursor(t, cid)
+        return views, None
 
     async def patch(self, user_id: str, config_id: str, payload: VideoApiConfigPatchRequest, resolver: Any = None) -> VideoApiConfigView:
         config = await self._require_config(user_id, config_id)

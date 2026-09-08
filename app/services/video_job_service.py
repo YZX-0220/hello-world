@@ -13,6 +13,7 @@ from typing import Any
 from sqlmodel import select
 
 from app.core.config import settings
+from app.core.cursor import encode_cursor
 from app.core.enums import DownloadStatus, JobEventType, VideoJobStatus
 from app.core.errors import (
     ASSET_NOT_FOUND,
@@ -191,8 +192,21 @@ class VideoJobService:
             await self._maybe_refresh(job)
         return job
 
-    async def list_jobs(self, user_id: str, conversation_id: str | None, status: str | None, download_status: str | None) -> list[VideoJob]:
-        return await self._repo.list_for_user(user_id, conversation_id, status, download_status)
+    async def list_jobs(
+        self,
+        user_id: str,
+        conversation_id: str | None = None,
+        status: str | None = None,
+        download_status: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> tuple[list[VideoJob], str | None]:
+        """按 (created_at desc, id desc) 游标分页，返回 (page_rows, next_cursor)。"""
+        rows = await self._repo.list_for_user(user_id, conversation_id, status, download_status, limit, cursor)
+        has_more = len(rows) > limit if limit else False
+        page = rows[:limit] if limit else rows
+        next_cursor = encode_cursor(page[-1].created_at, page[-1].id) if page and has_more else None
+        return page, next_cursor
 
     async def cancel(self, user_id: str, job_id: str) -> VideoJob:
         job = await self._repo.get_for_user(job_id, user_id)

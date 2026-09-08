@@ -1,0 +1,37 @@
+# 虚拟环境
+.venv/
+venv/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 环境与密钥
+.env
+.env.local
+
+# 数据库与 WAL 文件
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+
+# 上传与生成的数据实体（目录在 git 中用 .gitkeep 占位）
+data/uploads/*
+data/videos/*
+data/tmp/*
+!data/uploads/.gitkeep
+!data/videos/.gitkeep
+!data/tmp/.gitkeep
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

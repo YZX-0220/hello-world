@@ -4,13 +4,15 @@ MVP 采用同步处理（发消息请求内等待模型返回并落库）。
 """
 
 import hashlib
+import json
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import settings
-from app.core.enums import MessageRole, VersionSource
+from app.core.enums import MessageRole, ToolExecutionStatus, VersionSource
 from app.core.errors import CONVERSATION_NOT_FOUND, IDEMPOTENCY_KEY_REUSED, AppError
-from app.db.models.agent import MessageCitation
+from app.core.time import now
+from app.db.models.agent import MessageCitation, ToolExecution
 from app.db.models.conversation import Conversation, Message
 from app.providers.search import get_search_provider
 from app.providers.search.base import SearchProviderError
@@ -69,7 +71,8 @@ class ConversationService:
         # 构造历史（本轮之前的所有 user/assistant 消息）
         history = await self._history(conversation_id)
 
-        output = await self._agent.run_turn(user_id, conversation_id, content, history)
+        output = await self._agent.run_turn(user_id, conversation_id, user_message.id, content, history)
+        agent_run_id = output.agent_run_id
 
         assistant_message = await self._convs.add_message(
             conversation_id,
@@ -78,6 +81,10 @@ class ConversationService:
             reply_to_message_id=user_message.id,
             status="completed",
         )
+
+        # 把本轮 assistant 消息 id 关联回 AgentRun
+        if agent_run_id is not None:
+            await self._agent.bind_assistant_message(agent_run_id, assistant_message.id)
 
         # 若本轮修改了方案字段，则提交新版本
         patch = output.state_patch.model_dump(exclude_unset=True)
@@ -91,28 +98,67 @@ class ConversationService:
                 suggested_prompt=output.suggested_prompt,
             )
 
-        # 联网搜索：模型请求过、且用户开启联网 → 执行搜索、保存引用并把来源附到回复
+        # 联网搜索：模型请求过、且用户开启联网 → 记录工具调用、执行搜索、保存引用并把来源附到回复
         if web_search_enabled and output.search_requests:
-            await self._run_search(assistant_message, output.search_requests)
+            await self._run_search(assistant_message, output.search_requests, agent_run_id)
 
         await self._convs.touch_last_message_at(conversation_id)
         project = await self._projects.get_current_brief(user_id, conversation_id)
         return user_message, assistant_message, project
 
-    async def _run_search(self, assistant_message: Message, queries: list[str]) -> None:
-        """执行搜索并保存来源引用。单条搜索失败不阻断回复，仅跳过。"""
+    async def _run_search(self, assistant_message: Message, queries: list[str], agent_run_id: str | None) -> None:
+        """执行搜索并保存来源引用。
+
+        每个查询记录一条 ToolExecution（web_search），并把该轮每个来源 MessageCitation
+        的 tool_execution_id 指向对应工具调用。单条搜索失败不阻断回复，仅标记工具失败并跳过。
+        agent_run_id 为 None 时不落工具调用（保留原有仅存引用的行为）。
+        """
         provider = get_search_provider()
         citations: list[MessageCitation] = []
+        tools: list[ToolExecution] = []
         position = 0
+        sequence = 0
         for query in queries[: settings.search_max_calls]:
+            tool = None
+            if agent_run_id is not None:
+                tool = ToolExecution(
+                    agent_run_id=agent_run_id,
+                    sequence=sequence,
+                    tool_name="web_search",
+                    input_json=json.dumps({"query": query}, ensure_ascii=False),
+                    status=ToolExecutionStatus.REQUESTED.value,
+                    started_at=now(),
+                )
+                sequence += 1
             try:
                 results = await provider.search(query, limit=5)
-            except SearchProviderError:
+            except SearchProviderError as exc:
+                if tool is not None:
+                    tool.status = ToolExecutionStatus.FAILED.value
+                    tool.error_code = exc.code
+                    tool.completed_at = now()
+                    tool.result_json = json.dumps({"error": exc.message[:2000]}, ensure_ascii=False)
+                    tools.append(tool)
                 continue
+            if tool is not None:
+                tool.status = ToolExecutionStatus.SUCCEEDED.value
+                tool.completed_at = now()
+                tool.result_json = json.dumps(
+                    {
+                        "query": query,
+                        "results": [
+                            {"title": r.title[:500], "url": r.url[:1000], "snippet": r.snippet[:2000]}
+                            for r in results
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
+                tools.append(tool)
             for result in results:
                 citations.append(
                     MessageCitation(
                         message_id=assistant_message.id,
+                        tool_execution_id=tool.id if tool is not None else None,
                         position=position,
                         title=result.title[:500],
                         url=result.url[:1000],
@@ -121,10 +167,15 @@ class ConversationService:
                     )
                 )
                 position += 1
-        if not citations:
+        if not tools and not citations:
             return
-        self._session.add_all(citations)
+        if tools:
+            self._session.add_all(tools)
+        if citations:
+            self._session.add_all(citations)
         await self._session.commit()
+        if tools and agent_run_id is not None:
+            await self._agent.set_tool_call_count(agent_run_id, len(tools))
         lines = [f"{i}. {c.title}：{c.url}" for i, c in enumerate(citations, 1)]
         assistant_message.content += "\n\n【检索到的参考资料】\n" + "\n".join(lines)
         await self._session.commit()

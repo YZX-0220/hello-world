@@ -9,11 +9,14 @@ from typing import ClassVar
 from pydantic import ValidationError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.enums import AgentRunStatus
 from app.core.errors import (
     TEXT_PROVIDER_TIMEOUT,
     TEXT_PROVIDER_UNAVAILABLE,
     AppError,
 )
+from app.core.time import now
+from app.db.models.agent import AgentRun
 from app.providers.text import get_text_provider
 from app.providers.text.base import TextProvider, TextProviderError
 from app.schemas.agent import AgentOutput, VideoBrief, VideoBriefPatch
@@ -105,17 +108,74 @@ class AgentService:
         patch = self._best_effort_patch(structured)
         return AgentOutput(reply=fallback_reply, state_patch=patch)
 
-    async def run_turn(self, user_id: str, conversation_id: str, user_content: str, history: list[dict[str, str]]) -> AgentOutput:
-        """执行一轮对话，返回结构与用户回复。"""
+    async def run_turn(
+        self,
+        user_id: str,
+        conversation_id: str,
+        user_message_id: str,
+        user_content: str,
+        history: list[dict[str, str]],
+    ) -> AgentOutput:
+        """执行一轮对话，返回结构与用户回复，并把本轮 AgentRun 落库。
+
+        生命周期：创建 AgentRun(running，记录调用开始时的方案版本) → 调用文本 Provider →
+        成功记为 succeeded（带模型名/Token 用量/结束时间），失败记为 failed（带错误码与脱敏错误），
+        并把 agent_run_id 挂到 AgentOutput 上，供上层关联工具调用与引用。
+        """
         brief_dict = await self._projects.get_current_brief(user_id, conversation_id)
         brief = VideoBrief.model_validate(brief_dict) if brief_dict else VideoBrief()
         context = build_context(brief, history, user_content)
 
+        base_spec_version = await self._projects.get_current_spec_version(user_id, conversation_id)
+        agent_run = AgentRun(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            user_message_id=user_message_id,
+            base_spec_version=base_spec_version,
+            status=AgentRunStatus.RUNNING.value,
+            provider_code=self._provider.code,
+            started_at=now(),
+        )
+        self._session.add(agent_run)
+        await self._session.commit()
+        await self._session.refresh(agent_run)
+
         try:
             result = await self._provider.generate(context, structured=True)
         except TextProviderError as exc:
+            agent_run.status = AgentRunStatus.FAILED.value
+            agent_run.error_code = exc.code
+            agent_run.error_message = exc.message[:2000]
+            agent_run.completed_at = now()
+            await self._session.commit()
             if exc.code == "TEXT_PROVIDER_TIMEOUT":
                 raise AppError(TEXT_PROVIDER_TIMEOUT, exc.message) from exc
             raise AppError(TEXT_PROVIDER_UNAVAILABLE, exc.message) from exc
 
-        return self._parse_output(result.structured, result.reply)
+        output = self._parse_output(result.structured, result.reply)
+        agent_run.status = AgentRunStatus.SUCCEEDED.value
+        agent_run.model_name = result.model or None
+        agent_run.provider_request_id = result.request_id
+        agent_run.input_tokens = result.prompt_tokens
+        agent_run.output_tokens = result.completion_tokens
+        agent_run.completed_at = now()
+        await self._session.commit()
+
+        output.agent_run_id = agent_run.id
+        return output
+
+    async def bind_assistant_message(self, agent_run_id: str, assistant_message_id: str) -> None:
+        """把本轮生成的 assistant 消息 id 写回 AgentRun（在其创建完成后调用）。"""
+        agent_run = await self._session.get(AgentRun, agent_run_id)
+        if agent_run is None:
+            return
+        agent_run.assistant_message_id = assistant_message_id
+        await self._session.commit()
+
+    async def set_tool_call_count(self, agent_run_id: str, count: int) -> None:
+        """写入本轮实际执行的工具调用次数（如联网搜索），供 AgentRun.tool_call_count。"""
+        agent_run = await self._session.get(AgentRun, agent_run_id)
+        if agent_run is None:
+            return
+        agent_run.tool_call_count = count
+        await self._session.commit()

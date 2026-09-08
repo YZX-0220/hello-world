@@ -20,6 +20,13 @@ class ProjectService:
             return {}
         return json.loads(project.current_spec_json or "{}")
 
+    async def get_current_spec_version(self, user_id: str, conversation_id: str) -> int:
+        """返回当前方案版本号（用于 AgentRun.base_spec_version），无项目时返回 0。"""
+        project = await self._repo.get_by_conversation(user_id, conversation_id)
+        if project is None:
+            return 0
+        return project.current_spec_version
+
     async def _current_project(self, user_id: str, conversation_id: str):
         project = await self._repo.get_by_conversation(user_id, conversation_id)
         if project is None:

@@ -72,3 +72,4 @@ class AgentOutput(BaseModel):
     ready_for_generation: bool = False
     suggested_prompt: str | None = None
     search_requests: list[str] = Field(default_factory=list)  # 需要联网时填查询词（仅联网开启时支持）
+    agent_run_id: str | None = None  # 本轮落库后的 AgentRun id（供上层关联工具调用）

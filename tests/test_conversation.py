@@ -139,3 +139,68 @@ async def test_search_tool_records_citations(client: httpx.AsyncClient, monkeypa
     assistant = next(m for m in listed["items"] if m["role"] == "assistant")
     assert len(assistant["citations"]) >= 1
     assert assistant["citations"][0]["url"].startswith("https://example.com")
+
+
+async def test_agent_run_and_tool_execution_persist(client, db_engine, monkeypatch) -> None:
+    """发送一条触发联网搜索的消息后，落库 AgentRun + ToolExecution，且 citation.tool_execution_id 指向该 ToolExecution。"""
+    from app.db.models.agent import AgentRun, MessageCitation, ToolExecution
+    from app.providers.text.base import TextCapabilities, TextProvider, TextResult
+    from app.services import agent_service as ag
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlmodel import select
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    class SearchTriggerProvider(TextProvider):
+        code = "searchtrigger"
+
+        @property
+        def capabilities(self) -> TextCapabilities:
+            return TextCapabilities(supports_structured_output=True)
+
+        async def generate(self, messages, *, structured: bool = False) -> TextResult:
+            return TextResult(
+                reply="好的，我核实一下资料并附上来源。",
+                structured={
+                    "reply": "好的，我核实一下资料并附上来源。",
+                    "state_patch": {},
+                    "search_requests": ["故宫 夜景 宣传片"],
+                },
+                model="fake-model",
+            )
+
+    monkeypatch.setattr(ag, "get_text_provider", lambda: SearchTriggerProvider())
+
+    await _register(client)
+    headers = _csrf_headers(client)
+    conv = await client.post("/api/v1/conversations", json={"title": "运行落库"}, headers=headers)
+    cid = conv.json()["conversation"]["id"]
+
+    msg = await client.post(
+        f"/api/v1/conversations/{cid}/messages",
+        json={"content": "帮我查一故宫夜景宣传片的资料", "client_request_id": str(uuid.uuid4()), "web_search_enabled": True},
+        headers=headers,
+    )
+    assert msg.status_code == 201
+    user_msg_id = msg.json()["user_message"]["id"]
+    assistant_msg_id = msg.json()["assistant_message"]["id"]
+
+    # 直接读取库表验证落库与关联
+    async with async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)() as session:
+        runs = (await session.exec(select(AgentRun))).all()
+        assert len(runs) == 1
+        run = runs[0]
+        assert run.status == "succeeded"
+        assert run.user_message_id == user_msg_id
+        assert run.assistant_message_id == assistant_msg_id
+
+        tools = (await session.exec(select(ToolExecution))).all()
+        assert len(tools) == 1
+        tool = tools[0]
+        assert tool.tool_name == "web_search"
+        assert tool.agent_run_id == run.id
+        assert tool.status == "succeeded"
+        assert run.tool_call_count == 1
+
+        cites = (await session.exec(select(MessageCitation))).all()
+        assert len(cites) >= 1
+        assert all(c.tool_execution_id == tool.id for c in cites)

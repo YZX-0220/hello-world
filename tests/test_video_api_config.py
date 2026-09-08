@@ -46,11 +46,11 @@ async def test_video_protocols_readonly(client: httpx.AsyncClient) -> None:
     generic = next(p for p in items if p["code"] == "generic_async_json_v1")
     # 鉴权字段必须含密钥字段且标记 is_secret（前端据此构造表单）
     assert generic["auth_fields"][0]["name"] == "api_key"
-    assert generic["auth_fields"][0]["is_secret"] is True
+    assert generic["auth_fields"][0]["secret"] is True
 
     templates = await client.get("/api/v1/video-api-templates", params={"protocol_code": "generic_async_json_v1"})
     assert templates.status_code == 200
-    assert any(t["template_code"] == "v1_videos_json_v1" for t in templates.json()["items"])
+    assert any(t["code"] == "v1_videos_json_v1" for t in templates.json()["items"])
 
     profiles = await client.get("/api/v1/video-model-profiles", params={"protocol_code": "generic_async_json_v1"})
     assert profiles.status_code == 200

@@ -6,49 +6,67 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
-# ---- 协议只读对象视图（供前端构造动态表单）----
+# ---- 协议只读对象视图（字段名与接口说明 3.8~3.11 保持一致）----
+class ChoiceView(BaseModel):
+    value: Any
+    label: str
+
+
 class DynamicFieldView(BaseModel):
     name: str
     label: str
+    input_type: str = "text"  # text / password / select / boolean
     required: bool = False
-    is_secret: bool = False
-    source: str = "body"
-    placeholder: str = ""
+    secret: bool = False
+    required_for_sources: list[str] = Field(default_factory=list)
+    choices: list[ChoiceView] = Field(default_factory=list)
+    placeholder: str | None = None
+    help_text: str | None = None
 
 
 class ProtocolPresetView(BaseModel):
     code: str
-    name: str
-    version: int
+    label: str
+    description: str = ""
     source_types: list[str]
-    allows_custom_base_url: bool
+    supports_custom_base_url: bool
     official_base_url: str | None = None
+    template_required: bool = False
     auth_fields: list[DynamicFieldView] = Field(default_factory=list)
     option_fields: list[DynamicFieldView] = Field(default_factory=list)
 
 
 class ProtocolTemplateView(BaseModel):
-    template_code: str
-    protocol_code: str
-    name: str
+    code: str
+    label: str
     version: int
-    allowed_http_methods: list[str]
+    protocol_code: str
+    description: str = ""
+    modes: list[str] = Field(default_factory=list)
+
+
+class DurationRange(BaseModel):
+    min_seconds: int | None = None
+    max_seconds: int | None = None
+    allowed_values: list[int] = Field(default_factory=list)
 
 
 class ModelProfileView(BaseModel):
     code: str
-    display_name: str
+    label: str
+    version: int
     protocol_code: str
-    template_code: str | None = None
+    remote_model_id: str
     modes: list[str]
-    durations_seconds: list[int]
+    duration: DurationRange
     aspect_ratios: list[str]
     resolutions: list[str]
-    generation_options: dict[str, Any] = Field(default_factory=dict)
     max_reference_images: int = 0
-    max_source_videos: int = 0
-    # 双轨降级能力声明：模型是否允许结果在下载失败时回退为厂商直链（供前端提示）
-    allows_provider_direct_url: bool = False
+    max_reference_videos: int = 0
+    max_reference_audios: int = 0
+    supports_audio: bool = False
+    supports_negative_prompt: bool = False
+    generation_option_fields: list[DynamicFieldView] = Field(default_factory=list)
 
 
 # ---- 请求对象（检测 / 创建 / 修改）----

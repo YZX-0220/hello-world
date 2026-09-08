@@ -7,10 +7,10 @@
     （capability_source=user_declared）处理；是否有效由任务创建时再判。
 """
 
-from dataclasses import asdict
 
 from app.core.errors import VIDEO_PROTOCOL_UNSUPPORTED, VIDEO_TEMPLATE_UNSUPPORTED, AppError
 from app.schemas.video_api_config import (
+    DurationRange,
     DynamicFieldView,
     ModelProfileView,
     ProtocolPresetView,
@@ -28,17 +28,37 @@ from app.video_registry.models import DynamicField, ModelProfile, ProtocolPreset
 
 
 def _dynamic_to_view(field: DynamicField) -> DynamicFieldView:
-    return DynamicFieldView(**asdict(field))
+    return DynamicFieldView(
+        name=field.name,
+        label=field.label,
+        input_type="password" if field.is_secret else "text",
+        required=field.required,
+        secret=field.is_secret,
+        required_for_sources=[],
+        choices=[],
+        placeholder=field.placeholder or None,
+        help_text=None,
+    )
+
+
+def _generation_fields(profile: ModelProfile) -> list[DynamicFieldView]:
+    fields: list[DynamicFieldView] = []
+    for key, value in profile.generation_options.items():
+        fields.append(
+            DynamicFieldView(name=key, label=key, input_type="boolean" if isinstance(value, bool) else "text", required=False)
+        )
+    return fields
 
 
 def preset_to_view(preset: ProtocolPreset) -> ProtocolPresetView:
     return ProtocolPresetView(
         code=preset.code,
-        name=preset.name,
-        version=preset.version,
+        label=preset.name,
+        description="",
         source_types=list(preset.source_types),
-        allows_custom_base_url=preset.allows_custom_base_url,
+        supports_custom_base_url=preset.allows_custom_base_url,
         official_base_url=preset.official_base_url,
+        template_required=preset.allows_custom_base_url,
         auth_fields=[_dynamic_to_view(f) for f in preset.auth_fields],
         option_fields=[_dynamic_to_view(f) for f in preset.option_fields],
     )
@@ -46,28 +66,32 @@ def preset_to_view(preset: ProtocolPreset) -> ProtocolPresetView:
 
 def template_to_view(template: ProtocolTemplate) -> ProtocolTemplateView:
     return ProtocolTemplateView(
-        template_code=template.template_code,
-        protocol_code=template.protocol_code,
-        name=template.name,
+        code=template.template_code,
+        label=template.name,
         version=template.version,
-        allowed_http_methods=list(template.allowed_http_methods),
+        protocol_code=template.protocol_code,
+        description="",
+        modes=[],
     )
 
 
 def profile_to_view(profile: ModelProfile) -> ModelProfileView:
     return ModelProfileView(
         code=profile.code,
-        display_name=profile.display_name,
+        label=profile.display_name,
+        version=1,
         protocol_code=profile.protocol_code,
-        template_code=profile.template_code,
+        remote_model_id=profile.remote_model_id,
         modes=list(profile.modes),
-        durations_seconds=list(profile.durations_seconds),
+        duration=DurationRange(allowed_values=list(profile.durations_seconds)),
         aspect_ratios=list(profile.aspect_ratios),
         resolutions=list(profile.resolutions),
-        generation_options=profile.generation_options,
         max_reference_images=profile.max_reference_images,
-        max_source_videos=profile.max_source_videos,
-        allows_provider_direct_url=profile.allows_provider_direct_url,
+        max_reference_videos=profile.max_source_videos,
+        max_reference_audios=0,
+        supports_audio=bool(profile.generation_options.get("generate_audio", False)),
+        supports_negative_prompt=bool(profile.generation_options.get("supports_negative_prompt", False)),
+        generation_option_fields=_generation_fields(profile),
     )
 
 

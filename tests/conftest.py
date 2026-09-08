@@ -20,6 +20,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 # ---- 顶层强制测试环境，绝不触碰真实外部凭据 ----
 settings.email_provider = "fake"
 settings.video_provider = "fake"
+settings.search_provider = "fake"  # 测试用假搜索，绝不真调外部搜索 API
 settings.credential_encryption_keys = generate_fernet_key()
 settings.video_poll_interval_seconds = 0  # 测试内快速推进轮询状态
 

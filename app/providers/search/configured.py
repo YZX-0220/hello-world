@@ -1,9 +1,14 @@
-"""真实搜索 Provider（占位实现）。
+"""真实搜索 Provider（Tavily）。
 
-对接一个可配置的 JSON 搜索接口：POST {SEARCH_BASE_URL}/search，请求 {"query":...,"limit":...}，
-响应 {"results":[{"title","url","snippet","published_at"}]}。未确定具体搜索服务商前，此实现按
-该假设契约编写，实际接入时按对应服务调整请求/响应解析。搜索失败抛 SearchProviderError。
+对接 Tavily Search API：POST {SEARCH_BASE_URL}/search（默认 https://api.tavily.com）。
+认证用 Authorization: Bearer <key>；请求 {"query", "max_results"}；响应
+{"results":[{"title","url","content","published_date"...}]}。搜索失败抛 SearchProviderError。
+
+兼容性：snippet 字段优先取响应的 content（Tavily 用 content 而非 snippet）；published_date 尽力解析，
+解析失败置 None，不影响结果。
 """
+
+from datetime import datetime
 
 import httpx
 from pydantic import ValidationError
@@ -13,6 +18,16 @@ from app.core.time import now
 from app.providers.search.base import SearchProvider, SearchProviderError, SearchResult
 
 
+def _parse_date(value: object):
+    """把 published_date（如 '2024-01-15'）解析为 naive datetime；失败返回 None。"""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
 class ConfiguredSearchProvider(SearchProvider):
     code = "configured"
 
@@ -20,7 +35,7 @@ class ConfiguredSearchProvider(SearchProvider):
         if not settings.search_base_url:
             raise SearchProviderError("SEARCH_UNAVAILABLE", "搜索接口未配置", retryable=False)
         url = f"{settings.search_base_url.rstrip('/')}/search"
-        payload = {"query": query, "limit": limit, "pretty": False}
+        payload = {"query": query, "max_results": limit}
         headers = {"Authorization": f"Bearer {settings.search_api_key}", "Content-Type": "application/json"}
         try:
             async with httpx.AsyncClient(timeout=settings.search_timeout) as client:
@@ -39,8 +54,8 @@ class ConfiguredSearchProvider(SearchProvider):
                     SearchResult(
                         title=str(item.get("title", "")),
                         url=str(item.get("url", "")),
-                        snippet=str(item.get("snippet", "")),
-                        published_at=None,
+                        snippet=str(item.get("snippet") or item.get("content") or ""),
+                        published_at=_parse_date(item.get("published_date")),
                         retrieved_at=now(),
                     )
                 )

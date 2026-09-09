@@ -7,7 +7,8 @@
   d) download_result 能取回 bytes；
   e) cancel DELETE 成功返回 True；
   f) 非 2xx submit 抛 VideoProviderError。
-另含 video_registry 断言：get_preset("ark_seedance_v1") 存在、list_profiles 返回 2 个 profile。
+另含 video_registry 断言：get_preset("ark_seedance_v1") 存在、list_profiles("ark_seedance_v1")
+返回的 7 个 profile code 集合正确。
 """
 
 import json
@@ -242,7 +243,15 @@ def test_ark_preset_and_profiles_registered() -> None:
     assert preset.official_base_url == BASE
 
     profiles = list_profiles("ark_seedance_v1")
-    assert {p.code for p in profiles} == {"doubao-seedance-1-5-pro", "doubao-seedance-2-0", "doubao-seedance-1-0-pro-fast"}
+    assert {p.code for p in profiles} == {
+        "doubao-seedance-1-5-pro",
+        "doubao-seedance-2-0",
+        "doubao-seedance-1-0-pro-fast",
+        "doubao-seedance-2-0-fast",
+        "doubao-seedance-1-0-pro",
+        "doubao-seedance-1-0-lite-t2v",
+        "doubao-seedance-1-0-lite-i2v",
+    }
 
 
 # ---------------------------------------------------------------- generic 自定义模板

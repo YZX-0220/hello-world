@@ -26,7 +26,8 @@ class SmtpEmailProvider(EmailProvider):
         tls = settings.smtp_tls.upper()
         subject = _SUBJECTS.get(purpose.value, "Hello World 验证码")
         body = (
-            f"你的验证码是：{code}\n"
+            # 验证码后加句号再换行：部分邮件客户端不渲染换行，避免六位验证码与"5 分钟"粘连成 7 位
+            f"你的验证码是：{code}。\n"
             f"5 分钟内有效。如果这不是你本人的操作，请忽略此邮件。"
         )
 

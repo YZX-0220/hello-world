@@ -64,6 +64,46 @@ async def _make_deliverable(client: httpx.AsyncClient) -> tuple[str, dict]:
     return cid, project_info
 
 
+async def _make_confirmed_project(client: httpx.AsyncClient) -> dict:
+    """注册 → 建对话 → 发消息（Fake 生成方案）→ 确认版本。不创建视频接口配置。
+
+    平台自有通道（api_config_id="platform"）不需要用户配置，只需项目已确认。
+    """
+    await _register(client)
+    headers = _csrf(client)
+    conv = await client.post("/api/v1/conversations", json={"title": "出片测试"}, headers=headers)
+    cid = conv.json()["conversation"]["id"]
+
+    await client.post(
+        f"/api/v1/conversations/{cid}/messages",
+        json={"content": "主体是一辆穿越草原的越野车", "client_request_id": str(uuid.uuid4())},
+        headers=headers,
+    )
+    project = (await client.get(f"/api/v1/conversations/{cid}/project")).json()
+    version = project["current_spec_version"]
+    confirmed = await client.post(
+        f"/api/v1/conversations/{cid}/project/confirm",
+        json={"spec_version": version},
+        headers=headers,
+    )
+    assert confirmed.json()["is_current_version_confirmed"] is True
+    return {"conversation_id": cid, "project_id": project["id"], "spec_version": version}
+
+
+def _platform_cmd(info: dict, **overrides) -> dict:
+    """构造平台自有通道命令（保留字 api_config_id="platform"）。"""
+    cmd = {
+        "conversation_id": info["conversation_id"],
+        "project_id": info["project_id"],
+        "spec_version": info["spec_version"],
+        "api_config_id": "platform",
+        "mode": "text_to_video",
+        "generation_options": {},
+    }
+    cmd.update(overrides)
+    return cmd
+
+
 async def test_create_video_job_and_poll(client: httpx.AsyncClient) -> None:
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
@@ -300,3 +340,73 @@ async def test_retry_requires_failed_download(client: httpx.AsyncClient) -> None
     retry = await client.post(f"/api/v1/video-jobs/{created['id']}/download/retry", headers=headers)
     assert retry.status_code == 502
     assert retry.json()["error"]["code"] == "VIDEO_DOWNLOAD_FAILED"
+
+
+async def test_platform_channel_create(client: httpx.AsyncClient) -> None:
+    """平台自有通道：无需用户视频接口配置，直接建任务成功（202），status 非 created。"""
+    info = await _make_confirmed_project(client)
+    headers = _csrf(client)
+    r = await client.post(
+        "/api/v1/video-jobs", json=_platform_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+    )
+    assert r.status_code == 202, r.text
+    job = r.json()
+    assert job["api_config_id"] == "platform"
+    assert job["status"] in ("queued", "running")  # fake 提交后 queued，不会停在 created
+    assert job["api_config_revision"] == 0  # 平台通道无 revision
+
+
+async def test_platform_channel_daily_quota(client: httpx.AsyncClient) -> None:
+    """同用户当日再建一个 platform 任务 → 429 PLATFORM_DAILY_QUOTA_EXCEEDED。"""
+    info = await _make_confirmed_project(client)
+    headers = _csrf(client)
+    r1 = await client.post(
+        "/api/v1/video-jobs", json=_platform_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+    )
+    assert r1.status_code == 202, r1.text
+
+    r2 = await client.post(
+        "/api/v1/video-jobs", json=_platform_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+    )
+    assert r2.status_code == 429, r2.text
+    assert r2.json()["error"]["code"] == "PLATFORM_DAILY_QUOTA_EXCEEDED"
+
+
+async def test_platform_quota_does_not_affect_user_config(client: httpx.AsyncClient) -> None:
+    """平台额度用完不影响用户自配 API 创建（仍可建）。"""
+    _cid, info = await _make_deliverable(client)
+    headers = _csrf(client)
+
+    # 先消费掉平台当日额度
+    pr = await client.post(
+        "/api/v1/video-jobs", json=_platform_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+    )
+    assert pr.status_code == 202, pr.text
+
+    # 用户自配 API 创建不受平台配额影响
+    cr = await client.post(
+        "/api/v1/video-jobs", json=_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+    )
+    assert cr.status_code == 202, cr.text
+    assert cr.json()["api_config_id"] == info["api_config_id"]
+    assert cr.json()["api_config_revision"] == 1
+
+
+async def test_platform_channel_poll(client: httpx.AsyncClient) -> None:
+    """平台任务轮询走通（fake poll 正常，不因无 revision 报错/500），直到 succeeded。"""
+    info = await _make_confirmed_project(client)
+    headers = _csrf(client)
+    created = (
+        await client.post(
+            "/api/v1/video-jobs", json=_platform_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+        )
+    ).json()
+    jid = created["id"]
+    final = None
+    for _ in range(8):
+        got = (await client.get(f"/api/v1/video-jobs/{jid}")).json()
+        if got["status"] == "succeeded":
+            final = got
+            break
+    assert final is not None, "平台任务轮询未走到 succeeded"
+    assert final["status"] == "succeeded"

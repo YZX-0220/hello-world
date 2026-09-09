@@ -38,10 +38,15 @@ class VideoDownloadService:
         """对已成功的任务执行一次下载/降级，返回更新后的 download_status。"""
         if job.status != "succeeded":
             raise AppError(VIDEO_DOWNLOAD_FAILED, "任务尚未生成成功，不能下载结果")
-        revision = (
-            await self._session.exec(select(VideoApiConfigRevision).where(VideoApiConfigRevision.id == job.api_config_revision_id))
-        ).first()
-        ctx = self._ctx(revision)
+        if job.api_config_id == "platform":
+            # 平台自有通道：无用户 revision，改用平台 ctx（base_url/auth/model）。
+            revision = None
+            ctx = self._platform_ctx()
+        else:
+            revision = (
+                await self._session.exec(select(VideoApiConfigRevision).where(VideoApiConfigRevision.id == job.api_config_revision_id))
+            ).first()
+            ctx = self._ctx(revision)
         data = await self._provider.download_result(job.provider_task_id or "", ctx)
         if data:
             return await self._store_result(job, data)
@@ -100,5 +105,16 @@ class VideoDownloadService:
             auth=json.loads(decrypt_secret(revision.encrypted_auth_json, settings.credential_encryption_keys)),
             options=json.loads(revision.public_options_json or "{}"),
             remote_model_id=revision.remote_model_id,
+            template=None,
+        )
+
+    @staticmethod
+    def _platform_ctx() -> AdapterContext:
+        """平台自有通道的厂商上下文：直接读 settings.video_platform_*，无 revision。"""
+        return AdapterContext(
+            base_url=settings.video_platform_base_url,
+            auth={"api_key": settings.video_platform_api_key},
+            options={},
+            remote_model_id=settings.video_platform_model,
             template=None,
         )

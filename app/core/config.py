@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     video_max_response_bytes: int = 5 * 1024 * 1024  # 厂商响应体大小上限（字节）
     video_poll_interval_seconds: int = 3  # 视频任务主动轮询的建议间隔（秒）
 
+    # ---- 平台自有视频通道（B：平台预置、每用户每天限 1）----
+    video_platform_api_key: str = ""  # 平台级密钥（如火山方舟 ARK key）
+    video_platform_base_url: str = "https://ark.cn-beijing.volces.com"
+    video_platform_model: str = ""  # 平台通道使用的模型/接入点（如 ep-…）
+
     # ---- 存储与限制 ----
     storage_root: str = "./data"
     upload_dir: str = "./data/uploads"

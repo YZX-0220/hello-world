@@ -20,6 +20,7 @@ from app.core.ssrf import CheckedBaseUrl
 from app.providers.video.ark_seedance_v1 import ArkSeedanceProvider
 from app.providers.video.base import AdapterContext, VideoProviderError
 from app.providers.video.dashscope_async_v1 import DashScopeAsyncV1Provider
+from app.providers.video.fal_queue_v1 import FalQueueV1Provider
 from app.providers.video.generic_async_json_v1 import GenericAsyncJsonV1Provider
 from app.services.video_job_service import VideoJobService, _build_custom_template
 from app.video_registry.models import EndpointSpec, ProtocolTemplate
@@ -610,3 +611,206 @@ def test_dashscope_preset_and_profiles_registered() -> None:
 
     profiles = list_profiles("dashscope_async_v1")
     assert {p.code for p in profiles} == {"wan2.5-t2v-preview", "wan2.2-t2v-plus"}
+
+
+# ---------------------------------------------------------------- fal_queue_v1
+# fal.ai Queue：提交 POST {base}/{model endpoint}（端点含多段路径，直接拼 base 后），鉴权头为 `Key <key>`；
+# 任务 ID（request_id）用于拼接 status / response / cancel 三类 URL（均在 {base}/fal-ai/requests/ 之下）。
+
+FAL_BASE = "https://queue.fal.run"
+FAL_SUBMIT_URL = f"{FAL_BASE}/fal-ai/wan/v2.2-a14b/text-to-video/turbo"
+FAL_REQ_URL = f"{FAL_BASE}/fal-ai/requests/req_1"
+FAL_VIDEO_URL = "https://cdn.example.com/v.mp4"
+
+
+@pytest.fixture(autouse=True)
+def _no_dns_fal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """同 _no_dns，但针对 fal_queue_v1 模块（避开真实 DNS/外网）。"""
+
+    def _fake(url: str, resolver: object = None) -> CheckedBaseUrl:
+        return CheckedBaseUrl(
+            normalized=url,
+            host="queue.fal.run",
+            port=443,
+            resolved_ip="1.1.1.1",
+            path_prefix="",
+        )
+
+    monkeypatch.setattr("app.providers.video.fal_queue_v1.check_base_url", _fake)
+
+
+def _fal_ctx(model: str = "fal-ai/wan/v2.2-a14b/text-to-video/turbo") -> AdapterContext:
+    return AdapterContext(
+        base_url=FAL_BASE,
+        auth={"api_key": "sk-fal-test"},
+        options={},
+        remote_model_id=model,
+        template=None,
+    )
+
+
+def _fal_request(**overrides: object) -> dict:
+    req: dict = {
+        "remote_model_id": "fal-ai/wan/v2.2-a14b/text-to-video/turbo",
+        "prompt": "一只猫在草地上奔跑",
+        "mode": "text_to_video",
+        "duration_seconds": 10,
+        "resolution": "720p",
+        "aspect_ratio": "16:9",
+        "generation_options": {},
+    }
+    req.update(overrides)
+    return req
+
+
+@respx.mock
+async def test_fal_submit_builds_correct_body_and_resolves_task_id() -> None:
+    route = respx.post(FAL_SUBMIT_URL)
+    route.mock(return_value=httpx.Response(200, json={"status": "IN_QUEUE", "request_id": "req_1"}))
+    provider = FalQueueV1Provider()
+
+    result = await provider.submit(_fal_request(), _fal_ctx())
+
+    assert result.provider_task_id == "req_1"
+
+    request = route.calls.last.request
+    # fal 鉴权头是 `Key <key>` 前缀（而非 Bearer）
+    assert request.headers.get("authorization") == "Key sk-fal-test"
+    assert json.loads(request.content) == {
+        "prompt": "一只猫在草地上奔跑",
+        "resolution": "720p",
+        "aspect_ratio": "16:9",
+        "duration": 10,
+    }
+
+
+@respx.mock
+async def test_fal_submit_non_2xx_raises() -> None:
+    respx.post(FAL_SUBMIT_URL).mock(return_value=httpx.Response(401, json={"error": "unauthorized"}))
+    provider = FalQueueV1Provider()
+
+    with pytest.raises(VideoProviderError) as exc_info:
+        await provider.submit(_fal_request(), _fal_ctx())
+    assert exc_info.value.code == "VIDEO_SUBMISSION_FAILED"
+
+
+@respx.mock
+async def test_fal_poll_maps_completed_to_succeeded() -> None:
+    respx.get(f"{FAL_REQ_URL}/status").mock(return_value=httpx.Response(200, json={"status": "COMPLETED"}))
+    provider = FalQueueV1Provider()
+
+    status = await provider.poll("req_1", _fal_ctx())
+
+    assert status.raw_status == "succeeded"
+    assert status.extra["remote_status"] == "COMPLETED"
+
+
+@respx.mock
+async def test_fal_poll_maps_in_queue_to_queued() -> None:
+    respx.get(f"{FAL_REQ_URL}/status").mock(return_value=httpx.Response(200, json={"status": "IN_QUEUE"}))
+    provider = FalQueueV1Provider()
+
+    status = await provider.poll("req_1", _fal_ctx())
+
+    assert status.raw_status == "queued"
+
+
+@respx.mock
+async def test_fal_poll_maps_failed() -> None:
+    respx.get(f"{FAL_REQ_URL}/status").mock(return_value=httpx.Response(200, json={"status": "FAILED"}))
+    provider = FalQueueV1Provider()
+
+    status = await provider.poll("req_1", _fal_ctx())
+
+    assert status.raw_status == "failed"
+    assert status.extra["remote_status"] == "FAILED"
+
+
+@respx.mock
+async def test_fal_poll_raises_on_http_error() -> None:
+    respx.get(f"{FAL_REQ_URL}/status").mock(return_value=httpx.Response(500, json={}))
+    provider = FalQueueV1Provider()
+
+    with pytest.raises(VideoProviderError) as exc_info:
+        await provider.poll("req_1", _fal_ctx())
+    assert exc_info.value.code == "VIDEO_POLL_FAILED"
+
+
+@respx.mock
+async def test_fal_fetch_result_url() -> None:
+    respx.get(FAL_REQ_URL).mock(
+        return_value=httpx.Response(200, json={"output": {"video": {"url": FAL_VIDEO_URL}}})
+    )
+    provider = FalQueueV1Provider()
+
+    url = await provider.fetch_result_url("req_1", _fal_ctx())
+
+    assert url == FAL_VIDEO_URL
+
+
+@respx.mock
+async def test_fal_fetch_result_url_array_takes_first() -> None:
+    respx.get(FAL_REQ_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={"output": {"video": {"url": [FAL_VIDEO_URL, "https://cdn.example.com/v2.mp4"]}}},
+        )
+    )
+    provider = FalQueueV1Provider()
+
+    url = await provider.fetch_result_url("req_1", _fal_ctx())
+
+    assert url == FAL_VIDEO_URL
+
+
+@respx.mock
+async def test_fal_fetch_result_url_string_output() -> None:
+    respx.get(FAL_REQ_URL).mock(return_value=httpx.Response(200, json={"output": {"video": FAL_VIDEO_URL}}))
+    provider = FalQueueV1Provider()
+
+    url = await provider.fetch_result_url("req_1", _fal_ctx())
+
+    assert url == FAL_VIDEO_URL
+
+
+@respx.mock
+async def test_fal_fetch_result_url_none_on_http_error() -> None:
+    respx.get(FAL_REQ_URL).mock(return_value=httpx.Response(404, json={}))
+    provider = FalQueueV1Provider()
+
+    assert await provider.fetch_result_url("req_1", _fal_ctx()) is None
+
+
+@respx.mock
+async def test_fal_download_result_returns_bytes() -> None:
+    respx.get(FAL_REQ_URL).mock(
+        return_value=httpx.Response(200, json={"output": {"video": {"url": FAL_VIDEO_URL}}})
+    )
+    respx.get(FAL_VIDEO_URL).mock(return_value=httpx.Response(200, content=b"VIDEO_BYTES"))
+    provider = FalQueueV1Provider()
+
+    data = await provider.download_result("req_1", _fal_ctx())
+
+    assert data == b"VIDEO_BYTES"
+
+
+@respx.mock
+async def test_fal_cancel_returns_true_on_2xx() -> None:
+    respx.delete(f"{FAL_REQ_URL}/cancel").mock(return_value=httpx.Response(202))
+    provider = FalQueueV1Provider()
+
+    assert await provider.cancel("req_1", _fal_ctx()) is True
+
+
+def test_fal_preset_and_profiles_registered() -> None:
+    preset = get_preset("fal_queue_v1")
+    assert preset is not None
+    assert preset.enabled is True
+    assert preset.allows_custom_base_url is False
+    assert preset.official_base_url == FAL_BASE
+
+    profiles = list_profiles("fal_queue_v1")
+    assert {p.code for p in profiles} == {
+        "fal-ai/wan/v2.2-a14b/text-to-video/turbo",
+        "fal-ai/wan/v2.7/text-to-video",
+    }

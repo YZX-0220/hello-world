@@ -9,18 +9,20 @@ from app.video_registry.core_protocols import (
     ARK_PROFILES,
     DASHSCOPE_PRESET,
     DASHSCOPE_PROFILES,
+    FAL_PRESET,
+    FAL_PROFILES,
     GENERIC_PRESET,
     GENERIC_PROFILES,
     V1_VIDEOS_TEMPLATE,
 )
 from app.video_registry.models import ModelProfile, ProtocolPreset, ProtocolTemplate
 
-_PRESETS: dict[str, ProtocolPreset] = {p.code: p for p in (GENERIC_PRESET, ARK_PRESET, DASHSCOPE_PRESET)}
+_PRESETS: dict[str, ProtocolPreset] = {p.code: p for p in (GENERIC_PRESET, ARK_PRESET, DASHSCOPE_PRESET, FAL_PRESET)}
 _TEMPLATES: dict[tuple[str, str], ProtocolTemplate] = {
     (t.protocol_code, t.template_code): t for t in (V1_VIDEOS_TEMPLATE,)
 }
 _PROFILES: dict[tuple[str, str], ModelProfile] = {
-    (p.protocol_code, p.code): p for p in (*GENERIC_PROFILES, *ARK_PROFILES, *DASHSCOPE_PROFILES)
+    (p.protocol_code, p.code): p for p in (*GENERIC_PROFILES, *ARK_PROFILES, *DASHSCOPE_PROFILES, *FAL_PROFILES)
 }
 
 

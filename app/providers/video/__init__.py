@@ -20,4 +20,8 @@ def get_video_provider() -> VideoProvider:
         from app.providers.video.dashscope_async_v1 import DashScopeAsyncV1Provider
 
         return DashScopeAsyncV1Provider()
+    if settings.video_provider == "fal_queue_v1":
+        from app.providers.video.fal_queue_v1 import FalQueueV1Provider
+
+        return FalQueueV1Provider()
     return fake_video_instance

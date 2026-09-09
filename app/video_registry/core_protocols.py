@@ -3,7 +3,7 @@ ark_seedance_v1（火山方舟 Seedance 官方原生协议，无模板）。
 
 generic 含模板 v1_videos_json_v1 与示例模型 Profile；ark 为原生协议，只注册
 preset 与多个模型 Profile，由 Adapter（app/providers/video/ark_seedance_v1.py）原生调用。
-dashscope_async_v1 / fal_queue_v1 待阶段 10/11 真实化后再按相同结构注册（届时需联网核验）。
+dashscope_async_v1 / fal_queue_v1 阶段 10/11 已按相同结构注册为官方原生协议（Adapter 原生调用）。
 
 协议语义（内置约定，用户只需提供 base_url + key + remote_model_id）：
   - 提交：POST {base}/tasks   请求体为模板化 JSON；响应 data.task_id 为远端任务 ID。
@@ -370,6 +370,70 @@ DASHSCOPE_PROFILES: tuple[ModelProfile, ...] = (
         durations_seconds=(5, 10),
         aspect_ratios=("16:9",),
         resolutions=("480p", "720p", "1080p"),
+        generation_options={"generate_audio": False},
+        max_reference_images=0,
+        max_source_videos=0,
+        allows_provider_direct_url=True,
+        provider_direct_url_ttl=86400,
+        enabled=True,
+    ),
+)
+
+# ---- fal.ai queue 官方原生协议（无模板，Adapter 原生调用） ----
+FAL_PRESET = ProtocolPreset(
+    code="fal_queue_v1",
+    name="fal Queue 视频生成",
+    version=1,
+    source_types=(ApiSourceType.OFFICIAL.value,),
+    allows_custom_base_url=False,  # 官方原生协议，固定官方地址，不允许自定义
+    official_base_url="https://queue.fal.run",
+    auth_fields=(
+        DynamicField(
+            name="api_key",
+            label="API 密钥",
+            required=True,
+            is_secret=True,
+            source="header",
+            placeholder="Key <FAL_KEY>",
+        ),
+    ),
+    option_fields=(),
+    adapter_code="fal_queue_v1",
+    enabled=True,
+)
+
+# ---- fal Queue 模型 Profile：一个 Adapter 挂多个模型（Wan 2.2 turbo / 2.7 文生） ----
+FAL_PROFILES: tuple[ModelProfile, ...] = (
+    ModelProfile(
+        code="fal-ai/wan/v2.2-a14b/text-to-video/turbo",
+        display_name="Wan 2.2 A14B 文生(turbo)",
+        protocol_code="fal_queue_v1",
+        template_code=None,  # 原生协议无模板
+        remote_model_id="fal-ai/wan/v2.2-a14b/text-to-video/turbo",
+        capability_profile_code="text_reference_media",
+        modes=(VideoMode.TEXT_TO_VIDEO.value,),
+        durations_seconds=(4, 5, 8, 10, 12),
+        aspect_ratios=("16:9", "9:16", "1:1", "4:3", "3:4"),
+        resolutions=("480p", "580p", "720p", "1080p"),
+        generation_options={"generate_audio": False},
+        max_reference_images=0,
+        max_source_videos=0,
+        # 双轨：fal 返回厂商直链（视频 CDN），下载失败时回退为直链交付
+        allows_provider_direct_url=True,
+        provider_direct_url_ttl=86400,
+        enabled=True,
+    ),
+    ModelProfile(
+        code="fal-ai/wan/v2.7/text-to-video",
+        display_name="Wan 2.7 文生",
+        protocol_code="fal_queue_v1",
+        template_code=None,  # 原生协议无模板
+        remote_model_id="fal-ai/wan/v2.7/text-to-video",
+        capability_profile_code="text_reference_media",
+        modes=(VideoMode.TEXT_TO_VIDEO.value,),
+        durations_seconds=(2, 5, 10, 15),
+        aspect_ratios=("16:9", "9:16", "1:1", "4:3", "3:4"),
+        resolutions=("720p", "1080p"),
         generation_options={"generate_audio": False},
         max_reference_images=0,
         max_source_videos=0,

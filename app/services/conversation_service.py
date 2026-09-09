@@ -336,6 +336,8 @@ class ConversationService:
             return 0
         if tools:
             self._session.add_all(tools)
+            # 先落库工具执行记录，确保引用其 id 的引用外键有效（避免 SQLite 批量插入顺序导致 FK 失败）
+            await self._session.flush()
         if citations:
             self._session.add_all(citations)
         await self._session.commit()

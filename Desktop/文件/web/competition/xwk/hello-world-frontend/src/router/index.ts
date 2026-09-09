@@ -3,12 +3,8 @@ import { createRouter, createWebHistory } from 'vue-router';
 const routes = [
   {
     path: '/',
-    redirect: '/workspace',
-  },
-  {
-    path: '/login',
-    name: 'Login',
-    component: () => import('@/views/LoginView.vue'),
+    name: 'Landing',
+    component: () => import('@/views/LandingView.vue'), // 首页
   },
   {
     path: '/workspace',
@@ -19,6 +15,11 @@ const routes = [
     path: '/settings/api',
     name: 'ApiConfig',
     component: () => import('@/views/ApiConfigView.vue'),
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/LoginView.vue'),
   }
 ];
 

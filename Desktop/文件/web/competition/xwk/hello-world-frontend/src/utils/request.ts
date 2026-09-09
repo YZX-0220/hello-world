@@ -5,7 +5,6 @@ function getCsrfToken(): string | null {
   const match = document.cookie.match(new RegExp('(^|;\\s*)hw_csrf=([^;]+)'));
   return match ? decodeURIComponent(match[2]) : null;
 }
-
 const service = axios.create({
   baseURL: '/api/v1',
   timeout: 30000,
@@ -15,11 +14,11 @@ const service = axios.create({
   },
 });
 
-// 请求拦截器：注入 CSRF Token
+// 2. 请求拦截器：遇到非查询请求自动塞入请求头
 service.interceptors.request.use(
   (config) => {
     const method = config.method?.toUpperCase();
-    // 契约规则 2: 非查询请求必须携带 X-CSRF-Token
+    // 后端契约强制要求：POST, PATCH, DELETE 必须携带 X-CSRF-Token
     if (method && ['POST', 'PATCH', 'DELETE'].includes(method)) {
       const csrfToken = getCsrfToken();
       if (csrfToken) {
@@ -28,9 +27,7 @@ service.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 // 响应拦截器：统一拦截 401 并抛出安全化错误

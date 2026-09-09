@@ -12,18 +12,17 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // 代理业务接口到后端开发服务器
+      // 代理业务接口到远程服务器
       '/api/v1': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://47.99.35.159',
         changeOrigin: true,
       },
-      // 代理健康检查接口
       '/healthz': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://47.99.35.159',
         changeOrigin: true,
       },
       '/readyz': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://47.99.35.159',
         changeOrigin: true,
       }
     }

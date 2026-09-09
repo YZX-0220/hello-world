@@ -2,11 +2,13 @@
   <div class="login-layout">
     <!-- 顶部极简品牌标识 -->
     <header class="top-nav">
-      <div class="brand">
-        <div class="brand-avatar">H</div>
-        <span class="brand-name">Hello World</span>
-        <span class="sub-badge">国际传播特化 AI 视频生成平台</span>
-      </div>
+     <router-link to="/" class="brand-link">
+  <div class="brand">
+    <div class="brand-avatar">H</div>
+    <span class="brand-name">Hello World</span>
+    <span class="sub-badge">国际传播特化 AI 视频生成平台</span>
+  </div>
+</router-link>
     </header>
 
     <!-- 居中认证卡片容器 -->
@@ -265,6 +267,14 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.brand-link {
+  text-decoration: none;
+  cursor: pointer;
+  display: inline-block;
+}
+.brand-link:hover .brand-name {
+  color: #818cf8;
+}
 .login-layout {
   min-height: 100vh;
   width: 100vw;

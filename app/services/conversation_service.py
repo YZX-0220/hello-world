@@ -48,6 +48,12 @@ class ConversationService:
             raise AppError(CONVERSATION_NOT_FOUND)
         return conversation
 
+    async def delete_conversation(self, user_id: str, conversation_id: str) -> None:
+        """软删除对话（接口说明 5.5）：置 status=deleted，不物理删除。"""
+        conversation = await self._convs.soft_delete(user_id, conversation_id)
+        if conversation is None:
+            raise AppError(CONVERSATION_NOT_FOUND)
+
     async def send_message(
         self, user_id: str, conversation_id: str, content: str, client_request_id: str, web_search_enabled: bool = False
     ):

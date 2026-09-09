@@ -48,9 +48,11 @@ class ConversationRepository:
         return conversation
 
     async def get(self, user_id: str, conversation_id: str) -> Conversation | None:
+        """返回当前用户可见的对话；已软删除的视为不存在。"""
         stmt = select(Conversation).where(
             Conversation.id == conversation_id,
             Conversation.user_id == user_id,
+            Conversation.status != "deleted",
         )
         result = await self._session.exec(stmt)
         return result.first()

@@ -96,6 +96,24 @@ async def test_create_conversation_and_send_message(client: httpx.AsyncClient) -
     assert proj.json()["current_spec_version"] >= 1
 
 
+async def test_delete_conversation(client: httpx.AsyncClient) -> None:
+    """软删除对话：204，列表不显示，再次访问 404。"""
+    await _register(client)
+    headers = _csrf_headers(client)
+    conv = await client.post("/api/v1/conversations", json={"title": "待删除"}, headers=headers)
+    assert conv.status_code == 201
+    cid = conv.json()["conversation"]["id"]
+
+    deleted = await client.delete(f"/api/v1/conversations/{cid}", headers=headers)
+    assert deleted.status_code == 204
+
+    listed = (await client.get("/api/v1/conversations")).json()
+    assert all(c["id"] != cid for c in listed["items"])
+
+    got = await client.get(f"/api/v1/conversations/{cid}")
+    assert got.status_code == 404
+
+
 async def test_confirm_project_and_manual_patch(client: httpx.AsyncClient) -> None:
     await _register(client)
     headers = _csrf_headers(client)

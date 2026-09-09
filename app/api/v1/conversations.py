@@ -202,6 +202,18 @@ async def confirm_project(
     return _project_view(project, sp)
 
 
+@router.delete("/conversations/{conversation_id}", status_code=204)
+async def delete_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+):
+    """软删除对话（接口说明 5.5）。需要登录 + CSRF。"""
+    await ConversationService(session).delete_conversation(user.id, conversation_id)
+    return None
+
+
 @router.patch("/conversations/{conversation_id}/project")
 async def patch_project(
     conversation_id: str,

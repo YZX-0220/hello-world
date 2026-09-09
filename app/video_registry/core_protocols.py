@@ -314,3 +314,67 @@ ARK_PROFILES: tuple[ModelProfile, ...] = (
         enabled=True,
     ),
 )
+
+# ---- 阿里云百炼 DashScope / 通义 Wan 官方原生协议（无模板，Adapter 原生调用） ----
+DASHSCOPE_PRESET = ProtocolPreset(
+    code="dashscope_async_v1",
+    name="阿里百炼 DashScope / 通义 Wan",
+    version=1,
+    source_types=(ApiSourceType.OFFICIAL.value,),
+    allows_custom_base_url=False,  # 官方原生协议，固定官方地址，不允许自定义
+    official_base_url="https://dashscope.aliyuncs.com",
+    auth_fields=(
+        DynamicField(
+            name="api_key",
+            label="API 密钥",
+            required=True,
+            is_secret=True,
+            source="header",
+            placeholder="Bearer <sk-...>",
+        ),
+    ),
+    option_fields=(),
+    adapter_code="dashscope_async_v1",
+    enabled=True,
+)
+
+# ---- DashScope 模型 Profile：一个 Adapter 挂多个模型（Wan 2.5 / 2.2 文生） ----
+DASHSCOPE_PROFILES: tuple[ModelProfile, ...] = (
+    ModelProfile(
+        code="wan2.5-t2v-preview",
+        display_name="Wan 2.5 文生视频",
+        protocol_code="dashscope_async_v1",
+        template_code=None,  # 原生协议无模板
+        remote_model_id="wan2.5-t2v-preview",
+        capability_profile_code="text_reference_media",
+        modes=(VideoMode.TEXT_TO_VIDEO.value,),
+        durations_seconds=(5, 10),
+        aspect_ratios=("16:9",),
+        resolutions=("480p", "720p", "1080p"),
+        generation_options={"generate_audio": False},
+        max_reference_images=0,
+        max_source_videos=0,
+        # 双轨：DashScope 返回 24h 的 video_url 直链，下载失败时回退为直链交付
+        allows_provider_direct_url=True,
+        provider_direct_url_ttl=86400,
+        enabled=True,
+    ),
+    ModelProfile(
+        code="wan2.2-t2v-plus",
+        display_name="Wan 2.2 文生(Plus)",
+        protocol_code="dashscope_async_v1",
+        template_code=None,  # 原生协议无模板
+        remote_model_id="wan2.2-t2v-plus",
+        capability_profile_code="text_reference_media",
+        modes=(VideoMode.TEXT_TO_VIDEO.value,),
+        durations_seconds=(5, 10),
+        aspect_ratios=("16:9",),
+        resolutions=("480p", "720p", "1080p"),
+        generation_options={"generate_audio": False},
+        max_reference_images=0,
+        max_source_videos=0,
+        allows_provider_direct_url=True,
+        provider_direct_url_ttl=86400,
+        enabled=True,
+    ),
+)

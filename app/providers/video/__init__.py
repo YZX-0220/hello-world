@@ -16,4 +16,8 @@ def get_video_provider() -> VideoProvider:
         from app.providers.video.ark_seedance_v1 import ArkSeedanceProvider
 
         return ArkSeedanceProvider()
+    if settings.video_provider == "dashscope_async_v1":
+        from app.providers.video.dashscope_async_v1 import DashScopeAsyncV1Provider
+
+        return DashScopeAsyncV1Provider()
     return fake_video_instance

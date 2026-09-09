@@ -19,6 +19,7 @@ import respx
 from app.core.ssrf import CheckedBaseUrl
 from app.providers.video.ark_seedance_v1 import ArkSeedanceProvider
 from app.providers.video.base import AdapterContext, VideoProviderError
+from app.providers.video.dashscope_async_v1 import DashScopeAsyncV1Provider
 from app.providers.video.generic_async_json_v1 import GenericAsyncJsonV1Provider
 from app.services.video_job_service import VideoJobService, _build_custom_template
 from app.video_registry.models import EndpointSpec, ProtocolTemplate
@@ -434,3 +435,178 @@ async def test_generic_builtin_template_unchanged() -> None:
     assert status.raw_status == "succeeded"
     url = await provider.fetch_result_url("t1", ctx)
     assert url == VIDEO_URL
+
+
+# ---------------------------------------------------------------- dashscope_async_v1
+# 阿里云百炼 DashScope / 通义 Wan：异步提交需 X-DashScope-Async: enable；任务查询顶层 task_status。
+
+DS_BASE = "https://dashscope.aliyuncs.com"
+DS_SUBMIT_URL = f"{DS_BASE}/api/v1/services/aigc/video-generation/video-synthesis"
+DS_TASK_URL = f"{DS_BASE}/api/v1/tasks/tsk-1"
+DS_VIDEO_URL = "https://cdn.example.com/v.mp4"
+
+
+@pytest.fixture(autouse=True)
+def _no_dns_dashscope(monkeypatch: pytest.MonkeyPatch) -> None:
+    """同 _no_dns，但针对 dashscope_async_v1 模块（避开真实 DNS/外网）。"""
+
+    def _fake(url: str, resolver: object = None) -> CheckedBaseUrl:
+        return CheckedBaseUrl(
+            normalized=url,
+            host="dashscope.aliyuncs.com",
+            port=443,
+            resolved_ip="1.1.1.1",
+            path_prefix="",
+        )
+
+    monkeypatch.setattr("app.providers.video.dashscope_async_v1.check_base_url", _fake)
+
+
+def _dash_ctx(model: str = "wan2.5-t2v-preview") -> AdapterContext:
+    return AdapterContext(
+        base_url=DS_BASE,
+        auth={"api_key": "sk-dash-test-key"},
+        options={},
+        remote_model_id=model,
+        template=None,
+    )
+
+
+def _dash_request(**overrides: object) -> dict:
+    req: dict = {
+        "remote_model_id": "wan2.5-t2v-preview",
+        "prompt": "一只猫在草地上奔跑",
+        "mode": "text_to_video",
+        "duration_seconds": 10,
+        "resolution": "720p",
+        "generation_options": {},
+    }
+    req.update(overrides)
+    return req
+
+
+@respx.mock
+async def test_dashscope_submit_builds_correct_body_and_resolves_task_id() -> None:
+    route = respx.post(DS_SUBMIT_URL)
+    route.mock(return_value=httpx.Response(200, json={"output": {"task_id": "tsk-1"}}))
+    provider = DashScopeAsyncV1Provider()
+
+    result = await provider.submit(_dash_request(), _dash_ctx())
+
+    assert result.provider_task_id == "tsk-1"
+
+    request = route.calls.last.request
+    assert request.headers.get("authorization") == "Bearer sk-dash-test-key"
+    assert request.headers.get("x-dashscope-async") == "enable"
+    assert json.loads(request.content) == {
+        "model": "wan2.5-t2v-preview",
+        "input": {"prompt": "一只猫在草地上奔跑"},
+        "parameters": {"size": "1280*720", "duration": 10},
+    }
+
+
+@respx.mock
+async def test_dashscope_submit_top_level_task_id_fallback() -> None:
+    """顶层 task_id 回退：无 output.task_id 时取顶层 task_id。"""
+    route = respx.post(DS_SUBMIT_URL)
+    route.mock(return_value=httpx.Response(200, json={"task_id": "tsk-top"}))
+    provider = DashScopeAsyncV1Provider()
+
+    result = await provider.submit(_dash_request(), _dash_ctx())
+
+    assert result.provider_task_id == "tsk-top"
+
+
+@respx.mock
+async def test_dashscope_poll_maps_succeeded() -> None:
+    respx.get(DS_TASK_URL).mock(
+        return_value=httpx.Response(200, json={"task_status": "SUCCEEDED", "output": {"video_url": DS_VIDEO_URL}})
+    )
+    provider = DashScopeAsyncV1Provider()
+
+    status = await provider.poll("tsk-1", _dash_ctx())
+
+    assert status.raw_status == "succeeded"
+    assert status.extra["remote_status"] == "SUCCEEDED"
+
+
+@respx.mock
+async def test_dashscope_poll_maps_pending_to_queued() -> None:
+    respx.get(DS_TASK_URL).mock(return_value=httpx.Response(200, json={"task_status": "PENDING"}))
+    provider = DashScopeAsyncV1Provider()
+
+    status = await provider.poll("tsk-1", _dash_ctx())
+
+    assert status.raw_status == "queued"
+
+
+@respx.mock
+async def test_dashscope_poll_maps_failed() -> None:
+    respx.get(DS_TASK_URL).mock(return_value=httpx.Response(200, json={"task_status": "FAILED"}))
+    provider = DashScopeAsyncV1Provider()
+
+    status = await provider.poll("tsk-1", _dash_ctx())
+
+    assert status.raw_status == "failed"
+    assert status.extra["remote_status"] == "FAILED"
+
+
+@respx.mock
+async def test_dashscope_poll_raises_on_http_error() -> None:
+    respx.get(DS_TASK_URL).mock(return_value=httpx.Response(500, json={}))
+    provider = DashScopeAsyncV1Provider()
+
+    with pytest.raises(VideoProviderError) as exc_info:
+        await provider.poll("tsk-1", _dash_ctx())
+    assert exc_info.value.code == "VIDEO_POLL_FAILED"
+
+
+@respx.mock
+async def test_dashscope_fetch_result_url() -> None:
+    respx.get(DS_TASK_URL).mock(
+        return_value=httpx.Response(200, json={"task_status": "SUCCEEDED", "output": {"video_url": DS_VIDEO_URL}})
+    )
+    provider = DashScopeAsyncV1Provider()
+
+    url = await provider.fetch_result_url("tsk-1", _dash_ctx())
+
+    assert url == DS_VIDEO_URL
+
+
+@respx.mock
+async def test_dashscope_fetch_result_url_returns_none_on_http_error() -> None:
+    respx.get(DS_TASK_URL).mock(return_value=httpx.Response(404, json={}))
+    provider = DashScopeAsyncV1Provider()
+
+    assert await provider.fetch_result_url("tsk-1", _dash_ctx()) is None
+
+
+@respx.mock
+async def test_dashscope_download_result_returns_bytes() -> None:
+    respx.get(DS_TASK_URL).mock(
+        return_value=httpx.Response(200, json={"task_status": "SUCCEEDED", "output": {"video_url": DS_VIDEO_URL}})
+    )
+    respx.get(DS_VIDEO_URL).mock(return_value=httpx.Response(200, content=b"VIDEO_BYTES"))
+    provider = DashScopeAsyncV1Provider()
+
+    data = await provider.download_result("tsk-1", _dash_ctx())
+
+    assert data == b"VIDEO_BYTES"
+
+
+@respx.mock
+async def test_dashscope_cancel_returns_false() -> None:
+    provider = DashScopeAsyncV1Provider()
+
+    assert await provider.cancel("tsk-1", _dash_ctx()) is False
+
+
+def test_dashscope_preset_and_profiles_registered() -> None:
+    preset = get_preset("dashscope_async_v1")
+    assert preset is not None
+    assert preset.enabled is True
+    assert preset.allows_custom_base_url is False
+    assert preset.official_base_url == DS_BASE
+
+    profiles = list_profiles("dashscope_async_v1")
+    assert {p.code for p in profiles} == {"wan2.5-t2v-preview", "wan2.2-t2v-plus"}

@@ -148,3 +148,58 @@ async def test_retest_persisted_config(client: httpx.AsyncClient) -> None:
     resp = await client.post(f"/api/v1/video-api-configs/{created['id']}/test", headers=headers)
     assert resp.status_code == 200
     assert resp.json()["verification_status"] == "verified"
+
+
+def _custom_template_payload() -> dict:
+    """带用户自定义模板的创建 payload（generic 协议 + template_mode="custom"）。"""
+    payload = _create_payload()
+    payload["template_mode"] = "custom"
+    payload["submit_method"] = "POST"
+    payload["submit_path"] = "/submit"
+    payload["request_template_json"] = {"model": "{model}", "prompt": "{prompt}"}
+    payload["task_id_path"] = "job_id"
+    payload["poll_method"] = "GET"
+    payload["poll_path"] = "/job/{task_id}"
+    payload["status_path"] = "state"
+    payload["status_map"] = {"pending": "queued", "finished": "succeeded"}
+    payload["result_url_path"] = "video"
+    return payload
+
+
+async def test_create_config_with_custom_template(client: httpx.AsyncClient) -> None:
+    """template_mode="custom" 时把用户模板组装进 custom_template_json 落库，视图可回读。"""
+    await _register(client)
+    headers = _headers(client)
+    resp = await client.post("/api/v1/video-api-configs", json=_custom_template_payload(), headers=headers)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["template_mode"] == "custom"
+    assert body["custom_template_json"]["submit_path"] == "/submit"
+    assert body["custom_template_json"]["task_id_path"] == "job_id"
+    assert body["custom_template_json"]["status_map"]["finished"] == "succeeded"
+    assert body["custom_template_json"]["result_url_path"] == "video"
+
+
+async def test_create_config_custom_template_missing_required(client: httpx.AsyncClient) -> None:
+    """template_mode="custom" 缺必填字段（submit_path）→ 422 VIDEO_CONFIG_INVALID。"""
+    await _register(client)
+    headers = _headers(client)
+    payload = _custom_template_payload()
+    payload.pop("submit_path")
+    resp = await client.post("/api/v1/video-api-configs", json=payload, headers=headers)
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "VIDEO_CONFIG_INVALID"
+
+
+async def test_create_config_builtin_ignores_custom_fields(client: httpx.AsyncClient) -> None:
+    """builtin 场景（默认）忽略自定义模板字段：custom_template_json 为 None，不污染 builtin。"""
+    await _register(client)
+    headers = _headers(client)
+    payload = _create_payload()
+    # 即使传了自定义模板字段，builtin 也应忽略
+    payload["submit_path"] = "/submit"
+    resp = await client.post("/api/v1/video-api-configs", json=payload, headers=headers)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["template_mode"] == "builtin"
+    assert body["custom_template_json"] is None

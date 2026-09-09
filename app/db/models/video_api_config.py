@@ -61,6 +61,8 @@ class VideoApiConfigRevision(SQLModel, table=True):
     relay_risk_accepted_at: datetime | None = Field(default=None)  # 中转配置必填
     last_verified_at: datetime | None = Field(default=None)
     last_error_code: str | None = Field(default=None, max_length=64)
+    # 用户自定义模板（template_mode="custom" 时存 JSON 字符串，builtin 为 None）
+    custom_template_json: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=now)
 
     __table_args__ = (

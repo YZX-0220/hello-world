@@ -1,7 +1,7 @@
 """视频协议 / 用户 API 配置的输入输出模型（接口说明 3.8~3.12、6.x）。"""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -82,6 +82,17 @@ class VideoApiConfigBase(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
     capability_profile_code: str | None = Field(default=None, max_length=64)
     relay_risk_accepted: bool = False
+    # ---- 用户自定义模板（template_mode="custom" 时必填，builtin 时忽略）----
+    template_mode: Literal["builtin", "custom"] = "builtin"
+    submit_method: str | None = Field(default=None, max_length=10)
+    submit_path: str | None = Field(default=None, max_length=500)
+    request_template_json: dict[str, Any] | None = None
+    task_id_path: str | None = Field(default=None, max_length=200)
+    poll_method: str | None = Field(default=None, max_length=10)
+    poll_path: str | None = Field(default=None, max_length=500)
+    status_path: str | None = Field(default=None, max_length=200)
+    status_map: dict[str, str] | None = None
+    result_url_path: str | None = Field(default=None, max_length=200)
 
 
 class TestVideoApiConfigRequest(VideoApiConfigBase):
@@ -115,6 +126,17 @@ class VideoApiConfigPatchRequest(BaseModel):
     capability_profile_code: str | None = Field(default=None, max_length=64)
     relay_risk_accepted: bool | None = Field(default=None)
     status: str | None = Field(default=None, min_length=1, max_length=20)  # active / disabled
+    # ---- 用户自定义模板（template_mode 显式提供时才参与连接变更）----
+    template_mode: Literal["builtin", "custom"] | None = None
+    submit_method: str | None = Field(default=None, max_length=10)
+    submit_path: str | None = Field(default=None, max_length=500)
+    request_template_json: dict[str, Any] | None = None
+    task_id_path: str | None = Field(default=None, max_length=200)
+    poll_method: str | None = Field(default=None, max_length=10)
+    poll_path: str | None = Field(default=None, max_length=500)
+    status_path: str | None = Field(default=None, max_length=200)
+    status_map: dict[str, str] | None = None
+    result_url_path: str | None = Field(default=None, max_length=200)
 
 
 # ---- 响应对象 ----
@@ -143,5 +165,7 @@ class VideoApiConfigView(BaseModel):
     capability_source: str
     relay_risk_accepted_at: datetime | None = None
     last_error_code: str | None = None
+    template_mode: str = "builtin"
+    custom_template_json: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime

@@ -43,11 +43,17 @@ def _extract(obj: Any, dotpath: str) -> Any:
 
 
 def _fill(template: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
-    """用 request 的值替换模板里的 {key} 占位符（递归）。"""
+    """用 request 的值替换模板里的 {key} 占位符（递归）。
+
+    占位符按 request dict 的 key 取值；{model} 是 {remote_model_id} 的别名
+    （提交 request dict 里远端模型 id 的实际字段是 remote_model_id）。
+    """
 
     def _sub(v: Any) -> Any:
         if isinstance(v, str):
-            return request.get(v.strip("{}"), v)
+            key = v.strip("{}")
+            key = {"model": "remote_model_id"}.get(key, key)
+            return request.get(key, v)
         if isinstance(v, list):
             return [_sub(x) for x in v]
         if isinstance(v, dict):

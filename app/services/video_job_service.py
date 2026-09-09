@@ -53,6 +53,7 @@ from app.schemas.video_job import CreateVideoCommand, ErrorInfo, VideoJobEventVi
 from app.services.provider_asset_url import sign_provider_asset
 from app.services.video_download_service import VideoDownloadService
 from app.video_registry import get_template
+from app.video_registry.models import EndpointSpec, ProtocolTemplate
 
 _ERROR_MAP = {
     "VIDEO_SUBMISSION_FAILED": VIDEO_SUBMISSION_FAILED,
@@ -65,6 +66,48 @@ _ERROR_MAP = {
 
 def _provider_error(exc: VideoProviderError) -> AppError:
     return AppError(_ERROR_MAP.get(exc.code, VIDEO_SUBMISSION_FAILED), exc.message)
+
+
+def _build_custom_template(custom_template_json: str | None) -> ProtocolTemplate | None:
+    """把落库的自定义模板 JSON 反序列化成 ProtocolTemplate（供 Adapter 使用）。
+
+    template_mode=="custom"（custom_template_json 非空）时返回用户模板；
+    否则返回 None（Adapter 将按内置 V1_VIDEOS_TEMPLATE 行事）。
+
+    自定义模板只有一份查询路径（poll_path）同时承载状态与成品地址，因此
+    poll/result 两个 EndpointSpec 共用该路径，status/result_url 分别取
+    status_path / result_url_path。
+    """
+    if not custom_template_json:
+        return None
+    data = json.loads(custom_template_json)
+    poll_path = data.get("poll_path", "/tasks/{task_id}")
+    return ProtocolTemplate(
+        template_code="custom",
+        protocol_code="generic_async_json_v1",
+        name="用户自定义模板",
+        version=1,
+        submit=EndpointSpec(
+            method=data.get("submit_method", "POST"),
+            path=data.get("submit_path", "/tasks"),
+            success_statuses=frozenset({200, 201, 202}),
+            id_json_path=data.get("task_id_path", "data.task_id"),
+            request_template_json=data.get("request_template_json") or {},
+        ),
+        poll=EndpointSpec(
+            method=data.get("poll_method", "GET"),
+            path=poll_path,
+            success_statuses=frozenset({200}),
+            status_json_path=data.get("status_path", "data.status"),
+        ),
+        result=EndpointSpec(
+            method="GET",
+            path=poll_path,
+            success_statuses=frozenset({200}),
+            result_url_json_path=data.get("result_url_path", "data.url"),
+        ),
+        remote_status_map=data.get("status_map") or {},
+    )
 
 
 def _fingerprint(payload: dict[str, Any]) -> str:
@@ -290,7 +333,10 @@ class VideoJobService:
         ).first()
         try:
             status = await self._provider.poll(job.provider_task_id, self._ctx(revision))
-            mapped = self._map_status(status.raw_status)
+            template = _build_custom_template(revision.custom_template_json) or get_template(
+                "generic_async_json_v1", "v1_videos_json_v1"
+            )
+            mapped = self._map_status(status.raw_status, template)
         except VideoProviderError as exc:
             job.error_code = exc.code
             job.error_message = exc.message[:2000]
@@ -318,8 +364,7 @@ class VideoJobService:
         if mapped == VideoJobStatus.SUCCEEDED.value and job.download_status == DownloadStatus.NOT_STARTED.value:
             await self._trigger_download(job)
 
-    def _map_status(self, raw: str) -> str:
-        template = get_template("generic_async_json_v1", "v1_videos_json_v1")
+    def _map_status(self, raw: str, template: ProtocolTemplate | None) -> str:
         if template is not None:
             return template.remote_status_map.get(raw, raw)
         return raw
@@ -332,7 +377,7 @@ class VideoJobService:
             auth=auth,
             options=options,
             remote_model_id=revision.remote_model_id,
-            template=None,
+            template=_build_custom_template(revision.custom_template_json),
         )
 
     def _provider_request(self, job: VideoJob, assets: list[tuple[str, str, int]]) -> dict[str, Any]:

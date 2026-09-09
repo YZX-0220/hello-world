@@ -14,16 +14,16 @@ export default defineConfig({
     proxy: {
       // 代理业务接口到后端开发服务器
       '/api/v1': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
       },
       // 代理健康检查接口
       '/healthz': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
       },
       '/readyz': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
       }
     }

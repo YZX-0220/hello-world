@@ -37,6 +37,7 @@
           >
             <div class="conv-title">{{ conv.title || '新对话' }}</div>
             <div class="conv-time">{{ formatTime(conv.updated_at) }}</div>
+            <button class="conv-del" title="删除对话" @click.stop="deleteConversation(conv.id)">×</button>
           </div>
         </div>
       </aside>
@@ -61,14 +62,15 @@
           <div v-for="msg in messages" :key="msg.id" :class="['message-row', msg.role]">
             <div class="avatar">{{ msg.role === 'user' ? 'U' : 'AI' }}</div>
             <div class="bubble">
-              <div class="msg-content">{{ msg.content }}</div>
+              <div class="msg-content" v-html="renderMd(msg.content)"></div>
               <!-- 联网资料引用展示 -->
               <div v-if="msg.citations && msg.citations.length > 0" class="citations-box">
-                <div class="citations-title">参考海外资讯/热点：</div>
-                <div v-for="(cite, cIdx) in msg.citations" :key="cIdx" class="citation-item">
-                  <a :href="cite.url" target="_blank" rel="noopener">[{{ cIdx + 1 }}] {{ cite.title }}</a>
-                  <p>{{ cite.snippet }}</p>
-                </div>
+                <details>
+                  <summary class="citations-title">🔍 联网参考了 {{ msg.citations.length }} 条资讯（点击查看）</summary>
+                  <div v-for="(cite, cIdx) in msg.citations" :key="cIdx" class="citation-item">
+                    <a :href="cite.url" target="_blank" rel="noopener">[{{ cIdx + 1 }}] {{ cite.title }}</a>
+                  </div>
+                </details>
               </div>
               <div class="msg-time">{{ formatTime(msg.created_at) }}</div>
             </div>
@@ -158,6 +160,24 @@
           </div>
 
           <div class="spec-field-item">
+            <label>视觉风格 / 动作 / 旁白</label>
+            <div class="spec-val">
+              <strong>风格：</strong>{{ spec.visual_style || '—' }}<br />
+              <strong>动作：</strong>{{ spec.motion || '—' }}<br />
+              <strong>旁白：</strong>{{ spec.narration || '—' }}
+            </div>
+          </div>
+
+          <div class="spec-field-item">
+            <label>负面提示 / 素材引用</label>
+            <div class="spec-val">
+              <strong>负面提示：</strong>{{ spec.negative_prompt || '—' }}<br />
+              <strong>首帧素材：</strong>{{ spec.first_frame_asset_id || '—' }}<br />
+              <strong>参考素材：</strong>{{ (spec.reference_asset_ids && spec.reference_asset_ids.length) ? spec.reference_asset_ids.join(', ') : '—' }}
+            </div>
+          </div>
+
+          <div class="spec-field-item">
             <label>推荐视频提示词 (Suggested Prompt)</label>
             <div class="prompt-code-box">{{ project?.suggested_prompt || '等待 Agent 润色生成...' }}</div>
           </div>
@@ -169,8 +189,9 @@
           <div class="job-field">
             <label>选用视频 API 配置：</label>
             <select v-model="selectedApiConfigId">
+              <option value="platform">平台官方通道（每日限 1 次）</option>
               <option v-for="cfg in apiConfigs" :key="cfg.id" :value="cfg.id">
-                {{ cfg.display_name }} ({{ cfg.remote_model_id }})
+                {{ cfg.display_name }}
               </option>
             </select>
           </div>
@@ -246,6 +267,21 @@ const spec = computed<VideoBrief>(() => project.value?.current_spec || ({} as Vi
 
 // 视频接口配置与任务
 const apiConfigs = ref<VideoApiConfigView[]>([]);
+
+function escapeHtml(s: string): string {
+  return (s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+// 轻量 markdown 渲染：先转义 HTML 防注入，再转换常见 markdown；换行交给 CSS pre-wrap
+function renderMd(text: string): string {
+  let t = escapeHtml(text);
+  t = t.replace(/```([\s\S]+?)```/g, (_m, c) => '<pre class="code">' + c.trim() + '</pre>');
+  t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+  t = t.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  t = t.replace(/^#{1,4}\s+(.+)$/gm, '<h4>$1</h4>');
+  t = t.replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>');
+  t = t.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g, '<ul>$1</ul>');
+  return t;
+}
 const selectedApiConfigId = ref('');
 const isSubmittingJob = ref(false);
 const activeJob = ref<VideoJobView | null>(null);
@@ -260,6 +296,18 @@ onMounted(async () => {
   await loadConversations();
   await loadApiConfigs();
 });
+
+async function deleteConversation(id: string) {
+  if (!confirm('确定删除该对话吗？')) return;
+  try {
+    await request.delete('/conversations/' + id);
+    conversations.value = conversations.value.filter(c => c.id !== id);
+    if (currentConvId.value === id) {
+      currentConvId.value = ''; messages.value = []; project.value = null;
+      if (conversations.value.length > 0) switchConversation(conversations.value[0].id);
+    }
+  } catch (err: any) { alert(err.message || '删除失败'); }
+}
 
 // 加载历史对话
 async function loadConversations() {
@@ -343,8 +391,7 @@ async function sendMessage() {
     const res: any = await request.post(`/conversations/${currentConvId.value}/messages`, {
       content,
       client_request_id: clientRequestId,
-      web_search_enabled: webSearchEnabled.value,
-      retry_failed: false
+      web_search_enabled: webSearchEnabled.value
     });
 
     // 成功完成，插入用户消息和 AI 消息
@@ -601,6 +648,9 @@ async function handleLogout() {
   transition: background 0.15s;
 }
 .conversation-item:hover { background-color: #161e2e; }
+.conversation-item { position: relative; }
+.conv-del { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: transparent; border: none; color: #64748b; font-size: 16px; cursor: pointer; }
+.conv-del:hover { color: #ef4444; }
 .conversation-item.active {
   background-color: #1c263b;
   border-left: 4px solid #6366f1;
@@ -698,6 +748,11 @@ async function handleLogout() {
   gap: 10px;
   color: #94a3b8;
 }
+.msg-content { white-space: pre-wrap; word-break: break-word; }
+.msg-content .code { background: #0b1220; padding: 10px; border-radius: 8px; overflow: auto; font-family: monospace; margin: 6px 0; }
+.msg-content code { background: #0b1220; padding: 1px 5px; border-radius: 4px; font-family: monospace; }
+.msg-content h4 { margin: 8px 0 4px; font-size: 15px; }
+.msg-content ul { margin: 4px 0; padding-left: 20px; }
 .msg-time {
   font-size: 11px;
   color: #94a3b8;

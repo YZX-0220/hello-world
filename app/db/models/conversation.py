@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Index, UniqueConstraint
+from sqlalchemy import Column, Index, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from app.core.enums import ConversationStatus, MessageStatus
@@ -61,4 +61,6 @@ class ConversationContext(SQLModel, table=True):
     summary_through_message_id: str | None = Field(default=None)
     summary_model: str | None = Field(default=None, max_length=200)
     summary_prompt_version: str | None = Field(default=None, max_length=64)
+    # 联网搜索的详细依据累积（只供后续轮次后端上下文，不进入任何前端响应字段，MessageView 不包含它）
+    retrieval_notes: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     updated_at: datetime = Field(default_factory=now)

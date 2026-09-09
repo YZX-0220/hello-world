@@ -136,10 +136,13 @@ def build_context(
     *,
     summary_text: str = "",
     summary_through_message_id: str | None = None,
+    retrieval_notes: str = "",
 ) -> list[dict[str, str]]:
     """构造发送给模型的消息列表。
 
     history 为 [{"id","role","content"}]（id 可选），按时间顺序。
+    - 当 retrieval_notes 非空时，在主系统提示之后、历史之前追加一条 role=system 的"此前
+      联网检索到的资料"消息，让后续多轮都能看到累积的检索依据；
     - 当存在摘要（summary_text 非空且 summary_through_message_id 有值）时，把该 id **及之前**的
       历史替换成一条 role=system 的摘要消息，该 id 之后的消息照常加入，避免重复/缺失；
     - 否则回退到只取最近 N 条的历史（首期保守预算）。
@@ -147,6 +150,11 @@ def build_context(
     messages: list[dict[str, str]] = [
         {"role": "system", "content": f"{DEFAULT_SYSTEM_PROMPT}\n\n【当前状态】当前方案：{brief_to_text(brief)}"}
     ]
+
+    # 累积的联网检索依据：只用于后端上下文，不进入任何前端响应字段
+    notes = (retrieval_notes or "").strip()
+    if notes:
+        messages.append({"role": "system", "content": f"【此前联网检索到的资料】\n{notes}"})
 
     summary = (summary_text or "").strip()
     if summary and summary_through_message_id:

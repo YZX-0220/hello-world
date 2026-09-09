@@ -748,3 +748,220 @@ async def test_sync_endpoint_idempotent_replay(client: httpx.AsyncClient) -> Non
     assert second.json()["run_id"] == first.json()["run_id"]
     listed = (await client.get(f"/api/v1/conversations/{cid}/messages")).json()
     assert len(listed["items"]) == 2  # 仅 user+assistant 各一条，未重复
+
+
+async def test_search_persists_retrieval_notes(client, db_engine, monkeypatch) -> None:
+    """联网搜索后，ConversationContext.retrieval_notes 非空且包含该查询相关文本。
+
+    证明"详细依据被保存到对话记录"：检索结果块（每查询一组「查询/标题/链接/摘要」）被追加到
+    该对话的持久上下文，且保留完整详细依据（含链接与摘要），而非只保存结构化引用。
+    """
+    from app.db.models.conversation import ConversationContext
+    from app.providers.text.base import TextCapabilities, TextProvider, TextResult
+    from app.services import agent_service as ag
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    class SearchNotesProvider(TextProvider):
+        code = "searchnotes"
+
+        @property
+        def capabilities(self) -> TextCapabilities:
+            return TextCapabilities(supports_structured_output=True)
+
+        async def generate(self, messages, *, structured: bool = False) -> TextResult:
+            if structured:
+                # 主对话：请求联网搜索
+                return TextResult(
+                    reply="好的，我核实一下资料。",
+                    structured={
+                        "reply": "好的，我核实一下资料。",
+                        "state_patch": {},
+                        "search_requests": ["故宫 夜景 宣传片"],
+                    },
+                    model="fake-model",
+                )
+            # refine：基于检索结果二次生成最终回复
+            return TextResult(
+                reply="根据检索结果：故宫夜景适合做成电影感宣传片，参考资料：https://example.com/reference/1",
+                model="fake-model",
+                structured=None,
+            )
+
+    monkeypatch.setattr(ag, "get_text_provider", lambda: SearchNotesProvider())
+
+    await _register(client)
+    headers = _csrf_headers(client)
+    conv = await client.post("/api/v1/conversations", json={"title": "检索依据落库"}, headers=headers)
+    cid = conv.json()["conversation"]["id"]
+
+    msg = await client.post(
+        f"/api/v1/conversations/{cid}/messages",
+        json={"content": "帮我查一下故宫夜景宣传片资料", "client_request_id": str(uuid.uuid4()), "web_search_enabled": True},
+        headers=headers,
+    )
+    assert msg.status_code == 201
+
+    async with async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)() as session:
+        ctx = await session.get(ConversationContext, cid)
+        assert ctx is not None
+        assert ctx.retrieval_notes is not None
+        assert ctx.retrieval_notes != ""
+        # 该查询相关信息确实进入持久上下文
+        assert "查询：故宫 夜景 宣传片" in ctx.retrieval_notes
+        # 保留完整详细依据（链接/摘要），而非只存结构化引用
+        assert "https://example.com" in ctx.retrieval_notes
+        assert "摘要：" in ctx.retrieval_notes
+
+
+async def test_next_turn_sees_retrieval_notes(client, db_engine, monkeypatch) -> None:
+    """联网搜索后的下一轮，发送给模型的消息里包含【此前联网检索到的资料】与依据文本。
+
+    证明"后续多轮 AI 都能看到检索依据"：取第二轮主对话（最后一次 structured=True 的 generate）
+    的 messages，断言含注入标记与检索文本；同时本轮用户界面正文仍是模型自身回复，不被依据污染
+    （依据只进入后端上下文）。且首轮 assistant 消息的 citations 结构化引用不受影响。
+    """
+    from app.providers.text.base import TextCapabilities, TextProvider, TextResult
+    from app.services import agent_service as ag
+
+    class NextTurnProvider(TextProvider):
+        code = "nextturn"
+
+        def __init__(self) -> None:
+            self.received: list[tuple[bool, list[dict[str, str]]]] = []
+            self.structured_calls = 0
+
+        @property
+        def capabilities(self) -> TextCapabilities:
+            return TextCapabilities(supports_structured_output=True)
+
+        async def generate(self, messages, *, structured: bool = False) -> TextResult:
+            self.received.append((structured, messages))
+            self.structured_calls += 1 if structured else 0
+            if structured:
+                if self.structured_calls == 1:
+                    # 第 1 轮主对话：请求联网搜索
+                    return TextResult(
+                        reply="好的，我核实一下材料。",
+                        structured={
+                            "reply": "好的，我核实一下材料。",
+                            "state_patch": {},
+                            "search_requests": ["故宫 夜景 宣传片"],
+                        },
+                        model="fake-model",
+                    )
+                # 第 2 轮主对话：不再请求搜索
+                return TextResult(
+                    reply="好的，已了解。",
+                    structured={"reply": "好的，已了解。", "state_patch": {}},
+                    model="fake-model",
+                )
+            # 第 1 轮 refine：基于检索结果二次生成最终回复
+            return TextResult(
+                reply="根据检索结果：故宫夜景适合做成电影感宣传片，参考资料：https://example.com/reference/1",
+                model="fake-model",
+                structured=None,
+            )
+
+    provider = NextTurnProvider()
+    monkeypatch.setattr(ag, "get_text_provider", lambda: provider)
+
+    await _register(client)
+    headers = _csrf_headers(client)
+    conv = await client.post("/api/v1/conversations", json={"title": "检索依据跨轮"}, headers=headers)
+    cid = conv.json()["conversation"]["id"]
+
+    # 第 1 轮：联网搜索 → 依据入库，正文为 refine 结果
+    r1 = await client.post(
+        f"/api/v1/conversations/{cid}/messages",
+        json={"content": "帮我查一下故宫夜景宣传片资料", "client_request_id": str(uuid.uuid4()), "web_search_enabled": True},
+        headers=headers,
+    )
+    assert r1.status_code == 201
+    assert "根据检索结果" in r1.json()["assistant_message"]["content"]
+
+    # 第 2 轮：再次发消息（不联网），主对话上下文应带上累积的检索依据
+    r2 = await client.post(
+        f"/api/v1/conversations/{cid}/messages",
+        json={"content": "在此基础上继续细化", "client_request_id": str(uuid.uuid4())},
+        headers=headers,
+    )
+    assert r2.status_code == 201
+
+    # 取第 2 轮主对话发送给模型的 messages（最后一次 structured=True 的 generate）
+    second_structured: list[dict[str, str]] | None = None
+    for structured, msgs in provider.received:
+        if structured:
+            second_structured = msgs
+    assert second_structured is not None
+    contents = [m.get("content") or "" for m in second_structured]
+    assert any("【此前联网检索到的资料】" in c for c in contents)
+    assert any("查询：故宫 夜景 宣传片" in c for c in contents)
+
+    # 本轮用户界面正文不被检索依据污染（依据只进后端上下文，不进 reply）
+    assert "根据检索结果" not in r2.json()["assistant_message"]["content"]
+
+    # citations 结构化引用不受影响：首轮 assistant 消息仍返回结构化引用列表
+    listed = (await client.get(f"/api/v1/conversations/{cid}/messages")).json()
+    first_assistant = next(m for m in listed["items"] if m["role"] == "assistant")
+    assert len(first_assistant["citations"]) >= 1
+    assert first_assistant["citations"][0]["url"].startswith("https://example.com")
+
+
+async def test_retrieval_notes_dedup_same_query(client, db_engine, monkeypatch) -> None:
+    """同一查询在后续轮被再次联网搜索时，retrieval_notes 不重复追加该查询。
+
+    证明去重逻辑：检索依据块以"查询：{query}"为唯一标识，已存在则跳过，避免积累冗余副本。
+    """
+    from app.db.models.conversation import ConversationContext
+    from app.providers.text.base import TextCapabilities, TextProvider, TextResult
+    from app.services import agent_service as ag
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    class DedupSearchProvider(TextProvider):
+        code = "dedupsearch"
+
+        @property
+        def capabilities(self) -> TextCapabilities:
+            return TextCapabilities(supports_structured_output=True)
+
+        async def generate(self, messages, *, structured: bool = False) -> TextResult:
+            if structured:
+                return TextResult(
+                    reply="好的，我核实一下资料。",
+                    structured={
+                        "reply": "好的，我核实一下资料。",
+                        "state_patch": {},
+                        "search_requests": ["故宫 夜景 宣传片"],
+                    },
+                    model="fake-model",
+                )
+            return TextResult(
+                reply="根据检索结果：故宫夜景适合做成电影感宣传片，参考资料：https://example.com/reference/1",
+                model="fake-model",
+                structured=None,
+            )
+
+    monkeypatch.setattr(ag, "get_text_provider", lambda: DedupSearchProvider())
+
+    await _register(client)
+    headers = _csrf_headers(client)
+    conv = await client.post("/api/v1/conversations", json={"title": "检索依据去重"}, headers=headers)
+    cid = conv.json()["conversation"]["id"]
+
+    # 两轮都触发同一查询的联网搜索
+    for i in range(2):
+        resp = await client.post(
+            f"/api/v1/conversations/{cid}/messages",
+            json={"content": f"再查一次故宫夜景宣传片（第{i + 1}轮）", "client_request_id": str(uuid.uuid4()), "web_search_enabled": True},
+            headers=headers,
+        )
+        assert resp.status_code == 201
+
+    async with async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)() as session:
+        ctx = await session.get(ConversationContext, cid)
+        assert ctx is not None
+        assert ctx.retrieval_notes is not None
+        # 同一查询只追加一次
+        assert ctx.retrieval_notes.count("查询：故宫 夜景 宣传片") == 1

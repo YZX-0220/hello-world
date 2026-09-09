@@ -136,18 +136,26 @@ class AgentService:
         *,
         summary_text: str = "",
         summary_through_message_id: str | None = None,
+        retrieval_notes: str = "",
     ) -> AgentOutput:
         """执行一轮对话，返回结构与用户回复，并把本轮 AgentRun 落库。
 
         生命周期：创建 AgentRun(running，记录调用开始时的方案版本) → 调用文本 Provider →
         成功记为 succeeded（带模型名/Token 用量/结束时间），失败记为 failed（带错误码与脱敏错误），
         并把 agent_run_id 挂到 AgentOutput 上，供上层关联工具调用与引用。
-        summary_text / summary_through_message_id 由上层传入，用于在构造上下文时压缩旧历史。
+        summary_text / summary_through_message_id / retrieval_notes 由上层传入：
+        前两者用于在构造上下文时压缩旧历史；retrieval_notes 为累积的联网搜索依据，
+        非空时注入到上下文供后续多轮使用。
         """
         brief_dict = await self._projects.get_current_brief(user_id, conversation_id)
         brief = VideoBrief.model_validate(brief_dict) if brief_dict else VideoBrief()
         context = build_context(
-            brief, history, user_content, summary_text=summary_text, summary_through_message_id=summary_through_message_id
+            brief,
+            history,
+            user_content,
+            summary_text=summary_text,
+            summary_through_message_id=summary_through_message_id,
+            retrieval_notes=retrieval_notes,
         )
 
         base_spec_version = await self._projects.get_current_spec_version(user_id, conversation_id)
@@ -223,7 +231,7 @@ class AgentService:
         )
         messages: list[dict[str, str]] = [
             *context,
-            {"role": "user", "content": "请依据以下检索结果给出最终回复，并指出引用的来源。"},
+            {"role": "user", "content": "请依据以下检索结果，简洁地给出最终回复。不要把检索到的来源标题、链接或完整依据复述出来——它们仅供参考，你的回答应聚焦视频创作内容本身。"},
             # 检索结果注入（role="assistant" 承载，见方法注释）
             {"role": "assistant", "content": f"【检索结果】\n{search_results_text}"},
         ]

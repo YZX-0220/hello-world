@@ -134,6 +134,8 @@ class ConversationService:
         ctx = await self._convs.get_context(conversation_id)
         summary_text = ctx.summary_text if ctx is not None else ""
         summary_through_message_id = ctx.summary_through_message_id if ctx is not None else None
+        # 联网搜索的累积依据：非空时注入后续轮次上下文
+        retrieval_notes = (ctx.retrieval_notes if ctx is not None else "") or ""
 
         output = await self._agent.run_turn(
             user_id,
@@ -143,6 +145,7 @@ class ConversationService:
             history,
             summary_text=summary_text,
             summary_through_message_id=summary_through_message_id,
+            retrieval_notes=retrieval_notes,
         )
         agent_run_id = output.agent_run_id
 
@@ -345,6 +348,8 @@ class ConversationService:
             await self._agent.set_tool_call_count(agent_run_id, len(tools))
         search_results_text = "\n\n".join(result_blocks)
         if search_results_text.strip():
+            # 把本轮检索的详细依据追加到该对话的持久上下文，供后续多轮复用
+            await self._append_retrieval_notes(conversation_id, result_blocks)
             final_reply = await self._agent.refine_with_search(
                 user_id,
                 conversation_id,
@@ -358,6 +363,35 @@ class ConversationService:
                 assistant_message.content = final_reply
                 await self._session.commit()
         return len(citations)
+
+    async def _append_retrieval_notes(self, conversation_id: str, result_blocks: list[str]) -> None:
+        """把本轮联网搜索的详细依据追加到该对话的持久上下文（ConversationContext.retrieval_notes）。
+
+        详情只用于后端后续轮次上下文（run_turn 注入），不进入任何前端响应字段（MessageView 不含它）。
+        去重规则：某条结果段的"查询：{query}"若已存在于既有 retrieval_notes（或本轮前面已追加过），
+        则跳过，避免同一查询被重复追加。该对话上下文尚未创建（retrieval_notes 为 None）时直接创建。
+        """
+        if not result_blocks:
+            return
+        ctx = await self._convs.get_context(conversation_id)
+        if ctx is None:
+            ctx = ConversationContext(conversation_id=conversation_id)
+        existing = ctx.retrieval_notes or ""
+        seen: set[str] = set()
+        append_blocks: list[str] = []
+        for block in result_blocks:
+            query_line = block.split("\n", 1)[0]  # "查询：{query}"
+            if query_line in existing or query_line in seen:
+                continue
+            seen.add(query_line)
+            append_blocks.append(block)
+        if not append_blocks:
+            return
+        joined = "\n\n".join(append_blocks)
+        ctx.retrieval_notes = f"{existing}\n\n{joined}".strip() if existing else joined
+        ctx.updated_at = now()
+        self._session.add(ctx)
+        await self._session.commit()
 
     async def _find_reply(self, user_message: Message) -> Message | None:
         """找到某条用户消息对应的助手回复。"""

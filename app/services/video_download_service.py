@@ -38,7 +38,7 @@ class VideoDownloadService:
         """对已成功的任务执行一次下载/降级，返回更新后的 download_status。"""
         if job.status != "succeeded":
             raise AppError(VIDEO_DOWNLOAD_FAILED, "任务尚未生成成功，不能下载结果")
-        if job.api_config_id == "platform":
+        if job.api_config_id is None:
             # 平台自有通道：无用户 revision，改用平台 ctx（base_url/auth/model）。
             revision = None
             ctx = self._platform_ctx()

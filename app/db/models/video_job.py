@@ -23,9 +23,9 @@ class VideoJob(SQLModel, table=True):
     project_id: str = Field(foreign_key="video_projects.id", index=True, ondelete="CASCADE")
     project_version_id: str = Field(foreign_key="video_project_versions.id", ondelete="RESTRICT")
     project_version: int = Field()  # 固定版本
-    api_config_id: str = Field(foreign_key="video_api_configs.id", ondelete="RESTRICT")
-    # 平台自有通道（api_config_id="platform"）没有用户配置 revision，此字段为 None；
-    # 用户自配通道则为创建时的 revision.id（非空）。
+    # 平台自有通道（请求 api_config_id="platform"）不引用用户配置：api_config_id 存 NULL、
+    # revision 也为 None；用户自配通道则存真实 config.id / revision.id（非空）。
+    api_config_id: str | None = Field(default=None, foreign_key="video_api_configs.id", ondelete="RESTRICT")
     api_config_revision_id: str | None = Field(default=None, foreign_key="video_api_config_revisions.id", ondelete="RESTRICT")
     previous_job_id: str | None = Field(default=None, foreign_key="video_jobs.id")
     idempotency_key: str = Field(max_length=64)  # 请求头值

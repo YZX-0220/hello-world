@@ -351,7 +351,7 @@ async def test_platform_channel_create(client: httpx.AsyncClient) -> None:
     )
     assert r.status_code == 202, r.text
     job = r.json()
-    assert job["api_config_id"] == "platform"
+    assert job["api_config_id"] is None  # 平台通道不引用用户配置（存 NULL）
     assert job["status"] in ("queued", "running")  # fake 提交后 queued，不会停在 created
     assert job["api_config_revision"] == 0  # 平台通道无 revision
 

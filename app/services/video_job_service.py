@@ -158,7 +158,7 @@ class VideoJobService:
         # 其余通道完全沿用原来的 _active_config → revision 流程，行为不变。
         is_platform = command.api_config_id == PLATFORM_CONFIG_ID
         if is_platform:
-            api_config_id = PLATFORM_CONFIG_ID
+            api_config_id = None  # 平台通道不引用用户配置（外键允许 NULL）
             revision_identifier: int | str = PLATFORM_CONFIG_ID
             revision = None
             remote_model_id = settings.video_platform_model
@@ -292,7 +292,7 @@ class VideoJobService:
             raise AppError(VIDEO_CONFIG_INVALID, "视频任务不存在或无权访问")
         if job.status in (VideoJobStatus.SUCCEEDED.value, VideoJobStatus.FAILED.value, VideoJobStatus.CANCELLED.value):
             return job  # 幂等返回终态
-        is_platform = job.api_config_id == PLATFORM_CONFIG_ID
+        is_platform = job.api_config_id is None
         if is_platform:
             ctx = self._platform_ctx()
         else:
@@ -368,7 +368,7 @@ class VideoJobService:
     async def _refresh(self, job: VideoJob) -> None:
         if not job.provider_task_id:
             return
-        is_platform = job.api_config_id == PLATFORM_CONFIG_ID
+        is_platform = job.api_config_id is None
         if is_platform:
             # 平台通道无 revision：用平台 ctx + 无模板（ark 原生协议自带远端状态映射）。
             ctx = self._platform_ctx()

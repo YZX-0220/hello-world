@@ -374,7 +374,18 @@ import type {
   VideoJobView, 
   VideoApiConfigView 
 } from '@/types/api';
-
+function generateUUID(): string {
+  // 如果浏览器原生支持 randomUUID 且处于安全上下文，则直接使用
+  if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID();
+  }
+  // 否则降级使用兼容方案（适配非 HTTPS 的服务器环境）
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
 const router = useRouter();
 
 const conversations = ref<ConversationView[]>([]);
@@ -607,7 +618,9 @@ async function sendMessage() {
   inputContent.value = '';
   isAgentResponding.value = true;
 
-  const clientRequestId = crypto.randomUUID();
+ // 修改前：const clientRequestId = crypto.randomUUID();
+// 修改后：
+const clientRequestId = generateUUID();
 
   try {
     const res: any = await request.post(`/conversations/${currentConvId.value}/messages`, {
@@ -649,7 +662,9 @@ async function submitVideoJob() {
   }
 
   isSubmittingJob.value = true;
-  const idempotencyKey = crypto.randomUUID();
+// 修改前：const idempotencyKey = crypto.randomUUID();
+// 修改后：
+const idempotencyKey = generateUUID();
 
   try {
     const res: any = await request.post(

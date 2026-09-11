@@ -23,6 +23,7 @@
       <div class="nav-right">
         <a href="javascript:void(0)" class="nav-btn nav-link-about" @click="scrollToAbout">关于项目</a>
         <a href="javascript:void(0)" class="nav-btn nav-link-pricing" @click="scrollToPricing">价格优势</a>
+        <a href="javascript:void(0)" class="nav-btn nav-link-painpoints" @click="scrollToPainPoints">用户痛点</a>
         <router-link to="/settings/api" class="nav-btn nav-link-api">API 配置中心</router-link>
 
         <!-- 已登录：展示用户头像 SVG 徽章 -->
@@ -68,7 +69,7 @@
           </h1>
 
           <p class="sub-title">
-            破除跨文化叙事壁垒 · 托管模型与自备凭证双轨范式 · 零门槛视听语言构建[cite: 9]
+            破除跨文化叙事壁垒 · 托管模型与自备凭证双轨范式 · 零门槛视听语言构建
           </p>
 
           <div class="cta-wrapper">
@@ -84,17 +85,17 @@
           <div class="feature-metrics">
             <div class="metric-item">
               <span class="metric-value">Managed & BYOK</span>
-              <span class="metric-desc">多模型自备 Key 自由调度[cite: 9]</span>
+              <span class="metric-desc">多模型自备 Key 自由调度</span>
             </div>
             <div class="divider"></div>
             <div class="metric-item">
               <span class="metric-value">Agent 叙事引擎</span>
-              <span class="metric-desc">跨文化分镜精准转译[cite: 2]</span>
+              <span class="metric-desc">跨文化分镜精准转译</span>
             </div>
             <div class="divider"></div>
             <div class="metric-item">
               <span class="metric-value">国际传播特化</span>
-              <span class="metric-desc">提供专业海外受众指导[cite: 2]</span>
+              <span class="metric-desc">提供专业海外受众指导</span>
             </div>
           </div>
         </div>
@@ -107,7 +108,7 @@
         </div>
       </section>
 
-      <!-- ================= 第二屏：关于与产品介绍 ================= -->
+      <!-- ================= 第二屏：产品介绍 ================= -->
       <section class="snap-section about-screen" ref="aboutSectionRef">
         <div class="about-container">
           
@@ -127,7 +128,7 @@
             <div class="card-left-content">
               <h3 class="left-big-heading">你的跨文化 AI 执行导演</h3>
               <p class="left-desc-text">
-                从海外受众心理分析、易误解符号规避，到镜头光影与分镜编排[cite: 2]。“Hello World” Agent 通过自然语言对话驱动你的全流程视听创作，打破西方话语壁垒，讲好新时代中国故事[cite: 2, 9]。
+                从海外受众心理分析、易误解符号规避，到镜头光影与分镜编排。“Hello World” Agent 通过自然语言对话驱动你的全流程视听创作，打破西方话语壁垒，讲好新时代中国故事。
               </p>
               <button class="left-action-btn" @click="enterWorkspace">
                 开始创作
@@ -205,32 +206,30 @@
         </div>
       </section>
 
-      <!-- ================= 第三屏：核心价格与成本优势 (新增) ================= -->
+      <!-- ================= 第三屏：核心价格与成本优势 ================= -->
       <section class="snap-section pricing-screen" ref="pricingSectionRef">
         <div class="pricing-container">
           
-          <!-- 第三屏：价格优势看板的外部标题 -->
-<div class="external-header pricing-header">
-  <div class="section-badge-pill">COST & PRICING ADVANTAGE</div>
-  <h2 class="platform-main-title">
-    <span class="en-title">高质高效</span>
-    <span class="cn-title">极致性价比的创作底座</span>
-  </h2>
-  <p class="pricing-sub-desc">
-    依托底层直连与 BYOK 范式，剔除中心化转售溢价，单条生成成本最高直降 30%
-  </p>
-</div>
+          <div class="external-header pricing-header">
+            <div class="section-badge-pill">COST & PRICING ADVANTAGE</div>
+            <h2 class="platform-main-title">
+              <span class="en-title">高质高效</span>
+              <span class="cn-title">极致性价比的创作底座</span>
+            </h2>
+            <p class="pricing-sub-desc">
+              依托底层直连与 BYOK 范式，剔除中心化转售溢价，单条生成成本最高直降 30%
+            </p>
+          </div>
 
-          <!-- 核心图表卡片 -->
           <div class="chart-mega-card">
             <div class="chart-card-inner">
               
               <div class="chart-meta-row">
                 <span class="chart-spec-tag">测试规格：1080P · 16:9 · 5 秒文生视频</span>
-                <span class="chart-model-tag">使用模型：Seedance 2.5 </span>
+                <span class="chart-model-tag">底模：Seedance 2.5 API</span>
               </div>
 
-              <!-- 纯 CSS 科技风对比柱状图 -->
+              <!-- 对比柱状图 -->
               <div class="chart-visual-wrapper">
                 <div class="y-axis-labels">
                   <span>30</span>
@@ -243,7 +242,6 @@
                 </div>
 
                 <div class="bars-canvas">
-                  <!-- 刻度参考虚线 -->
                   <div class="grid-line line-30"></div>
                   <div class="grid-line line-25"></div>
                   <div class="grid-line line-20"></div>
@@ -252,32 +250,28 @@
                   <div class="grid-line line-5"></div>
                   <div class="grid-line line-0"></div>
 
-                  <!-- 柱子 1：我方平台 -->
                   <div class="bar-column">
                     <div class="bar-value-label self-highlight">
                       <span class="price-val">¥18.71</span>
                       <span class="cost-adv-tag">核心成本优势</span>
                     </div>
                     <div class="bar-track">
-                      <!-- 18.71 / 30 ≈ 62.3% -->
                       <div class="bar-fill self-bar" style="height: 62.3%;">
                         <div class="bar-top-glow"></div>
                       </div>
                     </div>
                     <div class="bar-x-label active-platform">
                       <strong>我方平台</strong>
-                      <small>(使用API)</small>
+                      <small>(Seedance 2.5 直连)</small>
                     </div>
                   </div>
 
-                  <!-- 柱子 2：行业主流大平台 A -->
                   <div class="bar-column">
                     <div class="bar-value-label">
                       <span class="price-val">¥25.92</span>
                       <span class="diff-tag">+¥7.21 / 贵 27.8%</span>
                     </div>
                     <div class="bar-track">
-                      <!-- 25.92 / 30 = 86.4% -->
                       <div class="bar-fill competitor-bar-a" style="height: 86.4%;"></div>
                     </div>
                     <div class="bar-x-label">
@@ -286,26 +280,23 @@
                     </div>
                   </div>
 
-                  <!-- 柱子 3：行业主流大平台 B -->
                   <div class="bar-column">
                     <div class="bar-value-label">
                       <span class="price-val">¥26.74</span>
                       <span class="diff-tag">+¥8.03 / 贵 30.0%</span>
                     </div>
                     <div class="bar-track">
-                      <!-- 26.74 / 30 = 89.1% -->
                       <div class="bar-fill competitor-bar-b" style="height: 89.1%;"></div>
                     </div>
                     <div class="bar-x-label">
                       <span>行业主流大平台 B</span>
-                      <small>(最高档会员折算)</small>
+                      <small>(单条折算成本)</small>
                     </div>
                   </div>
 
                 </div>
               </div>
 
-              <!-- 强制要求的注释说明文字 -->
               <div class="pricing-note-strip">
                 <svg class="info-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -313,10 +304,126 @@
                 <span>注：成本计算未计算暂时的优惠活动，行业主流平台成本计算使用最高档会员下的积分使用折算。</span>
               </div>
 
-              <!-- 底部直达工作台按钮 -->
               <div class="chart-action-bar">
                 <button class="pricing-cta-btn" @click="enterWorkspace">
                   即刻体验低成本高质创作
+                </button>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+
+        <div class="scroll-down-hint" @click="scrollToPainPoints">
+          <span>查看用户痛点调研</span>
+          <svg class="scroll-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </section>
+
+      <!-- ================= 第四屏：紧跟用户需求 · 核心痛点调研 (新增) ================= -->
+      <section class="snap-section painpoints-screen" ref="painpointsSectionRef">
+        <div class="painpoints-container">
+          
+          <div class="external-header painpoints-header">
+            <div class="section-badge-pill">USER-DRIVEN INNOVATION</div>
+            <h2 class="platform-main-title">
+              <span class="en-title">紧跟需求</span>
+              <span class="cn-title">直击创作者真实痛点</span>
+            </h2>
+            <p class="pricing-sub-desc">
+              不闭门造车，倾听一线创作者心声，将最迫切的真实诉求转化为系统核心解法
+            </p>
+          </div>
+
+          <!-- 横向条形图大卡片 -->
+          <div class="chart-mega-card">
+            <div class="chart-card-inner">
+              
+              <div class="chart-meta-row">
+                <span class="chart-spec-tag">调研主题：创作者在日常使用 AI 视频生成工具时面临的主要痛点</span>
+                <span class="chart-model-tag">平台实测调研样本 (N=619)</span>
+              </div>
+
+              <!-- 水平条形图结构 -->
+              <div class="hbar-visual-wrapper">
+                
+                <!-- 刻度垂直网格线 (0 ~ 70) -->
+                <div class="v-grid-line vline-0"></div>
+                <div class="v-grid-line vline-10"></div>
+                <div class="v-grid-line vline-20"></div>
+                <div class="v-grid-line vline-30"></div>
+                <div class="v-grid-line vline-40"></div>
+                <div class="v-grid-line vline-50"></div>
+                <div class="v-grid-line vline-60"></div>
+                <div class="v-grid-line vline-70"></div>
+
+                <div class="hbar-rows-container">
+                  
+                  <!-- 行 1：多平台频繁切换 (59.45%) -->
+                  <div class="hbar-row">
+                    <div class="hbar-label">多平台频繁切换</div>
+                    <div class="hbar-track">
+                      <!-- 59.45 / 75 ≈ 79.2% 轨道占比 -->
+                      <div class="hbar-fill bar-cyan" style="width: 79.2%;"></div>
+                      <span class="hbar-value-text cyan-text">59.45%</span>
+                    </div>
+                  </div>
+
+                  <!-- 行 2：官方订阅太贵 (50.40%) -->
+                  <div class="hbar-row">
+                    <div class="hbar-label">官方订阅太贵</div>
+                    <div class="hbar-track">
+                      <!-- 50.40 / 75 ≈ 67.2% 轨道占比 -->
+                      <div class="hbar-fill bar-sky" style="width: 67.2%;"></div>
+                      <span class="hbar-value-text muted-text">50.40% </span>
+                    </div>
+                  </div>
+
+                  <!-- 行 3：模型绑定封闭 (38.77%) -->
+                  <div class="hbar-row">
+                    <div class="hbar-label">模型绑定封闭</div>
+                    <div class="hbar-track">
+                      <!-- 38.77 / 75 ≈ 51.7% 轨道占比 -->
+                      <div class="hbar-fill bar-deepblue" style="width: 51.7%;"></div>
+                      <span class="hbar-value-text muted-text">38.77%</span>
+                    </div>
+                  </div>
+
+                </div>
+
+                <!-- X 轴刻度轴 -->
+                <div class="x-axis-bar">
+                  <div class="x-axis-ticks">
+                    <span>0</span>
+                    <span>10</span>
+                    <span>20</span>
+                    <span>30</span>
+                    <span>40</span>
+                    <span>50</span>
+                    <span>60</span>
+                    <span>70</span>
+                  </div>
+                  <div class="x-axis-title">
+                    受访创作者占比 (57.9%) [样本总量 N=619]
+                  </div>
+                </div>
+
+              </div>
+
+              <!-- 必加说明注释 -->
+              <div class="pricing-note-strip">
+                <svg class="info-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>注：数据来自于平台的数据收集。</span>
+              </div>
+
+              <div class="chart-action-bar">
+                <button class="pricing-cta-btn" @click="enterWorkspace">
+                  体验面向痛点量身打造的平台
                 </button>
               </div>
 
@@ -339,6 +446,7 @@ const router = useRouter();
 const scrollContainerRef = ref<HTMLElement | null>(null);
 const aboutSectionRef = ref<HTMLElement | null>(null);
 const pricingSectionRef = ref<HTMLElement | null>(null);
+const painpointsSectionRef = ref<HTMLElement | null>(null);
 
 const isLoggedIn = ref(false);
 
@@ -348,7 +456,7 @@ onMounted(async () => {
 
 async function checkLoginState() {
   try {
-    const res: any = await request.get('/users/me'); // 后端契约 4.10[cite: 7]
+    const res: any = await request.get('/users/me'); // 后端契约 4.10[cite: 4]
     if (res && res.id) {
       isLoggedIn.value = true;
     } else {
@@ -369,6 +477,10 @@ function scrollToAbout() {
 
 function scrollToPricing() {
   pricingSectionRef.value?.scrollIntoView({ behavior: 'smooth' });
+}
+
+function scrollToPainPoints() {
+  painpointsSectionRef.value?.scrollIntoView({ behavior: 'smooth' });
 }
 
 function scrollToTop() {
@@ -873,7 +985,6 @@ function scrollToTop() {
   padding-bottom: clamp(24px, 3vh, 36px);
   background: linear-gradient(180deg, rgba(10, 13, 22, 0.95) 0%, rgba(7, 9, 14, 0.98) 100%);
 }
-
 .pricing-container {
   width: min(94vw, 1300px);
   height: 100%;
@@ -883,17 +994,15 @@ function scrollToTop() {
   justify-content: center;
 }
 
-/* 电脑端标题容器：设为纵向列排布，实现小胶囊严格置于大字正上方 */
+/* 电脑端小字居中排在大字正上方 */
 .pricing-header {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  margin-bottom: clamp(20px, 3.5vh, 36px);
+  margin-bottom: clamp(16px, 3vh, 32px);
 }
-
-/* 蓝色小胶囊：电脑端居中位于大字上方 */
-.pricing-header .section-badge-pill {
+.section-badge-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -905,23 +1014,21 @@ function scrollToTop() {
   border: 1px solid rgba(56, 189, 248, 0.3);
   padding: 4px 16px;
   border-radius: 20px;
-  margin-bottom: 14px; /* 与下方大字拉开呼吸感间距 */
+  margin-bottom: 12px;
   width: fit-content;
 }
-
 .pricing-sub-desc {
   font-size: clamp(14px, 1.15vw, 17px);
   color: #94a3b8;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
-/* 核心图表卡片主体 */
 .chart-mega-card {
   width: 100%;
   background: rgba(14, 19, 31, 0.75);
   border: 1px solid rgba(99, 102, 241, 0.2);
   border-radius: 28px;
-  padding: clamp(28px, 3.5vw, 48px);
+  padding: clamp(24px, 3vw, 44px);
   backdrop-filter: blur(24px);
   box-shadow: 0 30px 70px -15px rgba(0, 0, 0, 0.85);
   box-sizing: border-box;
@@ -929,7 +1036,7 @@ function scrollToTop() {
 .chart-card-inner {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 .chart-meta-row {
   display: flex;
@@ -940,20 +1047,13 @@ function scrollToTop() {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   padding-bottom: 12px;
 }
-.chart-spec-tag {
-  color: #cbd5e1;
-  font-weight: 600;
-}
-.chart-model-tag {
-  color: #818cf8;
-  font-family: monospace;
-}
+.chart-spec-tag { color: #cbd5e1; font-weight: 600; }
+.chart-model-tag { color: #818cf8; font-family: monospace; }
 
-/* 柱状图主布局 */
 .chart-visual-wrapper {
   display: flex;
-  height: clamp(240px, 32vh, 320px);
-  margin-top: 20px;
+  height: clamp(220px, 28vh, 290px);
+  margin-top: 16px;
   position: relative;
 }
 .y-axis-labels {
@@ -965,7 +1065,7 @@ function scrollToTop() {
   font-size: 13px;
   font-family: monospace;
   text-align: right;
-  height: 80%; /* 与柱体区域对齐 */
+  height: 80%;
 }
 .bars-canvas {
   flex: 1;
@@ -977,7 +1077,6 @@ function scrollToTop() {
   padding-bottom: 4px;
 }
 
-/* 背景参考虚线 */
 .grid-line {
   position: absolute;
   left: 0;
@@ -993,7 +1092,6 @@ function scrollToTop() {
 .line-5  { top: 83.3%; }
 .line-0  { bottom: 0%; border-top: none; }
 
-/* 单个柱子列 */
 .bar-column {
   position: relative;
   z-index: 2;
@@ -1016,11 +1114,7 @@ function scrollToTop() {
   font-weight: 800;
   color: #94a3b8;
 }
-.bar-value-label .diff-tag {
-  font-size: 12px;
-  color: #64748b;
-  margin-top: 2px;
-}
+.bar-value-label .diff-tag { font-size: 12px; color: #64748b; margin-top: 2px; }
 .bar-value-label.self-highlight .price-val {
   color: #6366f1;
   font-size: clamp(20px, 1.8vw, 28px);
@@ -1054,7 +1148,6 @@ function scrollToTop() {
   to { transform: scaleY(1); transform-origin: bottom; }
 }
 
-/* 我方柱体高亮发光 */
 .self-bar {
   background: linear-gradient(180deg, #6366f1 0%, #4338ca 100%);
   box-shadow: 0 0 24px rgba(99, 102, 241, 0.5);
@@ -1071,7 +1164,6 @@ function scrollToTop() {
   box-shadow: 0 0 10px #38bdf8;
 }
 
-/* 竞品柱体：低饱和冷灰蓝 */
 .competitor-bar-a {
   background: linear-gradient(180deg, #64748b 0%, #334155 100%);
   border: 1px solid #94a3b8;
@@ -1094,20 +1186,10 @@ function scrollToTop() {
   color: #94a3b8;
   text-align: center;
 }
-.bar-x-label.active-platform {
-  color: #ffffff;
-}
-.bar-x-label.active-platform strong {
-  font-size: 16px;
-  color: #818cf8;
-}
-.bar-x-label small {
-  font-size: 11px;
-  color: #64748b;
-  margin-top: 2px;
-}
+.bar-x-label.active-platform { color: #ffffff; }
+.bar-x-label.active-platform strong { font-size: 16px; color: #818cf8; }
+.bar-x-label small { font-size: 11px; color: #64748b; margin-top: 2px; }
 
-/* 必须包含的注释条 */
 .pricing-note-strip {
   display: flex;
   align-items: center;
@@ -1118,19 +1200,11 @@ function scrollToTop() {
   padding: 10px 16px;
   font-size: 13px;
   color: #94a3b8;
-  margin-top: 10px;
+  margin-top: 6px;
 }
-.info-icon {
-  width: 16px;
-  height: 16px;
-  color: #38bdf8;
-  flex-shrink: 0;
-}
+.info-icon { width: 16px; height: 16px; color: #38bdf8; flex-shrink: 0; }
 
-.chart-action-bar {
-  display: flex;
-  justify-content: flex-end;
-}
+.chart-action-bar { display: flex; justify-content: flex-end; }
 .pricing-cta-btn {
   background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
   color: #ffffff;
@@ -1149,7 +1223,166 @@ function scrollToTop() {
   border-color: #a5b4fc;
 }
 
-/* ================= 动态背景动效 ================= */
+/* ================= 第四屏：核心痛点调研 (新增) ================= */
+.painpoints-screen {
+  padding-top: clamp(70px, 8vh, 90px);
+  padding-bottom: clamp(24px, 3vh, 36px);
+  background: linear-gradient(180deg, rgba(7, 9, 14, 0.98) 0%, rgba(9, 12, 20, 1) 100%);
+}
+.painpoints-container {
+  width: min(94vw, 1300px);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.painpoints-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: clamp(16px, 3vh, 32px);
+}
+
+/* 水平条形图容器 */
+.hbar-visual-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 0 0;
+}
+
+/* 垂直参考网格线 (0 ~ 70) */
+.v-grid-line {
+  position: absolute;
+  top: 0;
+  bottom: 50px;
+  border-left: 1px dashed rgba(56, 189, 248, 0.15);
+  pointer-events: none;
+  z-index: 1;
+}
+/* 映射到 0~75% 刻度 */
+.vline-0  { left: 160px; }
+.vline-10 { left: calc(160px + (100% - 160px) * (10 / 75)); }
+.vline-20 { left: calc(160px + (100% - 160px) * (20 / 75)); }
+.vline-30 { left: calc(160px + (100% - 160px) * (30 / 75)); }
+.vline-40 { left: calc(160px + (100% - 160px) * (40 / 75)); }
+.vline-50 { left: calc(160px + (100% - 160px) * (50 / 75)); }
+.vline-60 { left: calc(160px + (100% - 160px) * (60 / 75)); }
+.vline-70 { left: calc(160px + (100% - 160px) * (70 / 75)); }
+
+.hbar-rows-container {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  width: 100%;
+}
+
+.hbar-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.hbar-label {
+  width: 160px;
+  min-width: 160px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #f1f5f9;
+  text-align: right;
+  padding-right: 20px;
+  box-sizing: border-box;
+}
+
+.hbar-track {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  height: 40px;
+}
+.hbar-fill {
+  height: 100%;
+  border-radius: 4px;
+  animation: growRight 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: left;
+}
+@keyframes growRight {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* 渐变与色彩层级 */
+.bar-cyan {
+  background: linear-gradient(90deg, #00f2fe 0%, #38bdf8 100%);
+  box-shadow: 0 0 20px rgba(0, 242, 254, 0.4);
+}
+.bar-sky {
+  background: linear-gradient(90deg, #0284c7 0%, #0369a1 100%);
+  opacity: 0.9;
+}
+.bar-deepblue {
+  background: linear-gradient(90deg, #1e3a8a 0%, #172554 100%);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.hbar-value-text {
+  margin-left: 18px;
+  font-size: 18px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.cyan-text {
+  color: #00f2fe;
+  text-shadow: 0 0 10px rgba(0, 242, 254, 0.5);
+}
+.muted-text {
+  color: #cbd5e1;
+}
+
+/* X 轴刻度尺 */
+.x-axis-bar {
+  margin-left: 160px;
+  margin-top: 14px;
+  border-top: 2px solid #334155;
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+}
+.x-axis-ticks {
+  position: relative;
+  width: 100%;
+  height: 20px;
+}
+.x-axis-ticks span {
+  position: absolute;
+  color: #64748b;
+  font-size: 13px;
+  font-family: monospace;
+  transform: translateX(-50%);
+}
+.x-axis-ticks span:nth-child(1) { left: 0%; }
+.x-axis-ticks span:nth-child(2) { left: calc(100% * (10 / 75)); }
+.x-axis-ticks span:nth-child(3) { left: calc(100% * (20 / 75)); }
+.x-axis-ticks span:nth-child(4) { left: calc(100% * (30 / 75)); }
+.x-axis-ticks span:nth-child(5) { left: calc(100% * (40 / 75)); }
+.x-axis-ticks span:nth-child(6) { left: calc(100% * (50 / 75)); }
+.x-axis-ticks span:nth-child(7) { left: calc(100% * (60 / 75)); }
+.x-axis-ticks span:nth-child(8) { left: calc(100% * (70 / 75)); }
+
+.x-axis-title {
+  text-align: center;
+  font-size: 13px;
+  color: #94a3b8;
+  margin-top: 8px;
+}
+
+/* ================= 动态背景装饰 ================= */
 .ambient-glow {
   position: fixed; top: 25%; left: 50%; transform: translate(-50%, -50%);
   width: min(80vw, 700px); height: min(50vh, 400px);
@@ -1199,6 +1432,7 @@ function scrollToTop() {
 @media (max-width: 868px) {
   .nav-link-about,
   .nav-link-pricing,
+  .nav-link-painpoints,
   .nav-link-api {
     display: none;
   }
@@ -1255,7 +1489,9 @@ function scrollToTop() {
   .card-right-preview { order: 2; max-width: 100%; width: 100%; }
   .left-action-btn { order: 3; width: 100%; max-width: 320px; margin: 8px auto 0 auto; padding: 14px 0; font-size: 16px; }
 
-.pricing-container { width: 90vw; }
+  /* 第三屏与第四屏通用移动端修饰 */
+  .pricing-container,
+  .painpoints-container { width: 90vw; }
   .chart-mega-card { padding: 20px 14px; }
   .chart-visual-wrapper { height: 260px; }
   .y-axis-labels { display: none; }
@@ -1269,5 +1505,11 @@ function scrollToTop() {
   .pricing-note-strip { font-size: 11px; }
   .chart-action-bar { justify-content: center; }
   .pricing-cta-btn { width: 100%; }
+
+/* 手机端彻底隐藏第四屏（用户痛点） */
+  .painpoints-screen {
+    display: none !important;
+  }
 }
+
 </style>

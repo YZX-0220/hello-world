@@ -58,14 +58,11 @@
       <!-- ================= 第一屏：主视觉 Hero ================= -->
       <section class="snap-section hero-screen">
         <div class="hero-container">
-          <div class="badge-tag">
-            <span class="pulse-point"></span>
-            <span class="badge-text">国际传播特化 · 新一代 AI 视频叙事创作引擎</span>
-          </div>
+         
 
           <h1 class="main-title">
-            让每一种文化声量，<br />
-            <span class="gradient-text">被世界清晰看见。</span>
+            让每一种文化声量<br />
+            <span class="gradient-text">被世界清晰看见</span>
           </h1>
 
           <p class="sub-title">
@@ -684,7 +681,7 @@ function scrollToTop() {
   flex-shrink: 0;
 }
 .main-title {
-  font-size: clamp(34px, 4.8vw, 68px);
+  font-size: clamp(100px, 4.8vw, 68px);
   font-weight: 800;
   line-height: 1.24;
   letter-spacing: -0.5px;

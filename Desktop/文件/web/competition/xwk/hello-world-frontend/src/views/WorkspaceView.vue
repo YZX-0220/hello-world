@@ -12,7 +12,8 @@
       <div class="nav-actions">
         <router-link to="/settings/api" class="nav-link" title="点击进入 API 配置中心">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
           </svg>
           <span class="desktop-only">API 配置中心</span>
         </router-link>
@@ -23,7 +24,7 @@
     <!-- 视图平滑推拉切换容器 -->
     <div class="workspace-body">
       <Transition name="slide-left" mode="out-in">
-        
+
         <!-- ================= 视图 A：创作项目空间看板 ================= -->
         <main v-if="!currentConvId" key="view-a" class="board-container">
           <div class="board-header">
@@ -32,21 +33,14 @@
           </div>
 
           <div class="cards-grid">
-            <!-- 新建正方形卡片 -->
             <div class="square-card add-card" @click="createNewConversation">
               <div class="plus-icon">+</div>
               <span class="add-text">{{ isCreatingConv ? '正在初始化...' : '开启新创作对话' }}</span>
               <div class="add-glow"></div>
             </div>
 
-            <!-- 历史对话正方形卡片列表 (ID 哈希绑定固定颜色) -->
-            <div 
-              v-for="conv in conversations" 
-              :key="conv.id" 
-              class="square-card project-card"
-              :style="getCardColorStyle(conv.id)"
-              @click="switchConversation(conv.id)"
-            >
+            <div v-for="conv in conversations" :key="conv.id" class="square-card project-card"
+              :style="getCardColorStyle(conv.id)" @click="switchConversation(conv.id)">
               <div class="card-top-bar">
                 <span class="card-time">{{ formatFullTime(conv.created_at) }}</span>
                 <button class="del-card-btn" title="删除对话" @click.stop="handleDeleteConversation(conv.id)">
@@ -66,233 +60,323 @@
           </div>
         </main>
 
-        <!-- ================= 视图 B：聚焦对话与方案工作台 ================= -->
-        <div v-else key="view-b" class="workspace-main">
-          
-          <!-- 中间：Agent 叙事工作流 -->
-          <section class="chat-section">
-            <div class="chat-header">
-              <div class="chat-header-main">
-                <button class="back-space-btn" title="返回项目空间看板" @click="backToProjectSpace">
-                  <svg class="back-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                  </svg>
-                  <span>项目空间</span>
-                </button>
+        <!-- ================= 视图 B：网格节点 AI 视频工作台 ================= -->
+       <div 
+  v-else 
+  key="view-b" 
+  class="canvas-viewport" 
+  ref="viewportRef" 
+  @mousedown="handleCanvasMouseDown"
+  @mousemove="handleCanvasMouseMove" 
+  @mouseup="handleCanvasMouseUp" 
+  @contextmenu.prevent="openContextMenu"
+  @wheel.prevent="handleCanvasZoom"
 
-                <div class="chat-title-group">
-                  <h2 class="chat-title">{{ activeConversation?.title || '新创作对话' }}</h2>
-                  <p class="chat-sub desktop-only">与国际传播 Agent 深度构思分镜，右侧方案将实时同步更新</p>
+>
+          <!-- 左上角悬浮：返回创作项目空间与重置视图 -->
+          <div class="floating-top-left">
+            <button class="glass-pill-btn" @click="backToProjectSpace" title="返回项目空间看板">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              <span>项目空间</span>
+            </button>
+            <button class="glass-pill-btn icon-only" @click="resetCanvasView" title="重置画布视角">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+              </svg>
+            </button>
+            <span class="canvas-project-title">{{ activeConversation?.title || '新创作工作流' }}</span>
+          </div>
+
+          <!-- 左侧居中悬浮工具栏：素材库与国际传播指导 -->
+          <div class="floating-left-bar">
+            <button class="side-tool-btn" @click="openAssetsDrawer" title="素材库">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span class="tool-tip">素材库</span>
+            </button>
+
+            <button class="side-tool-btn highlight" @click="openGuideModal" title="国际传播指导">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span class="tool-tip">国际传播指导</span>
+            </button>
+          </div>
+
+          <!-- 画布缩放/平移内容层 -->
+          <div class="canvas-plane" :style="{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }">
+            <!-- 拖动框选矩形框 -->
+            <div v-if="selectionBox.visible" class="selection-box" :style="{
+              left: selectionBox.x + 'px',
+              top: selectionBox.y + 'px',
+              width: selectionBox.w + 'px',
+              height: selectionBox.h + 'px'
+            }"></div>
+            <!-- 连线 SVG 层 -->
+            <svg class="connections-layer">
+              <defs>
+                <linearGradient id="flowGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.2" />
+                  <stop offset="50%" stop-color="#818cf8" stop-opacity="1" />
+                  <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.2" />
+                </linearGradient>
+                <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="3" result="blur" />
+                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+              </defs>
+
+              <!-- 已确认的连线 (双击连线删除) -->
+              <g v-for="conn in connections" :key="conn.id" class="conn-group"
+                @dblclick.stop="deleteConnection(conn.id)" title="双击删除此连线">
+                <!-- 宽隐形响应区方便点击 -->
+                <path :d="calculateBezierPath(conn.from, conn.to)" class="connection-hit-path" />
+                <path :d="calculateBezierPath(conn.from, conn.to)" class="connection-base-path" />
+                <path :d="calculateBezierPath(conn.from, conn.to)" class="connection-flow-path" filter="url(#glow)" />
+              </g>
+
+              <!-- 拖拽连接中的临时连线 -->
+              <path v-if="connectingSource" :d="calculateTempBezier(connectingSource, tempMousePos)"
+                class="connection-temp-path" />
+            </svg>
+
+            <!-- 节点列表 -->
+           <div 
+  v-for="node in nodes" 
+  :key="node.id" 
+  class="canvas-node"
+  :class="[node.type, { selected: activeNodeId === node.id || selectedNodeIds.includes(node.id) }]"
+  :style="{ transform: `translate(${node.x}px,${node.y}px)` }"
+  draggable="true"
+  @dragstart="handleNodeDragStart($event, node)"
+  @mousedown.stop="startDragNode($event, node)"
+  @click.stop="selectNode(node)"
+>
+              <!-- 节点左侧连接点 (In) -->
+              <div class="node-port in-port"
+                :class="{ 'port-target-active': connectingSource && connectingSource.id !== node.id }" @mousedown.stop
+                @click.stop="handlePortClick(node, 'in')" title="点击连接至此节点">
+                <div class="port-inner">
+                  <span class="plus-icon">+</span>
+                </div>
+              </div>
+              <!-- 节点头部 -->
+              <div class="node-header">
+                <div class="node-type-icon">
+                  <span v-if="node.type === 'text'">≡</span>
+                  <span v-else-if="node.type === 'image'">🖼</span>
+                  <span v-else>🎬</span>
+                </div>
+
+                <!-- 节点命名（双击修改） -->
+                <div class="node-title-wrap">
+                  <input v-if="node.isRenaming" v-model="node.title" class="node-title-input"
+                    @blur="node.isRenaming = false" @keydown.enter="node.isRenaming = false" autoFocus />
+                  <span v-else class="node-title" @dblclick.stop="node.isRenaming = true" title="双击进行重命名">
+                    {{ node.title }}
+                  </span>
+                </div>
+
+                <button class="node-del-btn" @click.stop="deleteNode(node.id)" title="删除节点">✕</button>
+              </div>
+
+              <!-- 文本节点 -->
+              <div v-if="node.type === 'text'" class="node-body text-body">
+                <textarea v-model="node.content" placeholder="双击开始编辑脚本、镜头描述或广告词..." @mousedown.stop @click.stop></textarea>
+                <div class="node-footer-actions">
+                  <button class="ai-assist-pill" @click.stop="askAgentHelpNode(node)">
+                    <span>✨ 呼唤 Agent 优化</span>
+                  </button>
                 </div>
               </div>
 
-              <div class="chat-actions-group">
-                <!-- 手机端专属按钮：点击弹出右侧分镜方案抽屉 -->
-                <button class="mobile-brief-toggle mobile-only" @click="openMobileBriefDrawer">
-                  <svg class="brief-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <!-- 图片节点 -->
+              <div v-else-if="node.type === 'image'" class="node-body image-body">
+                <label class="image-upload-hover-pill" @click.stop>
+                  <input type="file" accept="image/*" class="hidden-file-input"
+                    @change="handleImageUpload($event, node)" />
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                   </svg>
-                  <span>方案</span>
-                  <span class="brief-dot" v-if="!project?.is_current_version_confirmed"></span>
-                </button>
+                  <span>{{ node.url ? '重新上传' : '上传图片' }}</span>
+                </label>
 
-                <!-- 国际传播指导按钮 -->
-                <button class="global-guide-btn" @click="openGuideModal">
-                  <svg class="globe-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span>国际传播指导</span>
-                </button>
+                <div class="image-preview-box">
+                  <img v-if="node.url" :src="node.url" alt="preview" />
+                  <div v-else class="image-placeholder">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                </div>
               </div>
+
+              <!-- 视频节点 -->
+              <div v-else-if="node.type === 'video'" class="node-body video-body">
+                <video :src="node.url" controls autoplay loop playsinline></video>
+              </div>
+
+              <!-- 节点右侧连接点 (Out) -->
+              <div class="node-port out-port" :class="{ 'port-source-active': connectingSource?.id === node.id }"
+                @mousedown.stop @click.stop="handlePortClick(node, 'out')" title="点击拉出连接线">
+                <div class="port-inner">
+                  <span class="plus-icon">+</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 右键唤出快捷菜单 -->
+          <Transition name="fade-fast">
+            <div v-if="contextMenu.visible" class="context-menu-box"
+              :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }" @click.stop>
+              <div class="menu-title">添加节点</div>
+              <div class="menu-item" @click="createNodeFromContext('text')">
+                <div class="menu-icon">≡</div>
+                <div class="menu-info">
+                  <div class="item-name">文本</div>
+                  <div class="item-desc">脚本、广告词、品牌文案</div>
+                </div>
+              </div>
+              <div class="menu-item" @click="createNodeFromContext('image')">
+                <div class="menu-icon">🖼</div>
+                <div class="menu-info">
+                  <div class="item-name">图片</div>
+                  <div class="item-desc">首帧图、视觉参考、风格控制</div>
+                </div>
+              </div>
+            </div>
+          </Transition>
+
+          <!-- 右下角悬浮：Agent 唤出按钮 -->
+          <div class="floating-bottom-right">
+            <button class="agent-orb-btn"
+              :class="{ active: isAgentDrawerOpen, generating: isSubmittingJob || isAgentResponding }"
+              @click="toggleAgentDrawer" title="呼出创作 Agent">
+              <div class="orb-inner">
+                <div class="orb-logo"></div>
+              </div>
+            </button>
+          </div>
+
+          <!-- 侧边滑出：Agent 对话与生成视频面板 -->
+          <!-- 侧边滑出：Agent 对话与生成视频面板 -->
+<aside 
+  class="agent-flyout-drawer" 
+  :class="{ open: isAgentDrawerOpen, 'drag-over': isDraggingOverAgent }"
+  @click.stop 
+  @mousedown.stop
+  @dragover.prevent="handleAgentDragOver"
+  @dragleave="handleAgentDragLeave"
+  @drop.prevent="handleAgentDrop"
+>
+  <div class="drawer-top-bar">
+    <div class="drawer-brand">
+      <div class="orb-mini"></div>
+      <span>Agent 创作与生成</span>
+    </div>
+    <button class="drawer-close" @click="isAgentDrawerOpen = false">✕</button>
+  </div>
+
+  <!-- 参考节点展示：支持多节点展示与一键清空 -->
+  <div v-if="referencedNodes.length > 0" class="node-binding-banner">
+    <div class="banner-tags">
+      <span class="banner-label">参考节点 ({{ referencedNodes.length }}):</span>
+      <span v-for="node in referencedNodes" :key="node.id" class="ref-pill">
+        {{ node.title }}
+      </span>
+    </div>
+    <button class="clear-bind" @click="clearReferencedNodes">清空参考</button>
+  </div>
+
+  <!-- 拖拽提示占位（当从画布拖动节点靠近时高亮） -->
+  <div v-if="isDraggingOverAgent" class="drag-drop-hint">
+    松开鼠标，将选中节点添加为 Agent 参考
+  </div>
+
+            <!-- 选中的关联参考节点标签 -->
+            <div v-if="activeNode" class="node-binding-banner">
+              <span>当前参考节点：<strong>{{ activeNode.title }}</strong></span>
+              <button class="clear-bind" @click="activeNodeId = ''">取消聚焦</button>
             </div>
 
             <!-- 消息列表 -->
-            <div class="messages-container" ref="messagesContainerRef">
+            <div class="drawer-messages" ref="messagesContainerRef">
               <div v-for="msg in messages" :key="msg.id" :class="['message-row', msg.role]">
                 <div class="avatar">{{ msg.role === 'user' ? 'U' : 'AI' }}</div>
                 <div class="bubble">
                   <div class="msg-content" v-html="renderMd(msg.content)"></div>
-
                   <div v-if="msg.citations && msg.citations.length > 0" class="citations-fold">
-                    <div class="citations-toggle" @click="toggleCitations(msg.id)">
-                      <span>🔍 联网参考了 {{ msg.citations.length }} 条海外资讯 (点击{{ openCitations[msg.id] ? '收起' : '查看' }})</span>
-                    </div>
-                    <div v-if="openCitations[msg.id]" class="citations-body">
-                      <div v-for="(cite, cIdx) in msg.citations" :key="cIdx" class="cite-row">
-                        <a :href="cite.url" target="_blank" rel="noopener">[{{ cIdx + 1 }}] {{ cite.title }}</a>
-                      </div>
-                    </div>
+                    <span class="citations-tag">🔍 已联网参考 {{ msg.citations.length }} 条海外资讯</span>
                   </div>
-                  <div class="msg-time">{{ formatTime(msg.created_at) }}</div>
                 </div>
               </div>
-
               <div v-if="isAgentResponding" class="message-row assistant">
                 <div class="avatar">AI</div>
                 <div class="bubble thinking">
                   <span class="loading-spinner"></span>
-                  <span>正在分析分众文化审美偏好并优化视听语言...</span>
+                  <span>正在分析分众偏好并优化提示词...</span>
                 </div>
               </div>
             </div>
 
-            <!-- 消息发送区 -->
-            <div class="chat-input-area">
-              <textarea 
-                ref="textareaRef"
-                v-model="inputContent" 
-                placeholder="描述你想表达的故事或视觉构想（可点击上方“国际传播指导”注入分众建议）..."
-                @keydown.enter.exact.prevent="sendMessage"
-              ></textarea>
-              <div class="input-actions">
-                <span class="input-hint desktop-only">Enter 发送，Shift + Enter 换行</span>
-                <button 
-                  class="send-btn" 
-                  :disabled="!inputContent.trim() || isAgentResponding"
-                  @click="sendMessage"
-                >
-                  发送给 Agent
+            <!-- 分镜确认与视频生成 -->
+            <div class="drawer-spec-panel">
+              <div class="spec-quick-header">
+                <span>分镜方案 (v{{ project?.current_spec_version || 0 }})</span>
+                <button class="confirm-pill" :disabled="project?.is_current_version_confirmed"
+                  @click="confirmProjectSpec">
+                  {{ project?.is_current_version_confirmed ? '方案已确认' : '确认当前方案' }}
                 </button>
               </div>
-            </div>
-          </section>
 
-          <!-- 右栏：分镜与视频方案面板（电脑端常驻，手机端作为弹层展示） -->
-          <aside 
-            class="brief-panel" 
-            :class="{ 'mobile-drawer-open': isMobileBriefOpen }"
-          >
-            <!-- 手机端抽屉顶部关闭头 -->
-            <div class="drawer-header mobile-only">
-              <span class="drawer-title">分镜与方案配置</span>
-              <button class="drawer-close-btn" @click="closeMobileBriefDrawer">✕ 关闭</button>
-            </div>
-
-            <div class="panel-tab-title">
-              <h3>分镜与视频方案</h3>
-              <span class="version-tag">版本 v{{ project?.current_spec_version || 0 }}</span>
-            </div>
-
-            <div class="spec-status-bar">
-              <div class="status-indicator">
-                <span class="dot-fixed"></span>
-                <span>{{ project?.is_current_version_confirmed ? '方案已就绪，可创建生成' : '方案有更新，请先确认' }}</span>
-              </div>
-              <button 
-                class="confirm-btn" 
-                :disabled="project?.is_current_version_confirmed"
-                @click="confirmProjectSpec"
-              >
-                {{ project?.is_current_version_confirmed ? '已确认方案' : '确认当前方案' }}
-              </button>
-            </div>
-
-            <div class="spec-details-list">
-              <div class="spec-field-item">
-                <label>传播目标 / 受众 / 语言</label>
-                <div class="spec-val">
-                  <strong>目标：</strong>{{ spec.objective || '未指定' }}<br />
-                  <strong>受众：</strong>{{ spec.audience || '大众受众' }} · <strong>语言：</strong>{{ spec.language || 'zh-CN' }}
-                </div>
-              </div>
-
-              <div class="spec-field-item">
-                <label>生成规格与视觉风格</label>
-                <div class="spec-val">
-                  <strong>模式：</strong>{{ spec.mode || 'text_to_video' }} | <strong>画幅：</strong>{{ spec.aspect_ratio || '16:9' }} | <strong>时长：</strong>{{ spec.duration_seconds || 5 }}s<br />
-                  <strong>风格：</strong>{{ spec.visual_style || '写实电影质感' }}
-                </div>
-              </div>
-
-              <div class="spec-field-item">
-                <label>视觉主体与场景环境</label>
-                <div class="spec-val">
-                  <strong>主体：</strong>{{ spec.subject || '无特定主体' }}<br />
-                  <strong>场景：</strong>{{ spec.scene || '默认背景' }}
-                </div>
-              </div>
-
-              <div class="spec-field-item">
-                <label>镜头运镜、动作与光影</label>
-                <div class="spec-val">
-                  <strong>运镜：</strong>{{ spec.camera || '缓慢推进' }}<br />
-                  <strong>动作：</strong>{{ spec.motion || '自然动态' }}<br />
-                  <strong>光影：</strong>{{ spec.lighting || '电影氛围光' }}
-                </div>
-              </div>
-
-              <div class="spec-field-item" v-if="spec.narration">
-                <label>配音旁白 (Narration)</label>
-                <div class="spec-val">{{ spec.narration }}</div>
-              </div>
-
-              <div class="spec-field-item" v-if="spec.negative_prompt">
-                <label>负面提示词 (Negative)</label>
-                <div class="spec-val">{{ spec.negative_prompt }}</div>
-              </div>
-
-              <div class="spec-field-item">
-                <label>推荐视频提示词 (Suggested Prompt)</label>
-                <div class="prompt-code-box">{{ project?.suggested_prompt || '等待 Agent 整理提示词...' }}</div>
-              </div>
-            </div>
-
-            <!-- 视频生成任务板块 -->
-            <div class="job-action-card">
-              <div class="card-inner-title">生成视频任务</div>
-              <div class="job-field">
-                <label>选用视频 API 配置：</label>
+              <div class="spec-field-mini">
+                <label>选择视频 API 配置：</label>
                 <select v-model="selectedApiConfigId">
-                  <option value="platform">⚡ 平台官方体验通道（每用户每日限 1 次）</option>
+                  <option value="platform">⚡ 平台官方体验通道（每日限 1 次）</option>
                   <option v-for="cfg in apiConfigs" :key="cfg.id" :value="cfg.id">
                     🔑 {{ cfg.display_name }} ({{ cfg.remote_model_id }})
                   </option>
                 </select>
               </div>
 
-              <button 
-                class="create-job-btn" 
+              <button class="create-video-btn"
                 :disabled="!project?.is_current_version_confirmed || isSubmittingJob || !selectedApiConfigId"
-                @click="submitVideoJob"
-              >
-                {{ isSubmittingJob ? '正在提交给底模厂商...' : '一键调用视频底模生成' }}
+                @click="submitVideoJob">
+                {{ isSubmittingJob ? '正在提交生成...' : '✨ 一键调用底模生成视频' }}
               </button>
+
+              <!-- 渲染进度条 -->
+              <div v-if="activeJob" class="active-job-strip">
+                <div class="progress-bar-bg">
+                  <div class="progress-bar-inner" :style="{ width: (activeJob.progress || 30) + '%' }"></div>
+                </div>
+                <span class="status-txt">
+                  {{ activeJob.status === 'succeeded' ? '渲染完成' : '视频渲染中...' }} ({{ activeJob.progress || 0 }}%)
+                </span>
+              </div>
             </div>
 
-            <!-- 任务状态与结果视频展示 -->
-            <div v-if="activeJob" class="active-job-preview">
-              <div class="preview-header">
-                <span>任务状态: <strong :class="'job-' + activeJob.status">{{ activeJob.status }}</strong></span>
-                <span v-if="activeJob.progress !== null">{{ activeJob.progress }}%</span>
-              </div>
-
-              <div v-if="activeJob.result_asset_id" class="video-container">
-                <video 
-                  controls 
-                  autoplay 
-                  loop
-                  :src="`/api/v1/assets/${activeJob.result_asset_id}/content`"
-                ></video>
-              </div>
-
-              <div v-else class="job-progress-panel">
-                <div class="progress-bar-bg">
-                  <div class="progress-bar-inner" :style="{ width: (activeJob.progress || 25) + '%' }"></div>
-                </div>
-                <p class="progress-desc">
-                  {{ activeJob.download_status === 'stored' ? '视频生成完成' : '视频渲染中，系统智能轮询状态...' }}
-                </p>
+            <!-- 消息输入区域 -->
+            <div class="drawer-input-box">
+              <textarea ref="textareaRef" v-model="inputContent" placeholder="与 Agent 对话，或让其将脚本转为视听分镜..."
+                @keydown.enter.exact.prevent="sendMessage"></textarea>
+              <div class="input-actions-row">
+                <span class="hint">Enter 发送</span>
+                <button class="send-btn" :disabled="!inputContent.trim() || isAgentResponding" @click="sendMessage">
+                  发送
+                </button>
               </div>
             </div>
           </aside>
-
-          <!-- 手机端抽屉背景遮罩 -->
-          <div 
-            v-if="isMobileBriefOpen" 
-            class="mobile-drawer-mask mobile-only" 
-            @click="closeMobileBriefDrawer"
-          ></div>
-
         </div>
       </Transition>
     </div>
@@ -309,13 +393,8 @@
         </div>
 
         <div class="countries-tab-bar">
-          <button 
-            v-for="country in countryList" 
-            :key="country.code"
-            class="country-tab"
-            :class="{ active: selectedCountryCode === country.code }"
-            @click="selectCountry(country.code)"
-          >
+          <button v-for="country in countryList" :key="country.code" class="country-tab"
+            :class="{ active: selectedCountryCode === country.code }" @click="selectCountry(country.code)">
             <span class="flag-icon">{{ country.flag }}</span>
             <span>{{ country.name }}</span>
           </button>
@@ -323,9 +402,7 @@
 
         <div class="guidance-content-box">
           <div class="guidance-header">
-            <h4 class="country-target-name">
-              {{ currentCountryGuide.name }}受众视听特征与叙事建议
-            </h4>
+            <h4 class="country-target-name">{{ currentCountryGuide.name }}受众视听特征与叙事建议</h4>
             <span class="lang-pill">{{ currentCountryGuide.lang }}</span>
           </div>
 
@@ -345,20 +422,19 @@
           </div>
 
           <div class="prompt-snippet-box">
-            <div class="snippet-label">可注入对话框的特化创作指令：</div>
+            <div class="snippet-label">可注入节点的特化创作指令：</div>
             <div class="snippet-text">{{ currentCountryGuide.promptText }}</div>
           </div>
         </div>
 
         <div class="guide-modal-footer">
-          <span class="footer-tip desktop-only">点击下方按钮可直接把针对该国的视听要求填入对话框</span>
-          <button class="apply-to-chat-btn" @click="applyGuidanceToInput">
-            加入对话框
+          <span class="footer-tip desktop-only">点击下方按钮可直接把建议放入当前文本节点</span>
+          <button class="apply-to-chat-btn" @click="applyGuidanceToNode">
+            注入文本节点
           </button>
         </div>
       </div>
     </div>
-
   </div>
 </template>
 
@@ -366,35 +442,152 @@
 import { ref, reactive, computed, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import request from '@/utils/request';
-import type { 
-  ConversationView, 
-  MessageView, 
-  VideoProjectView, 
-  VideoBrief, 
-  VideoJobView, 
-  VideoApiConfigView 
+import type {
+  ConversationView,
+  MessageView,
+  VideoProjectView,
+  VideoBrief,
+  VideoJobView,
+  VideoApiConfigView
 } from '@/types/api';
+// 1. 专门记录作为 Agent 参考依据的节点 ID 集合
+const referencedNodeIds = ref<string[]>([]);
+
+// 聚合当前参考节点列表（优先使用拖入的节点；若未单独拖入，则自动跟随当前选中的节点）
+const referencedNodes = computed(() => {
+  if (referencedNodeIds.value.length > 0) {
+    return nodes.value.filter(n => referencedNodeIds.value.includes(n.id));
+  }
+  // 如果没有单独锁定参考，则取当前多选与单选的合集
+  const currentSelected = new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean));
+  return nodes.value.filter(n => currentSelected.has(n.id));
+});
+
+function clearReferencedNodes() {
+  referencedNodeIds.value = [];
+  activeNodeId.value = '';
+  selectedNodeIds.value = [];
+}
+
+// 2. 拖拽节点到 Agent 面板交互
+const isDraggingOverAgent = ref(false);
+
+function handleNodeDragStart(e: DragEvent, node: FlowNode) {
+  // 如果拖动的节点不在选中列表里，则将当前拖动节点加入
+  if (!selectedNodeIds.value.includes(node.id) && activeNodeId.value !== node.id) {
+    selectedNodeIds.value = [node.id];
+  }
+  const allIds = Array.from(new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean)));
+  e.dataTransfer?.setData('application/json', JSON.stringify(allIds));
+}
+
+function handleAgentDragOver(e: DragEvent) {
+  isDraggingOverAgent.value = true;
+}
+
+function handleAgentDragLeave() {
+  isDraggingOverAgent.value = false;
+}
+
+function handleAgentDrop(e: DragEvent) {
+  isDraggingOverAgent.value = false;
+  try {
+    const rawData = e.dataTransfer?.getData('application/json');
+    if (rawData) {
+      const ids: string[] = JSON.parse(rawData);
+      // 将拖入的节点设为固定参考节点
+      referencedNodeIds.value = ids;
+      isAgentDrawerOpen.value = true;
+
+      // 自动把参考节点中的文本整合进输入框（可选便利特性）
+      const refTexts = nodes.value
+        .filter(n => ids.includes(n.id) && n.content)
+        .map(n => `【${n.title}】: ${n.content}`)
+        .join('\n');
+      if (refTexts && !inputContent.value) {
+        inputContent.value = `请参考以下选中的节点内容并进行视频创意：\n${refTexts}`;
+      }
+    }
+  } catch (err) {
+    console.error('解析拖拽节点失败', err);
+  }
+}
 function generateUUID(): string {
-  // 如果浏览器原生支持 randomUUID 且处于安全上下文，则直接使用
   if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function') {
     return window.crypto.randomUUID();
   }
-  // 否则降级使用兼容方案（适配非 HTTPS 的服务器环境）
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
     const r = Math.random() * 16 | 0;
     const v = c === 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
 }
+
 const router = useRouter();
 
+// ==================== 1. 节点与画布模型 ====================
+const selectedNodeIds = ref<string[]>([]);
+const isSelecting = ref(false);
+const startSelectPos = reactive({ x: 0, y: 0 });
+const selectionBox = reactive({ visible: false, x: 0, y: 0, w: 0, h: 0 });
+interface FlowNode {
+  id: string;
+  type: 'text' | 'image' | 'video';
+  title: string;
+  x: number;
+  y: number;
+  content?: string;
+  url?: string;
+  isRenaming?: boolean;
+}
+
+interface FlowConnection {
+  id: string;
+  from: string;
+  to: string;
+}
+
+const viewportRef = ref<HTMLElement | null>(null);
+const pan = reactive({ x: 120, y: 120 });
+const zoom = ref(1);
+const isPanning = ref(false);
+const startPan = reactive({ x: 0, y: 0 });
+
+const nodes = ref<FlowNode[]>([
+  { id: 'node_1', type: 'text', title: '视频脚本', x: 160, y: 160, content: '一位女子身披金色流动面料，闭目，神情宁静。空灵顶光，柔和焦外背景。' },
+  { id: 'node_2', type: 'image', title: '参考图', x: 540, y: 160, url: '' }
+]);
+
+const connections = ref<FlowConnection[]>([
+  { id: 'c1', from: 'node_1', to: 'node_2' }
+]);
+
+const activeNodeId = ref<string>('');
+const activeNode = computed(() => nodes.value.find(n => n.id === activeNodeId.value));
+
+const contextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  canvasX: 0,
+  canvasY: 0
+});
+
+const connectingSource = ref<FlowNode | null>(null);
+const tempMousePos = reactive({ x: 0, y: 0 });
+
+let draggingNode: FlowNode | null = null;
+let nodeDragOffset = { x: 0, y: 0 };
+
+// ==================== 2. 后端数据与 Agent 状态 ====================
 const conversations = ref<ConversationView[]>([]);
 const currentConvId = ref<string>('');
 const messages = ref<MessageView[]>([]);
 const inputContent = ref('');
 const isAgentResponding = ref(false);
 const isCreatingConv = ref(false);
-const isMobileBriefOpen = ref(false); // 手机端分镜方案抽屉状态
+const isAgentDrawerOpen = ref(false);
+
 const messagesContainerRef = ref<HTMLElement | null>(null);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 
@@ -407,12 +600,9 @@ const isSubmittingJob = ref(false);
 const activeJob = ref<VideoJobView | null>(null);
 let pollTimer: number | null = null;
 
-const openCitations = reactive<Record<string, boolean>>({});
-
-// 国际传播指导数据
+// ==================== 3. 国际传播文化配置 ====================
 const showGuideModal = ref(false);
 const selectedCountryCode = ref('US');
-
 const countryList = [
   { code: 'US', name: '美国', flag: '🇺🇸' },
   { code: 'FR', name: '法国', flag: '🇫🇷' },
@@ -423,56 +613,45 @@ const countryList = [
 ];
 
 const countryGuideMap: Record<string, {
-  name: string;
-  lang: string;
-  aesthetic: string;
-  narrative: string;
-  taboo: string;
-  promptText: string;
+  name: string; lang: string; aesthetic: string; narrative: string; taboo: string; promptText: string;
 }> = {
   US: {
-    name: '美国',
-    lang: '英语 (en-US)',
+    name: '美国', lang: '英语 (en-US)',
     aesthetic: '偏好高对比度动态视觉、明快紧凑的运镜剪辑与强烈的视觉奇观冲击；喜欢自然抓人眼球的开门见山式镜头。',
     narrative: '侧重个人英雄主义、个体真实经历与温情日常叙事，避免空洞说教，强调平等交流与自然共鸣。',
     taboo: '注意避免任何形式的刻板印象、种族敏感符号或过度主旋律视角的宏大叙事灌输。',
     promptText: '【国际传播受众：美国】请采用写实电影画质、高动态光影与明快节奏推进。注重以生动微观的个体视角展开，弱化宏大概念，重点强调真实烟火气与情感共鸣。'
   },
   FR: {
-    name: '法国',
-    lang: '法语 / 英语 (fr-FR)',
+    name: '法国', lang: '法语 / 英语 (fr-FR)',
     aesthetic: '极为看重画面诗意、自然光影质感与艺术构图。偏好低饱和度、胶片颗粒感及留白的浪漫慢镜头。',
     narrative: '偏爱思辨性与哲学深意，喜欢讲述人与自然、传统工艺或慢生活的意境美，崇尚原生态与个性化表达。',
     taboo: '反感工业化流水线感过重或过于喧闹刺眼的塑料 CG 感；避免直接灌输式说理。',
     promptText: '【国际传播受众：法国】请运用胶片质感、柔和自然光与富有诗意的长镜头推拉。镜头语言需具有艺术留白与慢生活审美，呈现兼具哲思与优雅的文化意境。'
   },
   JP: {
-    name: '日本',
-    lang: '日语 (ja-JP)',
+    name: '日本', lang: '日语 (ja-JP)',
     aesthetic: '追求“物哀”与细腻治愈审美。偏好清新微暖的色调、柔光运镜、对季节流转与细微声画动作（如水滴、风吹落叶）的捕捉。',
     narrative: '长于以小见大，从生活细节、人情羁绊与匠人精神中展现文化底蕴，容易被纯粹专注、平和克制的情感打动。',
     taboo: '避免夸张喧嚣的肢体冲突与生硬的情绪宣泄；慎用容易引发历史语境争议的图腾符号。',
     promptText: '【国际传播受众：日本】请采用日系清新胶片色调与柔美漫射光，运镜平稳细腻。重点捕捉微观场景细节与人情温暖，营造内敛治愈的视听共情体验。'
   },
   IN: {
-    name: '印度',
-    lang: '印地语 / 英语 (hi-IN / en-IN)',
+    name: '印度', lang: '印地语 / 英语 (hi-IN / en-IN)',
     aesthetic: '热爱浓郁明丽的高饱和色彩（暖黄、翠绿、朱红等），青睐富有韵律感、富丽堂皇且充满生命力的镜头动势。',
     narrative: '极为看重家庭团聚、传统节日氛围与富有感染力的生活仪式感，偏向乐观向上、热烈欢快的叙事弧线。',
     taboo: '避免冷色调或沉闷压抑的灰暗构图；注意规避宗教习俗与特定饮食层面的文化冒犯。',
     promptText: '【国际传播受众：印度】请采用高饱和度暖色调与富丽光影，运镜富有节奏与活力。突出热烈欢快的节日氛围或家庭人际温情，展现充满蓬勃生命力的视听画面。'
   },
   DE: {
-    name: '德国',
-    lang: '德语 / 英语 (de-DE)',
+    name: '德国', lang: '德语 / 英语 (de-DE)',
     aesthetic: '崇尚极简主义与理性几何构图。偏爱冷峻清晰的工业秩序感、冷色系自然光线与一丝不苟的透视对称。',
     narrative: '重视事实逻辑、精密工艺原理与生态可持续理念，对结构清晰、严谨真实的叙事接受度最高。',
     taboo: '排斥虚假浮夸、逻辑前后矛盾或逻辑煽情的画面设计；注重规则与严谨度。',
     promptText: '【国际传播受众：德国】请采用严谨的几何对称构图与低饱和冷色调电影光影。运镜克制平稳，强调画面主体的结构质感与逻辑严密性。'
   },
   GB: {
-    name: '英国',
-    lang: '英式英语 (en-GB)',
+    name: '英国', lang: '英式英语 (en-GB)',
     aesthetic: '偏好古典优雅、阴雨朦胧的氛围光影（油画质感、历史厚重感、冷色调雾气感与复古色泽）。',
     narrative: '青睐英式幽默、含蓄克制以及对历史文化遗产、古老街区与人与自然共生的细腻呈现。',
     taboo: '避免用力过猛的浮躁炫技和过于直白露骨的情绪宣泄。',
@@ -481,36 +660,14 @@ const countryGuideMap: Record<string, {
 };
 
 const currentCountryGuide = computed(() => countryGuideMap[selectedCountryCode.value]);
+const activeConversation = computed(() => conversations.value.find(c => c.id === currentConvId.value));
 
-function openGuideModal() { showGuideModal.value = true; }
-function closeGuideModal() { showGuideModal.value = false; }
-function selectCountry(code: string) { selectedCountryCode.value = code; }
-
-function openMobileBriefDrawer() { isMobileBriefOpen.value = true; }
-function closeMobileBriefDrawer() { isMobileBriefOpen.value = false; }
-
-function applyGuidanceToInput() {
-  const guideText = currentCountryGuide.value.promptText;
-  if (inputContent.value.trim()) {
-    inputContent.value = `${inputContent.value}\n\n${guideText}`;
-  } else {
-    inputContent.value = guideText;
-  }
-  closeGuideModal();
-  nextTick(() => {
-    textareaRef.value?.focus();
-  });
-}
-
-const activeConversation = computed(() => 
-  conversations.value.find(c => c.id === currentConvId.value)
-);
-
+// ==================== 4. 看板卡片配色 ====================
 const cardThemes = [
   { border: 'rgba(99, 102, 241, 0.5)', bg: 'linear-gradient(145deg, rgba(99, 102, 241, 0.15), rgba(15, 23, 42, 0.75))', glow: 'rgba(99, 102, 241, 0.35)' },
   { border: 'rgba(14, 165, 233, 0.5)', bg: 'linear-gradient(145deg, rgba(14, 165, 233, 0.15), rgba(15, 23, 42, 0.75))', glow: 'rgba(14, 165, 233, 0.35)' },
   { border: 'rgba(16, 185, 129, 0.5)', bg: 'linear-gradient(145deg, rgba(16, 185, 129, 0.15), rgba(15, 23, 42, 0.75))', glow: 'rgba(16, 185, 129, 0.35)' },
-  { border: 'rgba(244, 63, 94, 0.5)',  bg: 'linear-gradient(145deg, rgba(244, 63, 94, 0.15), rgba(15, 23, 42, 0.75))',  glow: 'rgba(244, 63, 94, 0.35)' },
+  { border: 'rgba(244, 63, 94, 0.5)', bg: 'linear-gradient(145deg, rgba(244, 63, 94, 0.15), rgba(15, 23, 42, 0.75))', glow: 'rgba(244, 63, 94, 0.35)' },
   { border: 'rgba(245, 158, 11, 0.5)', bg: 'linear-gradient(145deg, rgba(245, 158, 11, 0.15), rgba(15, 23, 42, 0.75))', glow: 'rgba(245, 158, 11, 0.35)' },
   { border: 'rgba(168, 85, 247, 0.5)', bg: 'linear-gradient(145deg, rgba(168, 85, 247, 0.15), rgba(15, 23, 42, 0.75))', glow: 'rgba(168, 85, 247, 0.35)' },
   { border: 'rgba(20, 184, 166, 0.5)', bg: 'linear-gradient(145deg, rgba(20, 184, 166, 0.15), rgba(15, 23, 42, 0.75))', glow: 'rgba(20, 184, 166, 0.35)' },
@@ -539,8 +696,14 @@ onMounted(async () => {
 function backToProjectSpace() {
   currentConvId.value = '';
   activeJob.value = null;
-  isMobileBriefOpen.value = false;
+  isAgentDrawerOpen.value = false;
   if (pollTimer) clearInterval(pollTimer);
+}
+
+function resetCanvasView() {
+  pan.x = 100;
+  pan.y = 100;
+  zoom.value = 1;
 }
 
 async function loadConversations() {
@@ -560,11 +723,11 @@ async function loadApiConfigs() {
     console.warn('获取 API 配置失败');
   }
 }
-
+// 切换对话函数改造
 async function switchConversation(convId: string) {
   currentConvId.value = convId;
   activeJob.value = null;
-  isMobileBriefOpen.value = false;
+  isAgentDrawerOpen.value = false;
   if (pollTimer) clearInterval(pollTimer);
 
   Promise.all([
@@ -573,14 +736,74 @@ async function switchConversation(convId: string) {
   ]).then(([msgRes, projRes]: any) => {
     messages.value = msgRes.items || [];
     project.value = projRes;
+
+    // 1. 尝试从本地持久化缓存恢复这个对话独有的画布节点
+    const localCanvas = localStorage.getItem(`canvas_${convId}`);
+    if (localCanvas) {
+      try {
+        const parsed = JSON.parse(localCanvas);
+        nodes.value = parsed.nodes || [];
+        connections.value = parsed.connections || [];
+        if (parsed.pan) Object.assign(pan, parsed.pan);
+        if (parsed.zoom) zoom.value = parsed.zoom;
+        scrollToBottom();
+        return;
+      } catch (e) {
+        console.warn('解析画布缓存失败');
+      }
+    }
+
+    // 2. 如果是第一次打开且没有缓存，根据后端实际数据初始化专属节点：
+    // 如果有历史消息，提取最后一条用户输入或建议作为脚本；否则读取 suggested_prompt
+    const lastUserMsg = [...messages.value].reverse().find(m => m.role === 'user')?.content;
+    const initialText = projRes?.suggested_prompt || lastUserMsg || '';
+
+    nodes.value = [
+      { 
+        id: `node_text_${convId}`, 
+        type: 'text', 
+        title: projRes ? `${projRes.title || '分镜脚本'}` : '视频脚本', 
+        x: 160, 
+        y: 160, 
+        content: initialText 
+      },
+      { 
+        id: `node_img_${convId}`, 
+        type: 'image', 
+        title: '参考图', 
+        x: 540, 
+        y: 160, 
+        url: '' 
+      }
+    ];
+
+    connections.value = [
+      { id: `c_${convId}`, from: `node_text_${convId}`, to: `node_img_${convId}` }
+    ];
+
     scrollToBottom();
   });
+}
+
+// 自动保存当前画布到对应对话（在节点移动、编辑、连线后调用）
+function saveCurrentCanvas() {
+  if (!currentConvId.value) return;
+  const canvasPayload = {
+    nodes: nodes.value,
+    connections: connections.value,
+    pan,
+    zoom: zoom.value
+  };
+  // 先存本地，保证切换不同卡片时内容绝对独立互不干扰！
+  localStorage.setItem(`canvas_${currentConvId.value}`, JSON.stringify(canvasPayload));
+  
+  // 如果后端加好了接口，这里顺便发请求给后端存数据库：
+  // request.put(`/conversations/${currentConvId.value}/canvas`, canvasPayload).catch(() => {});
 }
 
 async function createNewConversation() {
   if (isCreatingConv.value) return;
   isCreatingConv.value = true;
-
   try {
     const res: any = await request.post('/conversations', { title: '新创作对话' });
     if (res.conversation) {
@@ -590,7 +813,17 @@ async function createNewConversation() {
     project.value = res.project || null;
     messages.value = [];
     activeJob.value = null;
-    isMobileBriefOpen.value = false;
+    isAgentDrawerOpen.value = false;
+
+    // 初始化全新对话的专属节点
+    const newId = res.conversation.id;
+    nodes.value = [
+      { id: `node_text_${newId}`, type: 'text', title: '视频脚本', x: 160, y: 160, content: '' },
+      { id: `node_img_${newId}`, type: 'image', title: '参考图', x: 540, y: 160, url: '' }
+    ];
+    connections.value = [
+      { id: `c_${newId}`, from: `node_text_${newId}`, to: `node_img_${newId}` }
+    ];
   } catch (err: any) {
     alert(err.message || '新建对话失败');
   } finally {
@@ -611,16 +844,281 @@ async function handleDeleteConversation(convId: string) {
   }
 }
 
+// ==================== 5. 画布拖拽、缩放与连线交互 ====================
+// 点击端口：首次点击作为起点拉线，再次点击目标端口完成连接
+// 3. 点击加号端点拉线
+function handlePortClick(node: FlowNode, portType: 'in' | 'out') {
+  if (!connectingSource.value) {
+    connectingSource.value = node;
+    const p = getNodePortPos(node, 'out');
+    tempMousePos.x = p.x;
+    tempMousePos.y = p.y;
+    return;
+  }
+
+  if (connectingSource.value.id !== node.id) {
+    const fromId = connectingSource.value.id;
+    const toId = node.id;
+
+    const isExist = connections.value.some(
+      c => (c.from === fromId && c.to === toId) || (c.from === toId && c.to === fromId)
+    );
+
+    if (!isExist) {
+      connections.value.push({
+        id: `c_${Date.now()}`,
+        from: fromId,
+        to: toId
+      });
+    }
+  }
+
+  connectingSource.value = null;
+}
+
+// 画布鼠标移动：更新跟随鼠标的临时线末端坐标
+function handleCanvasMouseMove(e: MouseEvent) {
+  if (isPanning.value) {
+    pan.x = e.clientX - startPan.x;
+    pan.y = e.clientY - startPan.y;
+  } else if (draggingNode) {
+    // 计算当前鼠标在画布里的坐标
+    const currentCanvasX = (e.clientX - pan.x) / zoom.value;
+    const currentCanvasY = (e.clientY - pan.y) / zoom.value;
+
+    // 计算鼠标平移的相对差值
+    const deltaX = currentCanvasX - mouseStartCanvasPos.x;
+    const deltaY = currentCanvasY - mouseStartCanvasPos.y;
+
+    // 所有选中的节点同时平移相同距离
+    const allSelectedIds = new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean));
+    nodes.value.forEach(n => {
+      if (allSelectedIds.has(n.id) && dragStartNodePos[n.id]) {
+        n.x = dragStartNodePos[n.id].x + deltaX;
+        n.y = dragStartNodePos[n.id].y + deltaY;
+      }
+    });
+  } else if (connectingSource.value) {
+    tempMousePos.x = (e.clientX - pan.x) / zoom.value;
+    tempMousePos.y = (e.clientY - pan.y) / zoom.value;
+  } else if (isSelecting.value) {
+    const curX = (e.clientX - pan.x) / zoom.value;
+    const curY = (e.clientY - pan.y) / zoom.value;
+
+    const boxX = Math.min(startSelectPos.x, curX);
+    const boxY = Math.min(startSelectPos.y, curY);
+    const boxW = Math.abs(curX - startSelectPos.x);
+    const boxH = Math.abs(curY - startSelectPos.y);
+
+    selectionBox.x = boxX;
+    selectionBox.y = boxY;
+    selectionBox.w = boxW;
+    selectionBox.h = boxH;
+
+    selectedNodeIds.value = nodes.value
+      .filter(node => {
+        const nodeW = 248;
+        const nodeH = node.type === 'image' ? 280 : 240;
+        return (
+          boxX < node.x + nodeW &&
+          boxX + boxW > node.x &&
+          boxY < node.y + nodeH &&
+          boxY + boxH > node.y
+        );
+      })
+      .map(n => n.id);
+  }
+}
+
+// 画布空白处按下：取消选中；若拉线中则随时取消；若 Agent 面板打开则自动收回
+function handleCanvasMouseDown(e: MouseEvent) {
+  if (contextMenu.visible) {
+    contextMenu.visible = false;
+    return;
+  }
+
+  // 移除或注释掉此处的关闭逻辑：
+  // if (isAgentDrawerOpen.value) {
+  //   isAgentDrawerOpen.value = false;
+  // }
+
+  // 点击空白处取消节点高亮单选和多选
+  activeNodeId.value = '';
+  selectedNodeIds.value = [];
+
+  // 若正处于拉线状态，点击空白处取消连线
+  if (connectingSource.value) {
+    connectingSource.value = null;
+    return;
+  }
+
+  // 左键(button === 0)点击空白处：开启矩形拉框多选
+  if (e.button === 0) {
+    isSelecting.value = true;
+    const canvasMouseX = (e.clientX - pan.x) / zoom.value;
+    const canvasMouseY = (e.clientY - pan.y) / zoom.value;
+
+    startSelectPos.x = canvasMouseX;
+    startSelectPos.y = canvasMouseY;
+
+    selectionBox.x = canvasMouseX;
+    selectionBox.y = canvasMouseY;
+    selectionBox.w = 0;
+    selectionBox.h = 0;
+    selectionBox.visible = true;
+  } else if (e.button === 1) {
+    // 鼠标中键平移画布
+    isPanning.value = true;
+    startPan.x = e.clientX - pan.x;
+    startPan.y = e.clientY - pan.y;
+  }
+}
+// 4. 修改 handleCanvasMouseUp：结束框选
+function handleCanvasMouseUp() {
+  isPanning.value = false;
+  draggingNode = null;
+  isSelecting.value = false;
+  selectionBox.visible = false;
+}
+
+
+function handleCanvasZoom(e: WheelEvent) {
+  const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+  zoom.value = Math.min(Math.max(zoom.value * zoomFactor, 0.4), 2.2);
+}
+
+function openContextMenu(e: MouseEvent) {
+  contextMenu.visible = true;
+  contextMenu.x = e.clientX;
+  contextMenu.y = e.clientY;
+  contextMenu.canvasX = (e.clientX - pan.x) / zoom.value;
+  contextMenu.canvasY = (e.clientY - pan.y) / zoom.value;
+}
+
+function createNodeFromContext(type: 'text' | 'image') {
+  const id = 'node_' + Date.now();
+  const newNode: FlowNode = {
+    id,
+    type,
+    title: type === 'text' ? '文本节点' : '图片节点',
+    x: contextMenu.canvasX,
+    y: contextMenu.canvasY,
+    content: type === 'text' ? '' : undefined,
+    url: type === 'image' ? '' : undefined
+  };
+  nodes.value.push(newNode);
+  activeNodeId.value = id;
+  contextMenu.visible = false;
+}
+
+function deleteNode(id: string) {
+  nodes.value = nodes.value.filter(n => n.id !== id);
+  connections.value = connections.value.filter(c => c.from !== id && c.to !== id);
+  if (activeNodeId.value === id) activeNodeId.value = '';
+}
+
+function deleteConnection(connId: string) {
+  connections.value = connections.value.filter(c => c.id !== connId);
+}
+
+function selectNode(node: FlowNode) {
+  activeNodeId.value = node.id;
+}
+// 记录拖拽开始时，所有选中节点的初始坐标
+let dragStartNodePos: Record<string, { x: number; y: number }> = {};
+let mouseStartCanvasPos = { x: 0, y: 0 };
+
+function startDragNode(e: MouseEvent, node: FlowNode) {
+  draggingNode = node;
+
+  // 如果点击拖拽的节点不在已多选的列表里，则将当前节点设为唯一选中
+  if (!selectedNodeIds.value.includes(node.id) && activeNodeId.value !== node.id) {
+    activeNodeId.value = node.id;
+    selectedNodeIds.value = [node.id];
+  } else if (!selectedNodeIds.value.includes(node.id)) {
+    selectedNodeIds.value.push(node.id);
+  }
+
+  // 记录按下时的画布实际坐标
+  mouseStartCanvasPos.x = (e.clientX - pan.x) / zoom.value;
+  mouseStartCanvasPos.y = (e.clientY - pan.y) / zoom.value;
+
+  // 记录所有当前选中节点的初始位置，用于多选同步位移
+  dragStartNodePos = {};
+  const allSelectedIds = new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean));
+  nodes.value.forEach(n => {
+    if (allSelectedIds.has(n.id)) {
+      dragStartNodePos[n.id] = { x: n.x, y: n.y };
+    }
+  });
+}
+
+// 辅助函数：精准获取节点端口圆心的相对偏移坐标
+function getNodePortPos(node: FlowNode, type: 'in' | 'out') {
+  // 根据节点类型精准获取卡片高度的中点（图片卡片高约280px，文本卡片高约240px）
+  const cardHeight = node.type === 'image' ? 280 : (node.type === 'video' ? 240 : 240);
+  const centerY = node.y + cardHeight / 2;
+
+  return {
+    // 左端点(In)：x 在节点左边界；右端点(Out)：x 在节点右边界(宽248px)
+    x: type === 'in' ? node.x : node.x + 248,
+    y: centerY
+  };
+}
+// 1. 修正 SVG 路径拼接（各坐标参数之间必须有空格分隔）
+function calculateBezierPath(fromId: string, toId: string): string {
+  const fromNode = nodes.value.find(n => n.id === fromId);
+  const toNode = nodes.value.find(n => n.id === toId);
+  if (!fromNode || !toNode) return '';
+
+  // 起点：源节点右侧加号中心 (Out)
+  const p1 = getNodePortPos(fromNode, 'out');
+  // 终点：目标节点左侧加号中心 (In)
+  const p2 = getNodePortPos(toNode, 'in');
+
+  const dx = Math.max(Math.abs(p2.x - p1.x) * 0.5, 60);
+  return `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x - dx} ${p2.y}, ${p2.x} ${p2.y}`;
+}
+
+// 2. 临时跟随鼠标的虚线：起点也严格对准加号中心
+function calculateTempBezier(fromNode: FlowNode, mouse: { x: number; y: number }): string {
+  const p1 = getNodePortPos(fromNode, 'out');
+  const dx = Math.max(Math.abs(mouse.x - p1.x) * 0.5, 40);
+  return `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${mouse.x - dx} ${mouse.y}, ${mouse.x} ${mouse.y}`;
+}
+
+
+
+function handleImageUpload(e: Event, node: FlowNode) {
+  const files = (e.target as HTMLInputElement).files;
+  if (!files || files.length === 0) return;
+  const file = files[0];
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    node.url = event.target?.result as string;
+  };
+  reader.readAsDataURL(file);
+}
+
+// ==================== 6. Agent 抽屉与视频任务 ====================
+function toggleAgentDrawer() {
+  isAgentDrawerOpen.value = !isAgentDrawerOpen.value;
+}
+
+function askAgentHelpNode(node: FlowNode) {
+  activeNodeId.value = node.id;
+  isAgentDrawerOpen.value = true;
+  inputContent.value = `请参考节点【${node.title}】，帮我拓展优化以下视听内容：\n${node.content || ''}`;
+  nextTick(() => textareaRef.value?.focus());
+}
+
 async function sendMessage() {
   if (!inputContent.value.trim() || isAgentResponding.value || !currentConvId.value) return;
 
   const content = inputContent.value;
   inputContent.value = '';
   isAgentResponding.value = true;
-
- // 修改前：const clientRequestId = crypto.randomUUID();
-// 修改后：
-const clientRequestId = generateUUID();
+  const clientRequestId = generateUUID();
 
   try {
     const res: any = await request.post(`/conversations/${currentConvId.value}/messages`, {
@@ -630,7 +1128,12 @@ const clientRequestId = generateUUID();
     });
 
     if (res.user_message) messages.value.push(res.user_message);
-    if (res.assistant_message) messages.value.push(res.assistant_message);
+    if (res.assistant_message) {
+      messages.value.push(res.assistant_message);
+      if (activeNode.value && activeNode.value.type === 'text' && !activeNode.value.content) {
+        activeNode.value.content = res.assistant_message.content;
+      }
+    }
     if (res.project) project.value = res.project;
     scrollToBottom();
   } catch (err: any) {
@@ -647,9 +1150,6 @@ async function confirmProjectSpec() {
       spec_version: project.value.current_spec_version
     });
     project.value = res;
-    if (isMobileBriefOpen.value) {
-      isMobileBriefOpen.value = false; // 手机端确认完自动收起抽屉
-    }
   } catch (err: any) {
     alert(err.message || '方案版本冲突，请刷新');
   }
@@ -662,9 +1162,11 @@ async function submitVideoJob() {
   }
 
   isSubmittingJob.value = true;
-// 修改前：const idempotencyKey = crypto.randomUUID();
-// 修改后：
-const idempotencyKey = generateUUID();
+  const idempotencyKey = generateUUID();
+
+  // 聚合工作台上与当前节点连通的参考节点
+  const baseNode = activeNode.value || nodes.value[nodes.value.length - 1];
+  const linkedImgNode = nodes.value.find(n => n.type === 'image' && connections.value.some(c => (c.from === n.id && c.to === baseNode?.id) || (c.to === n.id && c.from === baseNode?.id)));
 
   try {
     const res: any = await request.post(
@@ -674,16 +1176,15 @@ const idempotencyKey = generateUUID();
         project_id: project.value.id,
         spec_version: project.value.current_spec_version,
         api_config_id: selectedApiConfigId.value,
-        mode: spec.value.mode || 'text_to_video',
+        mode: linkedImgNode?.url ? 'image_to_video' : (spec.value.mode || 'text_to_video'),
         generation_options: {
           resolution: '1080p',
-          generate_audio: false
+          generate_audio: false,
+          image_prompt: linkedImgNode?.url || undefined
         },
         previous_job_id: null
       },
-      {
-        headers: { 'Idempotency-Key': idempotencyKey }
-      }
+      { headers: { 'Idempotency-Key': idempotencyKey } }
     );
 
     activeJob.value = res;
@@ -701,7 +1202,28 @@ function startPollingJob(jobId: string, intervalSec: number) {
     try {
       const res: any = await request.get(`/video-jobs/${jobId}`);
       activeJob.value = res;
-      if (['succeeded', 'failed', 'cancelled'].includes(res.status)) {
+      if (res.status === 'succeeded') {
+        if (pollTimer) clearInterval(pollTimer);
+        // 生成完成：新增视频节点并与源节点连线
+        const videoNodeId = 'video_' + Date.now();
+        const baseNode = activeNode.value || nodes.value[nodes.value.length - 1];
+        const newVideoNode: FlowNode = {
+          id: videoNodeId,
+          type: 'video',
+          title: '生成视频结果',
+          x: baseNode ? baseNode.x + 360 : 600,
+          y: baseNode ? baseNode.y : 200,
+          url: `/api/v1/assets/${res.result_asset_id}/content`
+        };
+        nodes.value.push(newVideoNode);
+        if (baseNode) {
+          connections.value.push({
+            id: `c_${Date.now()}`,
+            from: baseNode.id,
+            to: videoNodeId
+          });
+        }
+      } else if (['failed', 'cancelled'].includes(res.status)) {
         if (pollTimer) clearInterval(pollTimer);
       }
     } catch (e) {
@@ -710,16 +1232,36 @@ function startPollingJob(jobId: string, intervalSec: number) {
   }, Math.max(intervalSec, 3) * 1000);
 }
 
-function toggleCitations(msgId: string) {
-  openCitations[msgId] = !openCitations[msgId];
+// 国际传播建议应用到节点
+function applyGuidanceToNode() {
+  const guideText = currentCountryGuide.value.promptText;
+  if (activeNode.value && activeNode.value.type === 'text') {
+    activeNode.value.content = activeNode.value.content
+      ? `${activeNode.value.content}\n\n${guideText}`
+      : guideText;
+  } else {
+    const newNodeId = 'node_' + Date.now();
+    nodes.value.push({
+      id: newNodeId,
+      type: 'text',
+      title: `${currentCountryGuide.value.name} 文化定向`,
+      x: 200,
+      y: 300,
+      content: guideText
+    });
+    activeNodeId.value = newNodeId;
+  }
+  closeGuideModal();
 }
+
+function openGuideModal() { showGuideModal.value = true; }
+function closeGuideModal() { showGuideModal.value = false; }
+function selectCountry(code: string) { selectedCountryCode.value = code; }
+function openAssetsDrawer() { alert('素材库已预留：后续可直接调取历史生成资源！'); }
 
 function renderMd(text: string): string {
   if (!text) return '';
-  let escaped = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  let escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
   return escaped;
@@ -731,11 +1273,6 @@ function scrollToBottom() {
       messagesContainerRef.value.scrollTop = messagesContainerRef.value.scrollHeight;
     }
   });
-}
-
-function formatTime(isoStr?: string | null) {
-  if (!isoStr) return '';
-  return new Date(isoStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function formatFullTime(isoStr?: string | null) {
@@ -754,14 +1291,84 @@ async function handleLogout() {
 </script>
 
 <style scoped>
-.workspace-layout {
-  display: flex; flex-direction: column; height: 100vh; width: 100vw;
-  background-color: #090c14; color: #f1f5f9; font-size: 15px; overflow: hidden;
+/* 参考节点标签排版 */
+.node-binding-banner {
+  background: rgba(99, 102, 241, 0.12);
+  padding: 8px 14px;
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #a5b4fc;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-/* 控制移动端与电脑端显隐辅助类 */
-.mobile-only { display: none !important; }
-.desktop-only { display: inline-flex; }
+.banner-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.banner-label {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.ref-pill {
+  background: rgba(99, 102, 241, 0.25);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  color: #ffffff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* 拖拽释放提示区域 */
+.agent-flyout-drawer.drag-over {
+  border-left: 2px dashed #818cf8 !important;
+  box-shadow: -15px 0 35px rgba(99, 102, 241, 0.35) !important;
+}
+
+.drag-drop-hint {
+  padding: 12px;
+  margin: 8px 14px;
+  border: 1.5px dashed #818cf8;
+  background: rgba(99, 102, 241, 0.15);
+  color: #c7d2fe;
+  text-align: center;
+  border-radius: 8px;
+  font-size: 12px;
+  animation: pulse 1s infinite alternate;
+}
+/* 鼠标拖拽出的蓝色透明选框 */
+.selection-box {
+  position: absolute;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1.5px solid rgba(129, 140, 248, 0.85);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.workspace-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  background-color: #050608;
+  color: #f1f5f9;
+  font-size: 15px;
+  overflow: hidden;
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.desktop-only {
+  display: inline-flex;
+}
 
 /* 顶部导航 */
 .top-nav {
@@ -774,34 +1381,100 @@ async function handleLogout() {
   padding: 0 clamp(16px, 2.5vw, 40px);
   background-color: #0d121f;
   box-sizing: border-box;
-}
-.brand-link { text-decoration: none; cursor: pointer; display: flex; align-items: center; }
-.brand { display: flex; align-items: center; gap: 12px; }
-.brand-avatar {
-  width: 36px; height: 36px; background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  color: #fff; font-weight: 800; border-radius: 9px; display: flex; align-items: center;
-  justify-content: center; font-size: 17px; box-shadow: 0 0 14px rgba(99, 102, 241, 0.4);
-}
-.brand-name { font-weight: 700; color: #ffffff; font-size: 18px; letter-spacing: 0.5px; }
-.sub-badge {
-  font-size: 12px; background-color: #172033; color: #94a3b8;
-  padding: 3px 8px; border-radius: 6px; border: 1px solid #28354d;
+  z-index: 100;
 }
 
-.nav-actions { display: flex; align-items: center; gap: 12px; }
+.brand-link {
+  text-decoration: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-avatar {
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  font-weight: 800;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  box-shadow: 0 0 14px rgba(99, 102, 241, 0.4);
+}
+
+.brand-name {
+  font-weight: 700;
+  color: #ffffff;
+  font-size: 18px;
+  letter-spacing: 0.5px;
+}
+
+.sub-badge {
+  font-size: 12px;
+  background-color: #172033;
+  color: #94a3b8;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #28354d;
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .nav-link {
-  color: #cbd5e1; text-decoration: none; display: flex; align-items: center;
-  gap: 6px; font-size: 13px; font-weight: 500; padding: 7px 12px; border-radius: 8px;
-  background-color: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 12px;
+  border-radius: 8px;
+  background-color: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   transition: all 0.2s;
 }
-.nav-link:hover { background-color: rgba(30, 41, 59, 0.8); border-color: rgba(99, 102, 241, 0.4); color: #fff; }
-.nav-link .icon { width: 16px; height: 16px; }
-.logout-btn {
-  background: rgba(23, 28, 42, 0.6); border: 1px solid #2d3748; color: #94a3b8;
-  padding: 7px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 0.2s;
+
+.nav-link:hover {
+  background-color: rgba(30, 41, 59, 0.8);
+  border-color: rgba(99, 102, 241, 0.4);
+  color: #fff;
 }
-.logout-btn:hover { background-color: rgba(239, 68, 68, 0.12); border-color: #ef4444; color: #fca5a5; }
+
+.nav-link .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.logout-btn {
+  background: rgba(23, 28, 42, 0.6);
+  border: 1px solid #2d3748;
+  color: #94a3b8;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.logout-btn:hover {
+  background-color: rgba(239, 68, 68, 0.12);
+  border-color: #ef4444;
+  color: #fca5a5;
+}
 
 /* 切换动效容器 */
 .workspace-body {
@@ -819,16 +1492,18 @@ async function handleLogout() {
   will-change: transform, opacity;
   width: 100%;
 }
+
 .slide-left-leave-to {
   transform: translateX(-40px);
   opacity: 0;
 }
+
 .slide-left-enter-from {
   transform: translateX(60px);
   opacity: 0;
 }
 
-/* ================= 视图 A：创作项目空间看板 ================= */
+/* ================= 视图 A：项目空间看板 ================= */
 .board-container {
   flex: 1;
   overflow-y: auto;
@@ -837,9 +1512,23 @@ async function handleLogout() {
   flex-direction: column;
   align-items: center;
 }
-.board-header { text-align: center; margin-bottom: 32px; }
-.board-title { font-size: 26px; font-weight: 700; color: #f8fafc; margin-bottom: 6px; }
-.board-sub { font-size: 14px; color: #94a3b8; }
+
+.board-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.board-title {
+  font-size: 26px;
+  font-weight: 700;
+  color: #f8fafc;
+  margin-bottom: 6px;
+}
+
+.board-sub {
+  font-size: 14px;
+  color: #94a3b8;
+}
 
 .cards-grid {
   display: grid;
@@ -863,7 +1552,10 @@ async function handleLogout() {
   position: relative;
   overflow: hidden;
 }
-.square-card:hover { transform: translateY(-5px) scale(1.02); }
+
+.square-card:hover {
+  transform: translateY(-5px) scale(1.02);
+}
 
 .add-card {
   border: 2px dashed rgba(99, 102, 241, 0.5);
@@ -873,366 +1565,1215 @@ async function handleLogout() {
   gap: 12px;
   transition: all 0.3s ease;
 }
+
 .add-card:hover {
   border-color: #818cf8;
   background: rgba(30, 41, 59, 0.6);
   box-shadow: 0 12px 30px -6px rgba(99, 102, 241, 0.4);
 }
+
 .plus-icon {
-  width: 52px; height: 52px; border-radius: 50%;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
   background: linear-gradient(135deg, #6366f1, #4f46e5);
-  color: #ffffff; display: flex; align-items: center; justify-content: center;
-  font-size: 34px; font-weight: 300; box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34px;
+  font-weight: 300;
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
   transition: transform 0.25s ease;
 }
-.add-card:hover .plus-icon { transform: rotate(90deg) scale(1.1); }
-.add-text { font-size: 14px; font-weight: 600; color: #cbd5e1; }
 
-.project-card { border: 1px solid; backdrop-filter: blur(12px); }
-.card-top-bar { display: flex; justify-content: space-between; align-items: center; width: 100%; }
-.card-time { font-size: 11px; color: #94a3b8; font-weight: 500; }
+.add-card:hover .plus-icon {
+  transform: rotate(90deg) scale(1.1);
+}
+
+.add-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.project-card {
+  border: 1px solid;
+  backdrop-filter: blur(12px);
+}
+
+.card-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.card-time {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
 .del-card-btn {
-  background: transparent; border: none; color: #64748b; font-size: 18px;
-  cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: all 0.2s;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.2s;
 }
-.del-card-btn:hover { color: #ef4444; background: rgba(255, 255, 255, 0.1); }
-.card-content { margin: auto 0; display: flex; flex-direction: column; gap: 8px; }
+
+.del-card-btn:hover {
+  color: #ef4444;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.card-content {
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .card-project-title {
-  font-size: 17px; font-weight: 700; color: #f8fafc; line-height: 1.35;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 17px;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
+
 .project-card .version-tag {
-  align-self: flex-start; background: rgba(255, 255, 255, 0.1);
-  color: #cbd5e1; padding: 2px 8px; border-radius: 4px; font-size: 11px;
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
 }
-.card-bottom { font-size: 11px; color: #94a3b8; text-align: right; font-weight: 500; }
 
-/* ================= 视图 B：聚焦工作台 ================= */
-.workspace-main { display: flex; flex: 1; overflow: hidden; position: relative; }
-
-.chat-section { flex: 1; display: flex; flex-direction: column; background-color: #0d121f; border-right: 1px solid #1a2233; min-width: 0; }
-.chat-header {
-  padding: 12px 20px; border-bottom: 1px solid #1a2233; display: flex;
-  justify-content: space-between; align-items: center; background-color: #0f1524; gap: 12px;
+.card-bottom {
+  font-size: 11px;
+  color: #94a3b8;
+  text-align: right;
+  font-weight: 500;
 }
-.chat-header-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
 
-.back-space-btn {
-  display: flex; align-items: center; gap: 6px; background-color: #1a2336;
-  border: 1px solid #28374f; color: #cbd5e1; padding: 6px 12px; border-radius: 8px;
-  font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; flex-shrink: 0;
+/* ================= 视图 B：暗色点阵网格画布 ================= */
+/* 画布容器：平时是常规指针，只有中键/拖动画布时才显示小手 */
+.canvas-viewport {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+  /* 改为平时是默认指针，不再常驻小手 */
+  background-color: #07090e;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
-.back-space-btn:hover { background-color: #27354d; color: #ffffff; border-color: #6366f1; }
-.back-icon { width: 14px; height: 14px; }
 
-.chat-title-group { min-width: 0; }
-.chat-title { font-size: 16px; font-weight: 600; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.chat-sub { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+/* 仅在按住拖动画布时显示抓取手势 */
+.canvas-viewport.panning,
+.canvas-viewport:active {
+  cursor: grabbing;
+}
 
-.chat-actions-group { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.canvas-plane {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
 
-/* 国际传播指导按钮 */
-.global-guide-btn {
+/* 贝塞尔曲线与光点流动动画 */
+.connections-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 6000px;
+  height: 6000px;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.conn-group {
+  cursor: pointer;
+  pointer-events: stroke;
+}
+
+.connection-hit-path {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14px;
+}
+
+.connection-base-path {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 2px;
+}
+
+.connection-flow-path {
+  fill: none;
+  stroke: url(#flowGradient);
+  stroke-width: 2.8px;
+  stroke-dasharray: 8 16;
+  animation: flowLine 1.2s linear infinite;
+}
+
+.conn-group:hover .connection-base-path {
+  stroke: #ef4444;
+}
+
+/* 正在拉出的临时贝塞尔曲线（跟随鼠标） */
+.connection-temp-path {
+  fill: none;
+  stroke: #818cf8;
+  stroke-width: 2.5px;
+  stroke-dasharray: 6 6;
+  pointer-events: none;
+  /* 关键：禁止阻挡鼠标点击目标节点加号 */
+}
+
+/* 作为起点的激活正圆（蓝紫色正圆高亮，不拉长） */
+.port-source-active {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+.port-source-active .port-inner {
+  background: #6366f1 !important;
+  border-color: #a5b4fc !important;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.8) !important;
+  transform: scale(1.15);
+}
+
+/* 目标待连接端点（柔和呼吸高亮，保持正圆） */
+.port-target-active {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+.port-target-active .port-inner {
+  border-color: #818cf8 !important;
+  box-shadow: 0 0 8px rgba(129, 140, 248, 0.6) !important;
+  animation: pulseCircle 1.2s infinite alternate ease-in-out;
+}
+
+@keyframes pulseCircle {
+  from {
+    transform: scale(1);
+  }
+
+  to {
+    transform: scale(1.2);
+  }
+}
+
+@keyframes pulseTarget {
+  from {
+    transform: translateY(-50%) scale(1);
+  }
+
+  to {
+    transform: translateY(-50%) scale(1.25);
+  }
+}
+
+@keyframes flowLine {
+  from {
+    stroke-dashoffset: 24;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* 节点通用卡片 */
+/* 固定卡片尺寸与垂直居中参考系 */
+/* 节点：鼠标放到节点卡片上时显示移动指针 move */
+.canvas-node {
+  position: absolute;
+  width: 248px;
+  background: #18191c;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
+  cursor: move;
+  /* 鼠标悬浮到节点上呈现可拖拽手势 */
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+/* 节点内部文本区和输入框保留文字选择指针，避免误判 */
+.text-body textarea,
+.node-title-input {
+  cursor: text;
+}
+
+/* 统一节点卡片的高度，确保端点严格在 50% 居中位置 */
+.canvas-node.text {
+  height: 240px;
+}
+
+.canvas-node.image {
+  height: 280px;
+}
+
+.canvas-node.video {
+  height: 240px;
+}
+
+/* 仅在被选中时显示发光边框 */
+.canvas-node.selected {
+  border-color: #818cf8 !important;
+  box-shadow: 0 0 0 1.5px #818cf8, 0 12px 30px rgba(0, 0, 0, 0.7) !important;
+}
+
+/* 左右加号端口：严格在边框中线上居中 */
+.node-port {
+  position: absolute;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: crosshair;
+  z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+/* 左侧加号：圆心精确落在 x=0 */
+.in-port {
+  left: 0;
+  transform: translate(-50%, -50%);
+}
+
+/* 右侧加号：圆心精确落在 x=248px */
+.out-port {
+  right: 0;
+  transform: translate(50%, -50%);
+}
+
+/* 鼠标悬停显示 */
+.canvas-node:hover .node-port {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 圆形外观保持正圆 */
+.port-inner {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  border-radius: 50% !important;
+  background: #1e2025;
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-sizing: border-box;
+  padding: 0;
+  user-select: none;
+}
+
+/* 里面的加号字体与居中 */
+.port-inner .plus-icon {
+  font-size: 13px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 彻底删除之前重复添加的 ::after 伪元素，防止撑开变形 */
+.in-port .port-inner::after,
+.out-port .port-inner::after {
+  content: none !important;
+}
+
+/* 悬停微高亮（保持正圆放大） */
+.node-port:hover .port-inner {
+  background: #2a2d36;
+  border-color: #818cf8;
+  color: #fff;
+  transform: scale(1.15);
+}
+
+.node-header {
+  padding: 12px 14px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.node-type-icon {
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.node-title-wrap {
+  flex: 1;
+}
+
+.node-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+  cursor: text;
+}
+
+.node-title-input {
+  background: #0d0f14;
+  border: 1px solid #6366f1;
+  border-radius: 4px;
+  color: #fff;
+  padding: 2px 4px;
+  font-size: 12px;
+  width: 90%;
+}
+
+.node-del-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.node-del-btn:hover {
+  color: #ef4444;
+}
+
+/* 文本节点 */
+.node-body {
+  padding: 12px;
+}
+
+.text-body textarea {
+  width: 100%;
+  height: 140px;
+  background: transparent;
+  border: none;
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.node-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 6px;
+}
+
+.ai-assist-pill {
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+  border-radius: 12px;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.ai-assist-pill:hover {
+  background: rgba(99, 102, 241, 0.3);
+}
+
+/* 图片节点 */
+.image-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.image-preview-box {
+  width: 100%;
+  height: 190px;
+  border-radius: 12px;
+  background: #111216;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-preview-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.image-placeholder svg {
+  width: 48px;
+  height: 48px;
+  color: #2e3440;
+}
+
+/* 悬停滑出的上传胶囊按钮 */
+.image-upload-hover-pill {
+  position: absolute;
+  top: -16px;
+  background: #2b2d33;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 5px 14px;
+  border-radius: 20px;
+  font-size: 12px;
   display: flex;
   align-items: center;
   gap: 6px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(56, 189, 248, 0.2));
-  border: 1px solid rgba(99, 102, 241, 0.4);
-  color: #a5f3fc;
-  padding: 6px 14px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
   cursor: pointer;
-  transition: all 0.25s ease;
-  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+  z-index: 10;
 }
-.global-guide-btn:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.4), rgba(56, 189, 248, 0.35));
-  border-color: #38bdf8;
-  color: #ffffff;
-}
-.globe-icon { width: 15px; height: 15px; color: #38bdf8; }
 
-/* 手机端调出方案抽屉按钮 */
-.mobile-brief-toggle {
-  position: relative;
+.image-upload-hover-pill svg {
+  width: 14px;
+  height: 14px;
+}
+
+.canvas-node:hover .image-upload-hover-pill {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.video-body video {
+  width: 100%;
+  height: 150px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+/* 右键唤出快捷菜单 */
+.context-menu-box {
+  position: fixed;
+  z-index: 200;
+  width: 210px;
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.7);
+  padding: 8px;
+}
+
+.menu-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  padding: 6px 10px 4px;
+}
+
+.menu-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  background-color: #1e293b;
-  border: 1px solid #334155;
-  color: #38bdf8;
-  padding: 6px 10px;
+  gap: 10px;
+  padding: 8px 10px;
   border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.menu-item:hover {
+  background: #26282e;
+}
+
+.menu-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #2a2d34;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+
+.item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.item-desc {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+/* 悬浮控制按钮组 */
+.floating-top-left {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 20;
+}
+
+.glass-pill-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(24, 27, 36, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+  padding: 6px 14px;
+  border-radius: 20px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
-.brief-icon { width: 14px; height: 14px; }
-.brief-dot {
+
+.glass-pill-btn.icon-only {
+  padding: 6px 10px;
+}
+
+.glass-pill-btn:hover {
+  background: #2d3345;
+  color: #fff;
+}
+
+.icon-sm {
+  width: 14px;
+  height: 14px;
+}
+
+.canvas-project-title {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.floating-left-bar {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 6px;
-  height: 6px;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(24, 27, 36, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 20;
+}
+
+.side-tool-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.side-tool-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.side-tool-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.side-tool-btn.highlight {
+  color: #38bdf8;
+}
+
+.tool-tip {
+  position: absolute;
+  left: 46px;
+  background: #0f121a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.side-tool-btn:hover .tool-tip {
+  opacity: 1;
+}
+
+/* 右下角 Agent 悬浮球 */
+.floating-bottom-right {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  z-index: 30;
+}
+
+.agent-orb-btn {
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
-  background-color: #eab308;
+  background: #18191c;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s;
 }
 
-.messages-container { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
-.message-row { display: flex; gap: 12px; max-width: 85%; }
-.message-row.user { align-self: flex-end; flex-direction: row-reverse; }
+.agent-orb-btn:hover {
+  transform: scale(1.08);
+}
+
+.orb-inner {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.orb-logo {
+  width: 22px;
+  height: 22px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10"/></svg>');
+  background-size: contain;
+}
+
+.agent-orb-btn.generating {
+  animation: pulseOrb 1.5s infinite alternate;
+}
+
+@keyframes pulseOrb {
+  from {
+    box-shadow: 0 0 10px #6366f1;
+  }
+
+  to {
+    box-shadow: 0 0 25px #38bdf8;
+  }
+}
+
+/* 侧边滑出：Agent 对话与生成面板（严格固定在屏幕视口最右侧） */
+.agent-flyout-drawer {
+  position: fixed;
+  /* 改为 fixed，确保永远相对于浏览器视口最右侧贴边，不受任何父级缩放/画布影响 */
+  right: 0;
+  top: clamp(60px, 7.5vh, 76px);
+  /* 顶端精准紧贴顶部导航栏下方 */
+  bottom: 0;
+  width: 30vw;
+  /* 调整为饱满适中的宽度 */
+  max-width: 500px;
+  background: #101217;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: -12px 0 35px rgba(0, 0, 0, 0.85);
+  z-index: 990;
+  /* 提升层级，浮于所有节点和连线之上 */
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  /* 默认隐藏在屏幕右侧外面 */
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.agent-flyout-drawer.open {
+  transform: translateX(0);
+  /* 展开时完美贴紧屏幕最右边缘滑出 */
+}
+
+.drawer-top-bar {
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.drawer-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.orb-mini {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #38bdf8;
+}
+
+.drawer-close {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.node-binding-banner {
+  background: rgba(99, 102, 241, 0.12);
+  padding: 6px 14px;
+  font-size: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #a5b4fc;
+}
+
+.clear-bind {
+  background: none;
+  border: none;
+  color: #818cf8;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.drawer-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.message-row {
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.message-row.user {
+  flex-direction: row-reverse;
+}
+
 .avatar {
-  width: 32px; height: 32px; border-radius: 50%; display: flex;
-  align-items: center; justify-content: center; font-size: 13px; font-weight: bold; flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
 }
-.user .avatar { background-color: #4f46e5; color: #fff; }
-.assistant .avatar { background-color: #059669; color: #fff; }
-.bubble { background-color: #172033; padding: 12px 16px; border-radius: 10px; color: #f1f5f9; font-size: 14px; line-height: 1.55; }
-.user .bubble { background-color: #263654; }
-.msg-content { white-space: pre-wrap; word-break: break-word; }
-.citations-fold { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #334155; }
-.citations-toggle { font-size: 12px; color: #38bdf8; cursor: pointer; }
-.citations-body { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
-.cite-row a { color: #60a5fa; text-decoration: none; font-size: 11px; }
-.msg-time { font-size: 11px; color: #94a3b8; margin-top: 4px; text-align: right; }
 
-.chat-input-area { padding: 16px 20px; border-top: 1px solid #1a2233; background-color: #0b0f19; }
-.chat-input-area textarea {
-  width: 100%; height: 72px; background-color: #141b2a; border: 1px solid #243147;
-  border-radius: 8px; padding: 10px 14px; color: #fff; font-size: 14px; resize: none; outline: none;
+.user .avatar {
+  background: #4f46e5;
 }
-.chat-input-area textarea:focus { border-color: #6366f1; }
-.input-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
-.input-hint { font-size: 12px; color: #94a3b8; }
-.send-btn { background-color: #6366f1; color: #fff; border: none; padding: 8px 18px; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; }
-.send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* 右侧方案面板：电脑端常驻 460px */
-.brief-panel {
-  width: 440px; min-width: 440px; background-color: #0b0f19;
-  overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px;
-  border-left: 1px solid #1a2233;
+.assistant .avatar {
+  background: #059669;
 }
-.panel-tab-title { display: flex; justify-content: space-between; align-items: center; }
-.panel-tab-title h3 { font-size: 16px; color: #f8fafc; }
-.version-tag { background-color: #1e293b; color: #38bdf8; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 500; }
-.spec-status-bar {
-  background-color: #131b2c; border: 1px solid #1f2b44; padding: 10px 14px;
-  border-radius: 8px; display: flex; justify-content: space-between; align-items: center;
-}
-.status-indicator { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #cbd5e1; }
-.dot-fixed {
-  width: 8px; height: 8px; border-radius: 50%; background-color: #38bdf8;
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.6); flex-shrink: 0;
-}
-.confirm-btn {
-  background-color: #1e293b; color: #38bdf8; border: 1px solid #334155;
-  padding: 5px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; transition: all 0.2s;
-}
-.confirm-btn:hover:not(:disabled) { background-color: #27354d; color: #fff; }
-.confirm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.spec-details-list {
-  background-color: #121827; border: 1px solid #1e273d; border-radius: 10px;
-  padding: 14px; display: flex; flex-direction: column; gap: 12px;
+.bubble {
+  background: #191c24;
+  padding: 10px 14px;
+  border-radius: 10px;
+  line-height: 1.5;
+  max-width: 80%;
 }
-.spec-field-item label { display: block; font-size: 11px; color: #94a3b8; margin-bottom: 3px; font-weight: 500; }
-.spec-val { font-size: 12px; color: #e2e8f0; line-height: 1.5; }
-.prompt-code-box {
-  background-color: #0b0e17; border: 1px solid #1c2639; padding: 8px 10px;
-  border-radius: 6px; font-family: monospace; font-size: 12px; color: #a5f3fc;
-  max-height: 80px; overflow-y: auto; word-break: break-all;
-}
-.job-action-card { background-color: #121827; border: 1px solid #1e273d; border-radius: 10px; padding: 16px; }
-.card-inner-title { font-size: 15px; font-weight: 600; color: #f8fafc; margin-bottom: 10px; }
-.job-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-.job-field select { background-color: #1a2336; border: 1px solid #2d3b55; padding: 8px; color: #fff; border-radius: 6px; font-size: 12px; }
-.create-job-btn {
-  width: 100%; background-color: #10b981; color: #fff; border: none;
-  padding: 10px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;
-}
-.create-job-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.active-job-preview { background-color: #121827; border: 1px solid #1e273d; border-radius: 10px; padding: 14px; }
-.preview-header { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 10px; }
-.job-succeeded { color: #10b981; }
-.job-running, .job-queued { color: #38bdf8; }
-.job-failed { color: #ef4444; }
-.video-container video { width: 100%; border-radius: 8px; background-color: #000; }
-.progress-bar-bg { width: 100%; height: 6px; background-color: #1e293b; border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
-.progress-bar-inner { height: 100%; background-color: #38bdf8; transition: width 0.3s; }
-.progress-desc { font-size: 12px; color: #94a3b8; text-align: center; }
-.loading-spinner {
-  width: 14px; height: 14px; border: 2px solid #64748b;
-  border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 
-/* ================= 国际传播指引弹窗 ================= */
+.user .bubble {
+  background: #26334d;
+}
+
+.citations-fold {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #38bdf8;
+}
+
+.drawer-spec-panel {
+  padding: 12px 16px;
+  background: #14171f;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.spec-quick-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 15px;
+  color: #94a3b8;
+}
+
+.confirm-pill {
+  background: #1e293b;
+  color: #38bdf8;
+  border: 1px solid #334155;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.spec-field-mini select {
+  width: 100%;
+  background: #1a202c;
+  border: 1px solid #2d3748;
+  color: #fff;
+  padding: 6px;
+  border-radius: 6px;
+  font-size: 15px;
+}
+
+.create-video-btn {
+  background: #10b981;
+  color: #fff;
+  border: none;
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.create-video-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.active-job-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.progress-bar-bg {
+  width: 100%;
+  height: 5px;
+  background: #1e293b;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-bar-inner {
+  height: 100%;
+  background: #38bdf8;
+  transition: width 0.3s;
+}
+
+.status-txt {
+  font-size: 10px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+/* 消息输入区域（增大整体高度与内边距） */
+.drawer-input-box {
+  padding: 16px 20px 20px;
+  background: #0c0e12;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* 输入框本体放大：高度增加到 110px，字号提升至 14px，行高更宽松 */
+.drawer-input-box textarea {
+  width: 100%;
+  height: 25vh; /* 原先为 56px，直接提升近一倍高度 */
+  background: #161820;
+  border: 1px solid #282c37;
+  border-radius: 10px;
+  padding: 12px 14px;
+  color: #fff;
+  font-size: 14px; /* 原先为 12px */
+  line-height: 1.6;
+  resize: vertical; /* 支持鼠标上下自由拖动拉伸 */
+  min-height: 80px;
+  max-height: 240px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.drawer-input-box textarea:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+/* 底部操作栏与发送按钮微调放大 */
+.input-actions-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.input-actions-row .hint {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.send-btn {
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  padding: 8px 20px; /* 增大按钮点击区域 */
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.send-btn:hover:not(:disabled) {
+  background: #4f46e5;
+}
+
+/* 国际传播指引弹窗 */
 .guide-modal-mask {
-  position: fixed; inset: 0; z-index: 999;
-  background: rgba(4, 6, 12, 0.75); backdrop-filter: blur(8px);
-  display: flex; align-items: center; justify-content: center; padding: 16px;
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(4, 6, 12, 0.75);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
 }
+
 .guide-modal-box {
-  width: 100%; max-width: 680px; background: #0f1524;
-  border: 1px solid rgba(99, 102, 241, 0.35); border-radius: 16px;
-  padding: 24px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85);
-  display: flex; flex-direction: column; gap: 16px;
-  max-height: 90vh; overflow-y: auto;
+  width: 100%;
+  max-width: 680px;
+  background: #0f1524;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 90vh;
+  overflow-y: auto;
 }
-.guide-modal-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.modal-badge { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: #38bdf8; }
-.modal-title { font-size: 18px; font-weight: 700; color: #f8fafc; margin-top: 2px; }
+
+.guide-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.modal-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #38bdf8;
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f8fafc;
+  margin-top: 2px;
+}
+
 .cancel-action-btn {
-  background: rgba(255, 255, 255, 0.05); border: 1px solid #334155;
-  color: #94a3b8; padding: 5px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #334155;
+  color: #94a3b8;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
 }
-.countries-tab-bar { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+
+.countries-tab-bar {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
 .country-tab {
-  display: flex; align-items: center; gap: 4px; background: #172033;
-  border: 1px solid #28374f; color: #cbd5e1; padding: 6px 12px; border-radius: 6px;
-  font-size: 13px; cursor: pointer; white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #172033;
+  border: 1px solid #28374f;
+  color: #cbd5e1;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
 }
-.country-tab.active { background: linear-gradient(135deg, #4f46e5, #6366f1); border-color: #818cf8; color: #fff; }
+
+.country-tab.active {
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  border-color: #818cf8;
+  color: #fff;
+}
+
 .guidance-content-box {
-  background: #141b2c; border: 1px solid #1f2b44; border-radius: 10px;
-  padding: 16px; display: flex; flex-direction: column; gap: 12px;
+  background: #141b2c;
+  border: 1px solid #1f2b44;
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.guidance-header { display: flex; justify-content: space-between; align-items: center; }
-.country-target-name { font-size: 15px; font-weight: 700; color: #f8fafc; }
-.lang-pill { background: #1e293b; color: #38bdf8; font-size: 11px; padding: 2px 6px; border-radius: 4px; }
-.guidance-detail-card { display: flex; flex-direction: column; gap: 8px; }
-.guide-block { font-size: 12px; line-height: 1.5; color: #cbd5e1; }
-.block-label { font-weight: 600; color: #94a3b8; }
-.guide-block.highlight-block { background: rgba(239, 68, 68, 0.08); border-left: 3px solid #ef4444; padding: 6px 8px; border-radius: 0 4px 4px 0; }
-.guide-block.highlight-block .block-label { color: #fca5a5; }
-.prompt-snippet-box { background: #0b0f19; border: 1px solid #1c2639; border-radius: 6px; padding: 10px; }
-.snippet-label { font-size: 11px; color: #64748b; margin-bottom: 2px; }
-.snippet-text { font-size: 12px; color: #a5f3fc; line-height: 1.45; font-family: monospace; }
-.guide-modal-footer { display: flex; justify-content: space-between; align-items: center; }
-.footer-tip { font-size: 11px; color: #64748b; }
+
+.guidance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.country-target-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.lang-pill {
+  background: #1e293b;
+  color: #38bdf8;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.guidance-detail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.guide-block {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #cbd5e1;
+}
+
+.block-label {
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.guide-block.highlight-block {
+  background: rgba(239, 68, 68, 0.08);
+  border-left: 3px solid #ef4444;
+  padding: 6px 8px;
+  border-radius: 0 4px 4px 0;
+}
+
+.guide-block.highlight-block .block-label {
+  color: #fca5a5;
+}
+
+.prompt-snippet-box {
+  background: #0b0f19;
+  border: 1px solid #1c2639;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.snippet-label {
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 2px;
+}
+
+.snippet-text {
+  font-size: 12px;
+  color: #a5f3fc;
+  line-height: 1.45;
+  font-family: monospace;
+}
+
+.guide-modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.footer-tip {
+  font-size: 11px;
+  color: #64748b;
+}
+
 .apply-to-chat-btn {
-  background: linear-gradient(135deg, #10b981, #059669); color: #ffffff; border: none;
-  padding: 8px 20px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ffffff;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-/* ================= 移动端适配特化 (<= 868px) ================= */
-@media (max-width: 868px) {
-  .desktop-only { display: none !important; }
-  .mobile-only { display: flex !important; }
+.fade-fast-enter-active,
+.fade-fast-leave-active {
+  transition: opacity 0.15s;
+}
 
-  /* 顶栏紧凑排布，彻底消除图二的折行错位 */
-  .top-nav {
-    padding: 0 12px;
-    height: 56px;
-    min-height: 56px;
-  }
-  .brand-name { font-size: 16px; }
-  .brand-avatar { width: 30px; height: 30px; font-size: 15px; }
-  .nav-actions { gap: 8px; }
-  .nav-link { padding: 6px 8px; }
-  .logout-btn { padding: 5px 10px; font-size: 12px; }
+.fade-fast-enter-from,
+.fade-fast-leave-to {
+  opacity: 0;
+}
 
-  /* 视图 A 看板：微调内边距，保持图三优良排版 */
-  .board-container { padding: 20px 14px; }
-  .board-header { margin-bottom: 20px; }
-  .board-title { font-size: 22px; }
-  .board-sub { font-size: 12px; }
-  .cards-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-  }
-  .square-card {
-    border-radius: 14px;
-    padding: 14px;
-  }
-  .plus-icon { width: 44px; height: 44px; font-size: 28px; }
-  .add-text { font-size: 13px; }
-  .card-project-title { font-size: 15px; }
+.loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #64748b;
+  border-top-color: #38bdf8;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
 
-  /* 视图 B 聊天顶栏：单行平铺，不再换行挤爆 */
-  .chat-header {
-    padding: 8px 12px;
-    gap: 6px;
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
-  .chat-header-main {
-    gap: 8px;
-  }
-  .back-space-btn {
-    padding: 5px 8px;
-    font-size: 12px;
-  }
-  .chat-title { font-size: 14px; }
-  .global-guide-btn {
-    padding: 5px 10px;
-    font-size: 12px;
-  }
-  .mobile-brief-toggle {
-    padding: 5px 8px;
-    font-size: 12px;
-  }
-
-  .messages-container {
-    padding: 14px 12px;
-    gap: 12px;
-  }
-  .message-row { max-width: 92%; }
-  .bubble { font-size: 13px; padding: 10px 12px; }
-  .chat-input-area { padding: 10px 12px; }
-  .chat-input-area textarea { height: 60px; font-size: 13px; padding: 8px 10px; }
-  .input-actions { justify-content: flex-end; }
-  .send-btn { padding: 7px 16px; font-size: 13px; }
-
-  /* 核心需求：手机端彻底隐藏右栏，改为点击抽屉滑出 */
-  .brief-panel {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 88vw;
-    min-width: unset;
-    max-width: 380px;
-    z-index: 990;
-    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.8);
-    transform: translateX(100%);
-    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    border-left: 1px solid rgba(99, 102, 241, 0.3);
-  }
-  .brief-panel.mobile-drawer-open {
-    transform: translateX(0);
-  }
-  .drawer-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #1a2233;
-    margin-bottom: 4px;
-  }
-  .drawer-title { font-size: 15px; font-weight: 700; color: #f8fafc; }
-  .drawer-close-btn {
-    background: #1e293b;
-    border: 1px solid #334155;
-    color: #94a3b8;
-    padding: 4px 10px;
-    border-radius: 6px;
-    font-size: 12px;
-    cursor: pointer;
-  }
-
-  /* 抽屉背景半透明遮罩 */
-  .mobile-drawer-mask {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.65);
-    backdrop-filter: blur(4px);
-    z-index: 980;
-  }
-
-  .guide-modal-box { padding: 16px; }
-  .guide-modal-footer { justify-content: flex-end; }
-  .apply-to-chat-btn { width: 100%; }
 }
 </style>

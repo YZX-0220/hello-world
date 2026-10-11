@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     session_cookie_name: str = "hw_session"
     cookie_samesite: Literal["lax", "strict", "none"] = "lax"
 
+    # 平台示例库管理员：已注册且启用的账号邮箱，逗号分隔。为空时没有管理权限。
+    material_library_admin_emails: str = ""
+
     # ---- SMTP 验证码邮件 ----
     # email_provider: fake（开发，验证码输出到日志）或 smtp（真实发信，如 qq 邮箱）
     email_provider: str = "fake"

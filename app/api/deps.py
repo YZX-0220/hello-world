@@ -7,7 +7,7 @@ from fastapi import Depends, Request
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import settings
-from app.core.errors import AUTH_REQUIRED, CSRF_INVALID, AppError
+from app.core.errors import AUTH_REQUIRED, CSRF_INVALID, LIBRARY_ADMIN_REQUIRED, AppError
 from app.db.models.user import User
 from app.db.redis import get_redis
 from app.db.session import get_session
@@ -66,3 +66,10 @@ async def require_csrf(request: Request) -> None:
         allowed = [o.strip() for o in settings.frontend_origin.split(",") if o.strip()]
         if origin not in allowed:
             raise AppError(CSRF_INVALID)
+
+
+async def get_material_library_admin(user: User = Depends(get_current_user)) -> User:
+    allowed = {email.strip().casefold() for email in settings.material_library_admin_emails.split(",") if email.strip()}
+    if user.email.casefold() not in allowed:
+        raise AppError(LIBRARY_ADMIN_REQUIRED)
+    return user

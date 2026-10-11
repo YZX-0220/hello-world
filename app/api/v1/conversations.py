@@ -15,6 +15,7 @@ from app.db.models.project import VideoProject
 from app.db.models.user import User
 from app.repositories.projects import ProjectRepository
 from app.schemas.agent import VideoBrief
+from app.schemas.canvas import ConfirmCanvasPlanRequest, PrepareCanvasVideoRequest
 from app.schemas.conversation import (
     ConfirmProjectRequest,
     ConversationView,
@@ -26,8 +27,11 @@ from app.schemas.conversation import (
     SendMessageRequest,
     VideoProjectView,
 )
+from app.services.canvas_service import CanvasService
+from app.services.canvas_video_service import CanvasVideoService, validate_generation_sources
 from app.services.conversation_service import ConversationService
 from app.services.project_service import ProjectService
+from app.services.video_prompt import compile_video_prompt
 
 router = APIRouter()
 
@@ -45,7 +49,9 @@ def _project_view(project: VideoProject, suggested_prompt: str | None = None) ->
         current_spec=VideoBrief.model_validate(spec) if spec else VideoBrief(),
         current_spec_version=project.current_spec_version,
         suggested_prompt=suggested_prompt,
+        compiled_prompt=compile_video_prompt(VideoBrief.model_validate(spec), suggested_prompt),
         canvas_data=canvas,
+        canvas_version=project.canvas_version,
         confirmed_spec_version=confirmed,
         confirmed_at=project.confirmed_at,
         is_current_version_confirmed=(confirmed is not None and confirmed == project.current_spec_version),
@@ -128,7 +134,8 @@ async def send_message(
 ):
     svc = ConversationService(session)
     user_message, assistant_message, _ = await svc.send_message(
-        user.id, conversation_id, payload.content, payload.client_request_id, payload.web_search_enabled
+        user.id, conversation_id, payload.content, payload.client_request_id, payload.web_search_enabled,
+        payload.canvas_collaboration,
     )
     project = await ProjectRepository(session).get_by_conversation(user.id, conversation_id)
     sp = await ProjectRepository(session).get_latest_suggested_prompt(project.id) if project else None
@@ -163,7 +170,8 @@ async def send_message_stream(
 
     async def event_stream():
         async for event_type, data in svc.stream_message_events(
-            user.id, conversation_id, payload.content, payload.client_request_id, payload.web_search_enabled
+            user.id, conversation_id, payload.content, payload.client_request_id, payload.web_search_enabled,
+            payload.canvas_collaboration,
         ):
             yield _sse_event(event_type, data)
 
@@ -180,6 +188,8 @@ async def get_project(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(db_session),
 ) -> VideoProjectView:
+    await ConversationService(session).get_or_404(user.id, conversation_id)
+    await CanvasService(session).recover_expired(user.id, conversation_id)
     project = await ProjectRepository(session).get_by_conversation(user.id, conversation_id)
     if project is None:
         raise AppError(CONVERSATION_NOT_FOUND)
@@ -200,8 +210,39 @@ async def confirm_project(
     project = await repo.get_by_conversation(user.id, conversation_id)
     if project is None:
         raise AppError(CONVERSATION_NOT_FOUND)
+    await ConversationService(session).get_or_404(user.id, conversation_id)
+    validate_generation_sources(project, payload.spec_version)
     project = await repo.confirm(project, payload.spec_version)
     sp = await repo.get_latest_suggested_prompt(project.id)
+    return _project_view(project, sp)
+
+
+@router.post("/conversations/{conversation_id}/canvas/confirm")
+async def confirm_canvas_plan(
+    conversation_id: str, payload: ConfirmCanvasPlanRequest,
+    user: User = Depends(get_current_user), _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+) -> VideoProjectView:
+    await ConversationService(session).get_or_404(user.id, conversation_id)
+    await CanvasService(session).confirm(
+        user.id, conversation_id, payload.target_node_id, payload.message_id,
+        payload.expected_canvas_version,
+    )
+    return await get_project(conversation_id, user, session)
+
+
+@router.post("/conversations/{conversation_id}/canvas/prepare-video")
+async def prepare_canvas_video(
+    conversation_id: str, payload: PrepareCanvasVideoRequest,
+    user: User = Depends(get_current_user), _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+) -> VideoProjectView:
+    await ConversationService(session).get_or_404(user.id, conversation_id)
+    project = await CanvasVideoService(session).prepare(
+        user.id, conversation_id, payload.node_ids, payload.expected_canvas_version,
+        payload.duration_seconds, payload.resolution,
+    )
+    sp = await ProjectRepository(session).get_latest_suggested_prompt(project.id)
     return _project_view(project, sp)
 
 
@@ -251,6 +292,9 @@ async def save_canvas(
     project = await repo.get_by_conversation(user.id, conversation_id)
     if project is None:
         raise AppError(CONVERSATION_NOT_FOUND)
-    project = await repo.save_canvas(project, json.dumps(payload.canvas_data, ensure_ascii=False))
+    await ConversationService(session).get_or_404(user.id, conversation_id)
+    project = await repo.save_canvas(
+        project, json.dumps(payload.canvas_data.to_data(), ensure_ascii=False), payload.expected_canvas_version
+    )
     sp = await repo.get_latest_suggested_prompt(project.id)
     return _project_view(project, sp)

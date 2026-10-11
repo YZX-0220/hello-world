@@ -17,10 +17,15 @@ from app.core.errors import (
 )
 from app.core.time import now
 from app.db.models.agent import AgentRun
+from app.db.models.conversation import Message
 from app.providers.text import get_text_provider
 from app.providers.text.base import TextProvider, TextProviderError
 from app.schemas.agent import AgentOutput, VideoBrief, VideoBriefPatch
-from app.services.context_builder import MAX_SUMMARY_LENGTH, build_context
+from app.services.context_builder import (
+    MAX_SUMMARY_LENGTH,
+    VIDEO_REVIEW_SYSTEM_PROMPT,
+    build_context,
+)
 from app.services.project_service import ProjectService
 
 
@@ -117,14 +122,23 @@ class AgentService:
             missing = [str(x) for x in (structured.get("missing_fields") or [])]
             return AgentOutput(
                 reply=reply,
+                canvas_content=structured.get("canvas_content") if isinstance(structured.get("canvas_content"), str) else None,
                 state_patch=patch,
                 missing_fields=missing,
                 ready_for_generation=bool(structured.get("ready_for_generation", False)),
                 suggested_prompt=structured.get("suggested_prompt"),
+                assumptions=self._review_notes(structured.get("assumptions"), 5),
+                suggestions=self._review_notes(structured.get("suggestions"), 3),
                 search_requests=[str(x) for x in (structured.get("search_requests") or [])],
             )
         patch = self._best_effort_patch(structured)
         return AgentOutput(reply=fallback_reply, state_patch=patch)
+
+    @staticmethod
+    def _review_notes(value: object, limit: int) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [item.strip()[:2000] for item in value if isinstance(item, str) and item.strip()][:limit]
 
     async def run_turn(
         self,
@@ -137,6 +151,7 @@ class AgentService:
         summary_text: str = "",
         summary_through_message_id: str | None = None,
         retrieval_notes: str = "",
+        brief_override: dict | None = None,
     ) -> AgentOutput:
         """执行一轮对话，返回结构与用户回复，并把本轮 AgentRun 落库。
 
@@ -147,7 +162,10 @@ class AgentService:
         前两者用于在构造上下文时压缩旧历史；retrieval_notes 为累积的联网搜索依据，
         非空时注入到上下文供后续多轮使用。
         """
-        brief_dict = await self._projects.get_current_brief(user_id, conversation_id)
+        brief_dict = (
+            brief_override if brief_override is not None
+            else await self._projects.get_current_brief(user_id, conversation_id)
+        )
         brief = VideoBrief.model_validate(brief_dict) if brief_dict else VideoBrief()
         context = build_context(
             brief,
@@ -206,6 +224,7 @@ class AgentService:
         *,
         summary_text: str = "",
         summary_through_message_id: str | None = None,
+        brief_override: dict | None = None,
     ) -> str | None:
         """第二阶段：把检索结果回流给模型，让它基于检索结果重写最终回复。
 
@@ -224,7 +243,10 @@ class AgentService:
         """
         if not search_results_text.strip():
             return None
-        brief_dict = await self._projects.get_current_brief(user_id, conversation_id)
+        brief_dict = (
+            brief_override if brief_override is not None
+            else await self._projects.get_current_brief(user_id, conversation_id)
+        )
         brief = VideoBrief.model_validate(brief_dict) if brief_dict else VideoBrief()
         context = build_context(
             brief, history, user_content, summary_text=summary_text, summary_through_message_id=summary_through_message_id
@@ -242,12 +264,26 @@ class AgentService:
         reply = (result.reply or "").strip()
         return reply or None
 
+    async def prepare_video(self, brief: VideoBrief, content: str) -> AgentOutput:
+        """Deliver a complete plan in one pass; chat clarification rules do not apply here."""
+        try:
+            result = await self._provider.generate(
+                build_context(brief, [], content, system_prompt=VIDEO_REVIEW_SYSTEM_PROMPT), structured=True,
+            )
+        except TextProviderError as exc:
+            code = TEXT_PROVIDER_TIMEOUT if exc.code == "TEXT_PROVIDER_TIMEOUT" else TEXT_PROVIDER_UNAVAILABLE
+            raise AppError(code, exc.message) from exc
+        return self._parse_output(result.structured, result.reply)
+
     async def bind_assistant_message(self, agent_run_id: str, assistant_message_id: str) -> None:
         """把本轮生成的 assistant 消息 id 写回 AgentRun（在其创建完成后调用）。"""
         agent_run = await self._session.get(AgentRun, agent_run_id)
         if agent_run is None:
             return
         agent_run.assistant_message_id = assistant_message_id
+        message = await self._session.get(Message, assistant_message_id)
+        if message is not None:
+            message.model_name = agent_run.model_name
         await self._session.commit()
 
     async def set_tool_call_count(self, agent_run_id: str, count: int) -> None:

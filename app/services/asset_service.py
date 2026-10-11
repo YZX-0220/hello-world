@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from PIL import Image, UnidentifiedImageError
-from sqlmodel import select
+from sqlalchemy import or_
+from sqlmodel import col, select
 
 from app.core.config import settings
 from app.core.cursor import encode_cursor
@@ -26,6 +27,7 @@ from app.core.ids import new_id
 from app.core.time import now
 from app.db.models.asset import Asset
 from app.db.models.conversation import Conversation
+from app.db.models.material_library import MaterialLibraryItem
 from app.db.models.video_job import VideoJobAsset
 from app.repositories.assets import AssetRepository
 from app.schemas.asset import AssetView
@@ -201,6 +203,12 @@ class AssetService:
         )
         if used.first() is not None:
             raise AppError(ASSET_IN_USE)
+        library_usage = await self._session.exec(select(MaterialLibraryItem.id).where(
+            MaterialLibraryItem.status != "deleted",
+            or_(col(MaterialLibraryItem.video_asset_id) == asset_id, col(MaterialLibraryItem.cover_asset_id) == asset_id),
+        ).limit(1))
+        if library_usage.first() is not None:
+            raise AppError(ASSET_IN_USE, "素材仍被示例库引用，请先更换文件或删除对应示例")
         asset.status = "deleted"
         asset.deleted_at = now()
         await self._session.commit()

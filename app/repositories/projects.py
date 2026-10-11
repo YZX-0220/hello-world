@@ -1,10 +1,11 @@
 """项目/方案版本仓储：读取当前方案，写入新方案并提供不可变快照。"""
 
-from sqlmodel import select
+from sqlalchemy import update
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.enums import VersionSource
-from app.core.errors import PROJECT_VERSION_CONFLICT, AppError
+from app.core.errors import CANVAS_VERSION_CONFLICT, PROJECT_VERSION_CONFLICT, AppError
 from app.core.time import now
 from app.db.models.project import VideoProject, VideoProjectVersion
 
@@ -18,6 +19,7 @@ class ProjectRepository:
             VideoProject.conversation_id == conversation_id,
             VideoProject.user_id == user_id,
         )
+        stmt = stmt.execution_options(populate_existing=True)
         result = await self._session.exec(stmt)
         return result.first()
 
@@ -70,10 +72,53 @@ class ProjectRepository:
         await self._session.refresh(project)
         return project
 
-    async def save_canvas(self, project: VideoProject, canvas_json: str) -> VideoProject:
-        """保存画布数据（原样 JSON）。"""
-        project.canvas_data_json = canvas_json
-        project.updated_at = now()
+    async def save_canvas(
+        self, project: VideoProject, canvas_json: str, expected_version: int | None = None
+    ) -> VideoProject:
+        """Compare-and-swap only canvas fields; never overwrite a concurrent canvas."""
+        version = project.canvas_version if expected_version is None else expected_version
+        stmt = (
+            update(VideoProject)
+            .where(col(VideoProject.id) == project.id, col(VideoProject.canvas_version) == version)
+            .values(canvas_data_json=canvas_json, canvas_version=version + 1, updated_at=now())
+            .execution_options(synchronize_session=False)
+            .returning(col(VideoProject.id))
+        )
+        result = await self._session.execute(stmt)
+        if result.first() is None:
+            await self._session.rollback()
+            raise AppError(CANVAS_VERSION_CONFLICT)
+        await self._session.commit()
+        await self._session.refresh(project)
+        return project
+
+    async def commit_canvas_spec(
+        self, project: VideoProject, canvas_json: str, canvas_version: int,
+        spec_version: int, spec_json: str, suggested_prompt: str | None,
+    ) -> VideoProject:
+        """Publish the prepared brief and its sources atomically; reject edits during AI work."""
+        stmt = (
+            update(VideoProject)
+            .where(
+                col(VideoProject.id) == project.id,
+                col(VideoProject.canvas_version) == canvas_version,
+                col(VideoProject.current_spec_version) == spec_version,
+            )
+            .values(
+                current_spec_json=spec_json, current_spec_version=spec_version + 1,
+                canvas_data_json=canvas_json, canvas_version=canvas_version + 1,
+                confirmed_spec_version=None, confirmed_at=None, updated_at=now(),
+            )
+            .execution_options(synchronize_session=False)
+            .returning(col(VideoProject.id))
+        )
+        if (await self._session.execute(stmt)).first() is None:
+            await self._session.rollback()
+            raise AppError(CANVAS_VERSION_CONFLICT, "整理期间画布已变化，请用最新内容重新整理")
+        self._session.add(VideoProjectVersion(
+            project_id=project.id, version=spec_version + 1, spec_json=spec_json,
+            source_type=VersionSource.AGENT.value, suggested_prompt=suggested_prompt,
+        ))
         await self._session.commit()
         await self._session.refresh(project)
         return project

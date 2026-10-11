@@ -4,6 +4,7 @@ from app.db.models.agent import AgentRun, MessageCitation, ToolExecution
 from app.db.models.asset import Asset
 from app.db.models.audit import AuditEvent
 from app.db.models.conversation import Conversation, ConversationContext, Message
+from app.db.models.material_library import MaterialLibraryItem
 from app.db.models.project import VideoProject, VideoProjectVersion
 from app.db.models.user import User, UserSession
 from app.db.models.video_api_config import VideoApiConfig, VideoApiConfigRevision
@@ -15,6 +16,7 @@ __all__ = [
     "AuditEvent",
     "Conversation",
     "ConversationContext",
+    "MaterialLibraryItem",
     "Message",
     "MessageCitation",
     "ToolExecution",

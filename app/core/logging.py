@@ -31,6 +31,9 @@ class SensitiveFilter(logging.Filter):
     """过滤日志记录中的敏感字段。"""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        # Third-party loggers (e.g. httpx during real AI requests) have no request context.
+        if not hasattr(record, "request_id"):
+            record.request_id = "-"
         # message 里的敏感键名值替换
         if isinstance(record.msg, str):
             with contextlib.suppress(re.error):

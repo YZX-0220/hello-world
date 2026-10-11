@@ -6,6 +6,7 @@ from app.api.v1 import (
     assets,
     auth,
     conversations,
+    material_library,
     provider_assets,
     users,
     video_api_configs,
@@ -23,6 +24,8 @@ def register_v1_routes(app: FastAPI) -> None:
     api_router.include_router(video_protocols.router)
     api_router.include_router(video_api_configs.router)
     api_router.include_router(assets.router)
+    api_router.include_router(material_library.router)
+    api_router.include_router(material_library.admin_router)
     api_router.include_router(provider_assets.router)
     api_router.include_router(video_jobs.router)
     app.include_router(api_router, prefix="/api/v1")

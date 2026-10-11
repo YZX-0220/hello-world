@@ -51,8 +51,10 @@ from app.repositories.video_jobs import (
 )
 from app.schemas.agent import VideoBrief
 from app.schemas.video_job import CreateVideoCommand, ErrorInfo, VideoJobEventView, VideoJobView
+from app.services.canvas_video_service import validate_generation_sources
 from app.services.provider_asset_url import sign_provider_asset
 from app.services.video_download_service import VideoDownloadService
+from app.services.video_prompt import compile_video_prompt
 from app.video_registry import get_template
 from app.video_registry.models import EndpointSpec, ProtocolTemplate
 
@@ -153,6 +155,10 @@ class VideoJobService:
     async def create(self, user_id: str, command: CreateVideoCommand, idempotency_key: str) -> tuple[VideoJob, bool]:
         project = await self._load_project(user_id, command)
         self._validate_confirmed(project, command.spec_version)
+        validate_generation_sources(
+            project, command.spec_version, command.generation_options.get("canvas_source_node_ids"),
+            command.generation_options,
+        )
 
         # 平台自有通道（api_config_id="platform"）不走用户自配 config/revision；
         # 其余通道完全沿用原来的 _active_config → revision 流程，行为不变。
@@ -178,7 +184,15 @@ class VideoJobService:
         self._validate_mode(command, spec)
         assets = await self._require_assets(user_id, spec)
 
-        request_json = self._build_request_json(command, spec, remote_model_id)
+        version_row = (
+            await self._session.exec(select(VideoProjectVersion).where(
+                VideoProjectVersion.project_id == project.id,
+                VideoProjectVersion.version == command.spec_version,
+            ))
+        ).first()
+        request_json = self._build_request_json(
+            command, spec, remote_model_id, version_row.suggested_prompt if version_row else None
+        )
         if not str(request_json.get("prompt") or "").strip():
             raise AppError(VIDEO_INPUT_INVALID, "当前方案内容为空，无法生成视频，请先在对话中完善方案")
         fingerprint = _fingerprint(
@@ -194,15 +208,6 @@ class VideoJobService:
         # 平台通道：提交厂商前先检查每日配额（放在幂等命中之后，重复请求不误触发限流）。
         if is_platform:
             await self._check_platform_quota(user_id)
-
-        version_row = (
-            await self._session.exec(
-                select(VideoProjectVersion).where(
-                    VideoProjectVersion.project_id == project.id,
-                    VideoProjectVersion.version == command.spec_version,
-                )
-            )
-        ).first()
 
         job = VideoJob(
             id=new_id(),
@@ -500,8 +505,8 @@ class VideoJobService:
     def _validate_mode(self, command: CreateVideoCommand, spec: VideoBrief) -> None:
         if spec.mode is not None and spec.mode.value != command.mode:
             raise AppError(VIDEO_MODE_UNSUPPORTED, "生成模式与方案版本不一致")
-        if spec.duration_seconds is not None and not (1 <= spec.duration_seconds <= 120):
-            raise AppError(VIDEO_OPTION_UNSUPPORTED, "时长不在允许范围")
+        if spec.duration_seconds is not None and not (1 <= spec.duration_seconds <= 15):
+            raise AppError(VIDEO_OPTION_UNSUPPORTED, "每次生成的视频时长必须为 1–15 秒，请调整方案时长")
 
     async def _require_assets(self, user_id: str, spec: VideoBrief) -> list[tuple[str, str, int]]:
         rows = _asset_ids(spec)
@@ -511,11 +516,11 @@ class VideoJobService:
                 raise AppError(ASSET_NOT_FOUND, "任务引用的素材不存在或无权访问")
         return rows
 
-    def _build_request_json(self, command: CreateVideoCommand, spec: VideoBrief, remote_model_id: str) -> dict[str, Any]:
+    def _build_request_json(self, command: CreateVideoCommand, spec: VideoBrief, remote_model_id: str, suggested_prompt: str | None = None) -> dict[str, Any]:
         return {
             "remote_model_id": remote_model_id,
             "mode": command.mode,
-            "prompt": spec.objective or spec.subject or spec.scene or "",
+            "prompt": compile_video_prompt(spec, suggested_prompt),
             "duration_seconds": spec.duration_seconds,
             "aspect_ratio": spec.aspect_ratio,
             "resolution": command.generation_options.get("resolution"),

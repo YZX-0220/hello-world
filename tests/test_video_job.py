@@ -104,6 +104,30 @@ def _platform_cmd(info: dict, **overrides) -> dict:
     return cmd
 
 
+async def test_older_project_cannot_submit_a_video_longer_than_fifteen_seconds(client: httpx.AsyncClient) -> None:
+    info = await _make_confirmed_project(client)
+    headers = _csrf(client)
+    changed = await client.patch(
+        f"/api/v1/conversations/{info['conversation_id']}/project",
+        json={"expected_spec_version": info["spec_version"], "patch": {"duration_seconds": 16}},
+        headers=headers,
+    )
+    assert changed.status_code == 200, changed.text
+    info["spec_version"] = changed.json()["current_spec_version"]
+    confirmed = await client.post(
+        f"/api/v1/conversations/{info['conversation_id']}/project/confirm",
+        json={"spec_version": info["spec_version"]}, headers=headers,
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    rejected = await client.post(
+        "/api/v1/video-jobs", json=_platform_cmd(info),
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+    )
+    assert rejected.status_code == 422, rejected.text
+    assert rejected.json()["error"]["code"] == "VIDEO_OPTION_UNSUPPORTED"
+    assert "1–15" in rejected.json()["error"]["message"]
+
+
 async def test_create_video_job_and_poll(client: httpx.AsyncClient) -> None:
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)

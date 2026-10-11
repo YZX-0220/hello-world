@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.agent import VideoBrief, VideoBriefPatch
+from app.schemas.canvas import CanvasCollaboration, CanvasDocument
 
 
 class ConversationView(BaseModel):
@@ -56,6 +57,7 @@ class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=20000)
     client_request_id: str = Field(min_length=1, max_length=64)
     web_search_enabled: bool = False
+    canvas_collaboration: CanvasCollaboration | None = None
 
 
 class ProjectSummary(BaseModel):
@@ -71,7 +73,9 @@ class VideoProjectView(BaseModel):
     current_spec: VideoBrief
     current_spec_version: int
     suggested_prompt: str | None
+    compiled_prompt: str = ""
     canvas_data: dict[str, Any] | None = None  # 前端画布状态，无则 None
+    canvas_version: int = 0
     confirmed_spec_version: int | None
     confirmed_at: datetime | None
     is_current_version_confirmed: bool
@@ -106,4 +110,5 @@ class SaveCanvasRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    canvas_data: dict[str, Any]
+    canvas_data: CanvasDocument
+    expected_canvas_version: int | None = Field(default=None, ge=0)

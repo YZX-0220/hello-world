@@ -27,9 +27,12 @@ def _parse_structured(content: str) -> dict:
                 text = text.lstrip()[4:]
             text = text.strip()
     try:
-        return json.loads(text)
+        result = json.loads(text)
     except json.JSONDecodeError as exc:
         raise TextProviderError("AGENT_OUTPUT_INVALID", "AI 结构化输出无法校验", retryable=False) from exc
+    if not isinstance(result, dict):
+        raise TextProviderError("AGENT_OUTPUT_INVALID", "AI 结构化输出必须是一个 JSON 对象", retryable=False)
+    return result
 
 
 class OpenAICompatibleTextProvider(TextProvider):
@@ -66,11 +69,15 @@ class OpenAICompatibleTextProvider(TextProvider):
             raise TextProviderError(
                 "TEXT_PROVIDER_UNAVAILABLE", f"文本模型返回 {resp.status_code}", retryable=resp.status_code >= 500
             )
-        data = resp.json()
-        choices = data.get("choices") or [{}]
-        choice = choices[0]
-        message = choice.get("message") or {}
-        content = message.get("content") or ""
+        try:
+            data = resp.json()
+            choice = (data.get("choices") or [{}])[0]
+            message = choice.get("message") or {}
+            content = message.get("content") or ""
+        except (ValueError, AttributeError, IndexError, TypeError) as exc:
+            raise TextProviderError("AGENT_OUTPUT_INVALID", "文本模型返回了无法解析的响应，请重新发送", retryable=True) from exc
+        if not isinstance(content, str) or not content.strip():
+            raise TextProviderError("AGENT_OUTPUT_INVALID", "文本模型没有返回有效内容，请重新发送", retryable=True)
         return content, data
 
     async def generate(self, messages: list[dict[str, str]], *, structured: bool = False) -> TextResult:

@@ -67,9 +67,12 @@ class AgentOutput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     reply: str = ""
+    canvas_content: str | None = Field(default=None, max_length=100000)
     state_patch: VideoBriefPatch = Field(default_factory=VideoBriefPatch)
     missing_fields: list[str] = Field(default_factory=list)
     ready_for_generation: bool = False
     suggested_prompt: str | None = None
+    assumptions: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
     search_requests: list[str] = Field(default_factory=list)  # 需要联网时填查询词（仅联网开启时支持）
     agent_run_id: str | None = None  # 本轮落库后的 AgentRun id（供上层关联工具调用）

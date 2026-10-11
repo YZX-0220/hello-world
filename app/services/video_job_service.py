@@ -179,6 +179,8 @@ class VideoJobService:
         assets = await self._require_assets(user_id, spec)
 
         request_json = self._build_request_json(command, spec, remote_model_id)
+        if not str(request_json.get("prompt") or "").strip():
+            raise AppError(VIDEO_INPUT_INVALID, "当前方案内容为空，无法生成视频，请先在对话中完善方案")
         fingerprint = _fingerprint(
             {"project_version": command.spec_version, "api_config_revision": revision_identifier, "mode": command.mode, "request": request_json}
         )

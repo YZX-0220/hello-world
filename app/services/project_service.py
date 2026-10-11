@@ -75,3 +75,10 @@ class ProjectService:
         merged = self.merge_patch(current, patch)
         spec_json = json.dumps(merged, ensure_ascii=False)
         await self._repo.commit_spec(project, spec_json, VersionSource.MANUAL.value, None, None)
+
+    async def save_canvas(self, user_id: str, conversation_id: str, canvas_data: dict) -> None:
+        """保存对话画布；项目不存在时抛 ValueError（路由转 404）。"""
+        project = await self._repo.get_by_conversation(user_id, conversation_id)
+        if project is None:
+            raise ValueError("项目不存在")
+        await self._repo.save_canvas(project, json.dumps(canvas_data, ensure_ascii=False))

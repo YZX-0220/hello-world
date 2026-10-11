@@ -24,6 +24,8 @@ class VideoProject(SQLModel, table=True):
     current_spec_version: int = Field(default=0)
     confirmed_spec_version: int | None = Field(default=None)
     confirmed_at: datetime | None = Field(default=None)
+    # 前端节点画布（pan/zoom/nodes/connections）原样 JSON；无画布时为 None
+    canvas_data_json: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
 

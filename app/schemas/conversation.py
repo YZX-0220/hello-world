@@ -71,6 +71,7 @@ class VideoProjectView(BaseModel):
     current_spec: VideoBrief
     current_spec_version: int
     suggested_prompt: str | None
+    canvas_data: dict[str, Any] | None = None  # 前端画布状态，无则 None
     confirmed_spec_version: int | None
     confirmed_at: datetime | None
     is_current_version_confirmed: bool
@@ -98,3 +99,11 @@ class PatchProjectRequest(BaseModel):
 
     expected_spec_version: int
     patch: VideoBriefPatch
+
+
+class SaveCanvasRequest(BaseModel):
+    """保存前端节点画布。结构由前端定义，后端原样保存，不做深校验。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    canvas_data: dict[str, Any]

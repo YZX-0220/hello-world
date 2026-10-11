@@ -69,3 +69,11 @@ class ProjectRepository:
         await self._session.commit()
         await self._session.refresh(project)
         return project
+
+    async def save_canvas(self, project: VideoProject, canvas_json: str) -> VideoProject:
+        """保存画布数据（原样 JSON）。"""
+        project.canvas_data_json = canvas_json
+        project.updated_at = now()
+        await self._session.commit()
+        await self._session.refresh(project)
+        return project

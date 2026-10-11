@@ -31,7 +31,7 @@ class VideoJobView(BaseModel):
     conversation_id: str
     project_id: str
     project_version: int
-    api_config_id: str
+    api_config_id: str | None = None
     api_config_revision: int
     previous_job_id: str | None = None
     protocol_code: str

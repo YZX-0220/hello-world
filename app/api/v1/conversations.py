@@ -22,6 +22,7 @@ from app.schemas.conversation import (
     Page,
     PatchProjectRequest,
     ProjectSummary,
+    SaveCanvasRequest,
     SendMessageRequest,
     VideoProjectView,
 )
@@ -36,6 +37,7 @@ _LIMIT_MAX = 100
 
 def _project_view(project: VideoProject, suggested_prompt: str | None = None) -> VideoProjectView:
     spec = json.loads(project.current_spec_json or "{}")
+    canvas = json.loads(project.canvas_data_json) if project.canvas_data_json else None
     confirmed = project.confirmed_spec_version
     return VideoProjectView(
         id=project.id,
@@ -43,6 +45,7 @@ def _project_view(project: VideoProject, suggested_prompt: str | None = None) ->
         current_spec=VideoBrief.model_validate(spec) if spec else VideoBrief(),
         current_spec_version=project.current_spec_version,
         suggested_prompt=suggested_prompt,
+        canvas_data=canvas,
         confirmed_spec_version=confirmed,
         confirmed_at=project.confirmed_at,
         is_current_version_confirmed=(confirmed is not None and confirmed == project.current_spec_version),
@@ -231,5 +234,23 @@ async def patch_project(
     project = await repo.get_by_conversation(user.id, conversation_id)
     if project is None:
         raise AppError(CONVERSATION_NOT_FOUND)
+    sp = await repo.get_latest_suggested_prompt(project.id)
+    return _project_view(project, sp)
+
+
+@router.put("/conversations/{conversation_id}/canvas")
+async def save_canvas(
+    conversation_id: str,
+    payload: SaveCanvasRequest,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+) -> VideoProjectView:
+    """保存对话的节点画布（前端在拖拽/连线/删除后静默调用）。"""
+    repo = ProjectRepository(session)
+    project = await repo.get_by_conversation(user.id, conversation_id)
+    if project is None:
+        raise AppError(CONVERSATION_NOT_FOUND)
+    project = await repo.save_canvas(project, json.dumps(payload.canvas_data, ensure_ascii=False))
     sp = await repo.get_latest_suggested_prompt(project.id)
     return _project_view(project, sp)

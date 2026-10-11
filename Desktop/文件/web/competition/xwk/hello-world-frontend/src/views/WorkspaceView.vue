@@ -10,6 +10,8 @@
         </div>
       </router-link>
       <div class="nav-actions">
+        <span v-if="currentConvId" class="save-indicator" :class="saveState.status" role="status">{{ saveLabel }}</span>
+        <button v-if="currentConvId" class="glass-pill-btn" @click="retrySave" :disabled="saveState.status === 'saving'">保存</button>
         <router-link to="/settings/api" class="nav-link" title="点击进入 API 配置中心">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -21,8 +23,17 @@
       </div>
     </header>
 
+    <div v-if="notice || saveState.status === 'error' || saveState.status === 'conflict'" class="workspace-notice" role="status" aria-live="polite">
+      <span>{{ saveState.status === 'error' || saveState.status === 'conflict' ? saveState.error : notice }}</span>
+      <button v-if="deletedNode" @click="undoDeleteNode">撤销删除</button>
+      <button v-if="saveState.status === 'error' && currentConvId" @click="retrySave">重试保存</button>
+      <button v-if="saveState.status === 'conflict' && currentConvId" @click="resolveConflict('local')">保留并保存我的草稿</button>
+      <button v-if="saveState.status === 'conflict' && currentConvId" @click="resolveConflict('remote')">使用云端版本</button>
+      <button aria-label="关闭提示" @click="notice = ''">×</button>
+    </div>
     <!-- 视图平滑推拉切换容器 -->
     <div class="workspace-body">
+      <div v-if="loading" class="workspace-loading" role="status">正在加载项目…</div>
       <Transition name="slide-left" mode="out-in">
 
         <!-- ================= 视图 A：创作项目空间看板 ================= -->
@@ -33,7 +44,7 @@
           </div>
 
           <div class="cards-grid">
-            <div class="square-card add-card" @click="createNewConversation">
+            <div class="square-card add-card" role="button" tabindex="0" :aria-disabled="!initialized || isCreatingConv || loading" @keydown.enter="createNewConversation" @click="createNewConversation">
               <div class="plus-icon">+</div>
               <span class="add-text">{{ isCreatingConv ? '正在初始化...' : '开启新创作对话' }}</span>
               <div class="add-glow"></div>
@@ -61,18 +72,8 @@
         </main>
 
         <!-- ================= 视图 B：网格节点 AI 视频工作台 ================= -->
-       <div 
-  v-else 
-  key="view-b" 
-  class="canvas-viewport" 
-  ref="viewportRef" 
-  @mousedown="handleCanvasMouseDown"
-  @mousemove="handleCanvasMouseMove" 
-  @mouseup="handleCanvasMouseUp" 
-  @contextmenu.prevent="openContextMenu"
-  @wheel.prevent="handleCanvasZoom"
-
->
+        <div v-else key="view-b" class="canvas-viewport" ref="viewportRef"
+          @mousedown="handleCanvasMouseDown" @contextmenu="openContextMenu" @wheel="handleCanvasZoom">
           <!-- 左上角悬浮：返回创作项目空间与重置视图 -->
           <div class="floating-top-left">
             <button class="glass-pill-btn" @click="backToProjectSpace" title="返回项目空间看板">
@@ -87,6 +88,8 @@
                   d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
               </svg>
             </button>
+            <button class="glass-pill-btn" @click.stop="addNode('text')">添加文本</button>
+            <button class="glass-pill-btn" @click.stop="addNode('image')">添加图片</button>
             <span class="canvas-project-title">{{ activeConversation?.title || '新创作工作流' }}</span>
           </div>
 
@@ -153,10 +156,8 @@
   class="canvas-node"
   :class="[node.type, { selected: activeNodeId === node.id || selectedNodeIds.includes(node.id) }]"
   :style="{ transform: `translate(${node.x}px,${node.y}px)` }"
-  draggable="true"
-  @dragstart="handleNodeDragStart($event, node)"
   @mousedown.stop="startDragNode($event, node)"
-  @click.stop="selectNode(node)"
+  @click.stop="selectNode(node, $event)"
 >
               <!-- 节点左侧连接点 (In) -->
               <div class="node-port in-port"
@@ -168,7 +169,7 @@
               </div>
               <!-- 节点头部 -->
               <div class="node-header">
-                <div class="node-type-icon">
+                <div class="node-type-icon" draggable="true" title="拖入 Agent 作为参考" @mousedown.stop @dragstart.stop="handleNodeDragStart($event, node)">
                   <span v-if="node.type === 'text'">≡</span>
                   <span v-else-if="node.type === 'image'">🖼</span>
                   <span v-else>🎬</span>
@@ -176,36 +177,50 @@
 
                 <!-- 节点命名（双击修改） -->
                 <div class="node-title-wrap">
-                  <input v-if="node.isRenaming" v-model="node.title" class="node-title-input"
-                    @blur="node.isRenaming = false" @keydown.enter="node.isRenaming = false" autoFocus />
+                  <input v-if="node.isRenaming" v-model="node.title" class="node-title-input" v-autofocus maxlength="200" aria-label="小框名称" @mousedown.stop @click.stop
+                    @blur="node.isRenaming = false" @keydown.enter="node.isRenaming = false" />
                   <span v-else class="node-title" @dblclick.stop="node.isRenaming = true" title="双击进行重命名">
                     {{ node.title }}
                   </span>
                 </div>
 
-                <button class="node-del-btn" @click.stop="deleteNode(node.id)" title="删除节点">✕</button>
+                <button v-if="node.type === 'text'" class="node-edit-btn" @mousedown.stop
+                  :aria-label="(editingNodeId === node.id ? '完成编辑：' : '编辑文本：') + node.title"
+                  @click.stop="editingNodeId === node.id ? finishNodeEditing() : beginNodeEditing(node)">{{ editingNodeId === node.id ? '完成' : '编辑' }}</button>
+                <button class="node-del-btn" @click.stop="deleteNode(node.id)" title="删除节点" aria-label="删除小框" @mousedown.stop>✕</button>
               </div>
 
               <!-- 文本节点 -->
               <div v-if="node.type === 'text'" class="node-body text-body">
-                <textarea v-model="node.content" placeholder="双击开始编辑脚本、镜头描述或广告词..." @mousedown.stop @click.stop></textarea>
-                <div class="node-footer-actions">
+                <textarea v-if="editingNodeId === node.id || !node.content?.trim()" :ref="el => setNodeEditor(node.id, el)"
+                  v-model="node.content" placeholder="直接编辑脚本、镜头描述或广告词…" :aria-label="node.title + '内容'" :disabled="loading"
+                  @focus="editingNodeId = node.id; activeNodeId = node.id" @mousedown.stop @click.stop
+                  @keydown.ctrl.enter.prevent="finishNodeEditing" @keydown.escape.stop="finishNodeEditing"></textarea>
+                <div v-else class="node-text-preview msg-content" tabindex="0" :aria-label="node.title + '正文'"
+                  title="双击正文或点击“编辑”修改文本" @mousedown.stop @click.stop="selectNode(node, $event)"
+                  @dblclick.stop="beginNodeEditing(node)" @keydown.enter.prevent="beginNodeEditing(node)" @wheel.stop
+                  v-html="renderMd(node.content || '')"></div>
+                <div v-if="node.ai_running || (isAgentResponding && aiTargetNodeId === node.id)" class="node-ai-status" role="status">AI 正在协作，回复后需点击“确定并写入小框”…</div>
+                <div v-else-if="node.pending_ai" class="node-ai-status">AI 正文尚未写入，当前文字已保留</div>
+                <div v-if="node.ai_error" class="node-ai-status">{{ node.ai_error }}</div>
+                <div class="node-footer-actions" @mousedown.stop>
                   <button class="ai-assist-pill" @click.stop="askAgentHelpNode(node)">
-                    <span>✨ 呼唤 Agent 优化</span>
+                    <span>{{ node.pending_ai ? 'AI 协作 · 待写入' : '✨ AI 协作' }}</span>
                   </button>
+                  <button v-if="node.last_ai && node.content === node.last_ai.after" class="ai-assist-pill" @click.stop="restoreBeforeAi(node)">撤销 AI 写入</button>
                 </div>
               </div>
 
               <!-- 图片节点 -->
               <div v-else-if="node.type === 'image'" class="node-body image-body">
                 <label class="image-upload-hover-pill" @click.stop>
-                  <input type="file" accept="image/*" class="hidden-file-input"
+                  <input type="file" accept="image/*" class="hidden-file-input" :disabled="uploading.includes(node.id)"
                     @change="handleImageUpload($event, node)" />
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                       d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                   </svg>
-                  <span>{{ node.url ? '重新上传' : '上传图片' }}</span>
+                  <span>{{ uploading.includes(node.id) ? '正在上传…' : node.url ? '重新上传' : '上传图片' }}</span>
                 </label>
 
                 <div class="image-preview-box">
@@ -221,7 +236,7 @@
 
               <!-- 视频节点 -->
               <div v-else-if="node.type === 'video'" class="node-body video-body">
-                <video :src="node.url" controls autoplay loop playsinline></video>
+                <video :src="node.url" controls loop playsinline @mousedown.stop @click.stop></video>
               </div>
 
               <!-- 节点右侧连接点 (Out) -->
@@ -260,120 +275,122 @@
           <div class="floating-bottom-right">
             <button class="agent-orb-btn"
               :class="{ active: isAgentDrawerOpen, generating: isSubmittingJob || isAgentResponding }"
-              @click="toggleAgentDrawer" title="呼出创作 Agent">
+              @click="toggleAgentDrawer" title="打开 AI 协作" aria-label="打开 AI 协作">
               <div class="orb-inner">
                 <div class="orb-logo"></div>
               </div>
             </button>
           </div>
 
-          <!-- 侧边滑出：Agent 对话与生成视频面板 -->
-          <!-- 侧边滑出：Agent 对话与生成视频面板 -->
-<aside 
-  class="agent-flyout-drawer" 
-  :class="{ open: isAgentDrawerOpen, 'drag-over': isDraggingOverAgent }"
-  @click.stop 
-  @mousedown.stop
-  @dragover.prevent="handleAgentDragOver"
-  @dragleave="handleAgentDragLeave"
-  @drop.prevent="handleAgentDrop"
->
-  <div class="drawer-top-bar">
-    <div class="drawer-brand">
-      <div class="orb-mini"></div>
-      <span>Agent 创作与生成</span>
-    </div>
-    <button class="drawer-close" @click="isAgentDrawerOpen = false">✕</button>
-  </div>
-
-  <!-- 参考节点展示：支持多节点展示与一键清空 -->
-  <div v-if="referencedNodes.length > 0" class="node-binding-banner">
-    <div class="banner-tags">
-      <span class="banner-label">参考节点 ({{ referencedNodes.length }}):</span>
-      <span v-for="node in referencedNodes" :key="node.id" class="ref-pill">
-        {{ node.title }}
-      </span>
-    </div>
-    <button class="clear-bind" @click="clearReferencedNodes">清空参考</button>
-  </div>
-
-  <!-- 拖拽提示占位（当从画布拖动节点靠近时高亮） -->
-  <div v-if="isDraggingOverAgent" class="drag-drop-hint">
-    松开鼠标，将选中节点添加为 Agent 参考
-  </div>
-
-            <!-- 选中的关联参考节点标签 -->
-            <div v-if="activeNode" class="node-binding-banner">
-              <span>当前参考节点：<strong>{{ activeNode.title }}</strong></span>
-              <button class="clear-bind" @click="activeNodeId = ''">取消聚焦</button>
+          <aside class="agent-flyout-drawer"
+            :class="{ open: isAgentDrawerOpen, expanded: isAgentExpanded, 'drag-over': isDraggingOverAgent }"
+            :inert="!isAgentDrawerOpen" :aria-hidden="!isAgentDrawerOpen"
+            @click.stop @mousedown.stop @dragover.prevent="handleAgentDragOver"
+            @dragleave="handleAgentDragLeave" @drop.prevent="handleAgentDrop">
+            <div class="drawer-top-bar">
+              <div class="drawer-brand"><div class="orb-mini"></div><span>创作助手</span></div>
+              <div class="drawer-header-actions">
+                <button class="drawer-expand" @click="isAgentExpanded = !isAgentExpanded">{{ isAgentExpanded ? '收起宽度' : '展开对话' }}</button>
+                <button class="drawer-close" aria-label="关闭创作助手" @click="isAgentDrawerOpen = false">✕</button>
+              </div>
+            </div>
+            <div class="drawer-tabs" role="tablist" aria-label="创作步骤">
+              <button role="tab" :aria-selected="agentTab === 'chat'" @click="agentTab = 'chat'">AI 协作</button>
+              <button role="tab" :aria-selected="agentTab === 'video'" @click="agentTab = 'video'">生成视频</button>
             </div>
 
-            <!-- 消息列表 -->
-            <div class="drawer-messages" ref="messagesContainerRef">
-              <div v-for="msg in messages" :key="msg.id" :class="['message-row', msg.role]">
-                <div class="avatar">{{ msg.role === 'user' ? 'U' : 'AI' }}</div>
-                <div class="bubble">
-                  <div class="msg-content" v-html="renderMd(msg.content)"></div>
-                  <div v-if="msg.citations && msg.citations.length > 0" class="citations-fold">
-                    <span class="citations-tag">🔍 已联网参考 {{ msg.citations.length }} 条海外资讯</span>
+            <div v-show="agentTab === 'chat'" class="drawer-conversation">
+              <div class="ai-target-picker">
+                <div class="target-select-row">
+                  <label for="ai-target">正在协作</label>
+                  <select id="ai-target" v-model="aiTargetNodeId" :disabled="isAgentResponding || isConfirming || isPreparingVideo">
+                    <option value="">新建文本小框</option>
+                    <option v-for="node in nodes.filter(n => n.type === 'text')" :key="node.id" :value="node.id">{{ node.title }}</option>
+                  </select>
+                </div>
+                <small>自由讨论不会改动小框。点击“确定并写入小框”后，待写入正文才会替换小框文字，可撤销。</small>
+              </div>
+              <div v-if="referencedNodes.length" class="node-binding-banner">
+                <div class="banner-tags"><span class="banner-label">参考：</span><span v-for="node in referencedNodes" :key="node.id" class="ref-pill">{{ node.title }}</span></div>
+                <button class="clear-bind" @click="clearReferencedNodes">清空参考</button>
+              </div>
+              <div v-if="isDraggingOverAgent" class="drag-drop-hint">松开鼠标，将小框添加为参考</div>
+              <div class="drawer-messages" ref="messagesContainerRef">
+                <div v-if="!messages.length" class="chat-empty">可以从零创作，也可以先在小框写草稿，再请 AI 帮你修改。仅想讨论时，直接提问即可。</div>
+                <div v-for="msg in messages" :key="msg.id" :class="['message-row', msg.role]">
+                  <div class="avatar">{{ msg.role === 'user' ? '你' : 'AI' }}</div>
+                  <div class="bubble">
+                    <div v-if="msg.model_name === 'local-preview'" class="message-source">历史模拟回复 · 江南旅行示例</div>
+                    <div v-else-if="msg.model_name" class="message-source">{{ msg.model_name }}</div>
+                    <div class="msg-content" v-html="renderMd(msg.content)"></div>
+                <div v-if="aiTargetNode?.pending_ai?.message_id === msg.id" class="pending-content-card">
+                  <div class="pending-content-title">待写入正文 · {{ aiTargetNode.title }}</div>
+                  <p v-if="aiTargetNode.pending_ai.source_model === 'local-preview'" class="proposal-help">这是之前的模拟测试内容。发送消息后，真实 AI 会为你重新创作。</p>
+                  <p v-else class="proposal-help">下方正文是点击“确定并写入小框”后实际写入的内容，聊天中的解释不会写入。</p>
+                  <div class="msg-content" v-html="renderMd(aiTargetNode.pending_ai.content)"></div>
+                  <p v-if="aiTargetNode.pending_ai.original !== undefined && aiTargetNode.pending_ai.original !== (aiTargetNode.content || '')" class="proposal-help">你已修改小框文字。采用这份正文会替换当前文字，可通过“撤销 AI 写入”恢复。</p>
+                </div>
+                    <div v-if="msg.citations?.length" class="citations-fold"><span class="citations-tag">已参考 {{ msg.citations.length }} 条资料</span></div>
                   </div>
                 </div>
+                <div v-if="isAgentResponding" class="message-row assistant">
+                  <div class="avatar">AI</div><div class="bubble thinking"><span class="loading-spinner"></span><span>AI 正在回复，小框原文已保留…</span></div>
+                </div>
               </div>
-              <div v-if="isAgentResponding" class="message-row assistant">
-                <div class="avatar">AI</div>
-                <div class="bubble thinking">
-                  <span class="loading-spinner"></span>
-                  <span>正在分析分众偏好并优化提示词...</span>
+              <div class="drawer-input-box">
+                <div v-if="aiTargetNode?.pending_ai" class="drawer-confirm-row">
+                  <span>写入“{{ aiTargetNode.title }}” · 替换当前文字</span>
+                  <button class="confirm-pill" :disabled="!canApplyAiContent || isConfirming || isAgentResponding || isPreparingVideo"
+                    @click="confirmProjectSpec">{{ isConfirming ? '正在写入…' : '确定并写入小框' }}</button>
+                </div>
+                <textarea ref="textareaRef" v-model="inputContent" aria-label="发送给 AI 的消息" placeholder="描述想法、提出问题，或告诉 AI 如何修改…"
+                  @keydown.enter.exact="!$event.isComposing && ($event.preventDefault(), sendMessage())"></textarea>
+                <div class="input-actions-row"><span class="hint">Enter 发送 · Shift+Enter 换行</span>
+                  <button class="send-btn" :disabled="!inputContent.trim() || isAgentResponding || isPreparingVideo || isConfirming" @click="sendMessage">发送</button>
                 </div>
               </div>
             </div>
 
-            <!-- 分镜确认与视频生成 -->
-            <div class="drawer-spec-panel">
-              <div class="spec-quick-header">
-                <span>分镜方案 (v{{ project?.current_spec_version || 0 }})</span>
-                <button class="confirm-pill" :disabled="project?.is_current_version_confirmed"
-                  @click="confirmProjectSpec">
-                  {{ project?.is_current_version_confirmed ? '方案已确认' : '确认当前方案' }}
-                </button>
-              </div>
-
-              <div class="spec-field-mini">
-                <label>选择视频 API 配置：</label>
-                <select v-model="selectedApiConfigId">
-                  <option value="platform">⚡ 平台官方体验通道（每日限 1 次）</option>
-                  <option v-for="cfg in apiConfigs" :key="cfg.id" :value="cfg.id">
-                    🔑 {{ cfg.display_name }} ({{ cfg.remote_model_id }})
-                  </option>
-                </select>
-              </div>
-
-              <button class="create-video-btn"
-                :disabled="!project?.is_current_version_confirmed || isSubmittingJob || !selectedApiConfigId"
-                @click="submitVideoJob">
-                {{ isSubmittingJob ? '正在提交生成...' : '✨ 一键调用底模生成视频' }}
-              </button>
-
-              <!-- 渲染进度条 -->
-              <div v-if="activeJob" class="active-job-strip">
-                <div class="progress-bar-bg">
-                  <div class="progress-bar-inner" :style="{ width: (activeJob.progress || 30) + '%' }"></div>
+            <div v-show="agentTab === 'video'" class="drawer-video-area">
+              <div class="drawer-spec-panel">
+                <h3 class="spec-quick-header">把选中的小框生成视频</h3>
+                <p class="generation-help">选中一个或多个小框，AI 会先给出可直接生成的最终方案，再提供可选建议。缺少的创作细节会补全并注明。</p>
+                <div class="generation-source-list">当前选中：{{ videoSourceNodes.map(n => n.title).join('、') || '请先在画布选中小框' }}</div>
+                <small class="generation-help">Ctrl 点击或拖动画布框选可选择多个小框。</small>
+                <p v-if="videoSourceNodes.some(n => n.pending_ai)" class="generation-help">部分小框有尚未采用的 AI 正文。视频只使用小框当前文字；需要采用时，请先回到“AI 协作”写入。</p>
+                <div class="video-generation-settings">
+                  <div class="spec-field-mini"><label for="video-duration">视频时长（秒，必填）</label>
+                    <input id="video-duration" v-model="videoDurationInput" type="number" min="1" max="15" step="1" required placeholder="填写 1–15 秒" :disabled="isSubmittingJob" />
+                  </div>
+                  <div class="spec-field-mini"><label for="video-resolution">视频清晰度（必选）</label>
+                    <select id="video-resolution" v-model="canvas.video_resolution" required :disabled="isSubmittingJob">
+                      <option disabled value="">请选择清晰度</option><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option>
+                    </select>
+                  </div>
                 </div>
-                <span class="status-txt">
-                  {{ activeJob.status === 'succeeded' ? '渲染完成' : '视频渲染中...' }} ({{ activeJob.progress || 0 }}%)
-                </span>
-              </div>
-            </div>
-
-            <!-- 消息输入区域 -->
-            <div class="drawer-input-box">
-              <textarea ref="textareaRef" v-model="inputContent" placeholder="与 Agent 对话，或让其将脚本转为视听分镜..."
-                @keydown.enter.exact.prevent="sendMessage"></textarea>
-              <div class="input-actions-row">
-                <span class="hint">Enter 发送</span>
-                <button class="send-btn" :disabled="!inputContent.trim() || isAgentResponding" @click="sendMessage">
-                  发送
-                </button>
+                <p class="generation-help">AI 将按你填写的时长安排分镜。修改时长或清晰度后，请重新审理方案。</p>
+                <button class="prepare-video-btn" :disabled="!videoSourceNodes.length || !!videoSettingsReason || isPreparingVideo || isAgentResponding || isSubmittingJob || isConfirming"
+                  @click="prepareVideo">{{ isPreparingVideo ? 'AI 正在审理…' : 'AI审理方案' }}</button>
+                <div v-if="videoReview" class="video-review-feedback" :class="videoReview.kind" role="status" aria-live="polite">
+                  <div class="review-heading">{{ videoReview.kind === 'loading' ? 'AI审理中' : videoReview.kind === 'success' && !videoSelectionReady ? '上次审理结果（来源或参数已变化）' : 'AI审理结果' }}</div>
+                  <div class="msg-content" v-html="renderMd(videoReview.content)"></div>
+                </div>
+                <div v-if="project?.compiled_prompt && canvas.generation_source_ids.length" class="video-prompt-preview">
+                  <div class="prompt-status">{{ videoSelectionReady ? '方案已准备好，可直接生成' : '生成来源或参数已变化，请重新审理方案' }}</div>
+                  <div class="prompt-settings">{{ project.current_spec.duration_seconds }} 秒 · {{ project.current_spec.aspect_ratio }} · {{ canvas.generation_settings?.resolution || '清晰度未确认' }} · {{ generationModeLabel }}</div>
+                  <small>时长和清晰度按上方设置生成，画幅未指定时默认 16:9。需要调整画面或画幅，请编辑小框后重新审理。</small>
+                </div>
+                <div class="spec-field-mini"><label for="video-api">视频生成通道</label><select id="video-api" v-model="selectedApiConfigId">
+                  <option value="platform">平台体验通道（每日限 1 次）</option>
+                  <option v-for="cfg in apiConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.display_name }} ({{ cfg.remote_model_id }})</option>
+                </select></div>
+                <button class="create-video-btn" :disabled="!!videoGenerationDisabledReason" :aria-describedby="videoGenerationDisabledReason ? 'video-generation-reason' : undefined"
+                  @click="submitVideoJob">{{ isSubmittingJob ? '正在提交生成…' : '2. 确认并生成视频' }}</button>
+                <p v-if="videoGenerationDisabledReason" id="video-generation-reason" class="generation-help" role="status">{{ videoGenerationDisabledReason }}</p>
+                <div v-if="activeJob" class="active-job-strip">
+                  <div class="progress-bar-bg"><div class="progress-bar-inner" :style="{ width: (activeJob.progress || 30) + '%' }"></div></div>
+                  <span class="status-txt">{{ activeJob.status === 'succeeded' ? '生成完成' : activeJob.status === 'failed' ? '视频生成失败' : activeJob.status === 'cancelled' ? '任务已取消' : '视频生成中…' }} ({{ activeJob.progress || 0 }}%)</span>
+                </div>
               </div>
             </div>
           </aside>
@@ -439,166 +456,118 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, nextTick } from 'vue';
-import { useRouter } from 'vue-router';
-import request from '@/utils/request';
-import type {
-  ConversationView,
-  MessageView,
-  VideoProjectView,
-  VideoBrief,
-  VideoJobView,
-  VideoApiConfigView
-} from '@/types/api';
-// 1. 专门记录作为 Agent 参考依据的节点 ID 集合
-const referencedNodeIds = ref<string[]>([]);
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
+import { useWorkspace, newId } from '@/composables/useWorkspace';
+import type { FlowNode, FlowConnection } from '@/types/canvas';
+import { renderMd } from '@/utils/markdown';
+import { generationMatches, videoGenerationBlockReason, videoSettingsBlockReason } from '@/services/generationState';
 
-// 聚合当前参考节点列表（优先使用拖入的节点；若未单独拖入，则自动跟随当前选中的节点）
-const referencedNodes = computed(() => {
-  if (referencedNodeIds.value.length > 0) {
-    return nodes.value.filter(n => referencedNodeIds.value.includes(n.id));
-  }
-  // 如果没有单独锁定参考，则取当前多选与单选的合集
-  const currentSelected = new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean));
-  return nodes.value.filter(n => currentSelected.has(n.id));
+const workspace = useWorkspace();
+const {
+  canvas, nodes, connections, pan, zoom, conversations, currentConvId, messages, inputContent,
+  project, apiConfigs, selectedApiConfigId, isSubmittingJob, isConfirming, isAgentResponding,
+  isCreatingConv, isAgentDrawerOpen, referencedNodeIds, aiTargetNodeId, activeJob,
+  generationReady, isPreparingVideo, videoReview, initialized, loading, notice, saveState, saveLabel, uploading,
+  switchConversation, createNewConversation, backToProjectSpace, retrySave, resolveConflict,
+  restoreBeforeAi, handleLogout,
+} = workspace;
+const viewportRef = ref<HTMLElement | null>(null);
+const messagesContainerRef = ref<HTMLElement | null>(null);
+const textareaRef = ref<HTMLTextAreaElement | null>(null);
+const agentTab = ref<'chat' | 'video'>('chat');
+const isAgentExpanded = ref(false);
+const activeNodeId = ref('');
+const editingNodeId = ref('');
+const nodeEditors = new Map<string, HTMLTextAreaElement>();
+function setNodeEditor(id: string, element: unknown) {
+  if (element instanceof HTMLTextAreaElement) nodeEditors.set(id, element);
+  else nodeEditors.delete(id);
+}
+function beginNodeEditing(node: FlowNode) {
+  if (loading.value) return;
+  editingNodeId.value = node.id;
+  activeNodeId.value = node.id;
+  nextTick(() => nodeEditors.get(node.id)?.focus({ preventScroll: true }));
+}
+function finishNodeEditing() { editingNodeId.value = ''; }
+const activeNode = computed(() => nodes.value.find(n => n.id === activeNodeId.value));
+const selectedNodeIds = ref<string[]>([]);
+const aiTargetNode = computed(() => nodes.value.find(n => n.id === aiTargetNodeId.value));
+const canApplyAiContent = computed(() => !!aiTargetNode.value?.pending_ai && aiTargetNode.value.pending_ai.source_model !== 'local-preview');
+const videoSourceIds = computed(() => {
+  const selection = [...new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean))]
+    .filter(id => nodes.value.some(n => n.id === id));
+  if (selection.length) return selection;
+  if (aiTargetNode.value) return [aiTargetNode.value.id];
+  return canvas.value.generation_source_ids.filter(id => nodes.value.some(n => n.id === id));
 });
-
-function clearReferencedNodes() {
-  referencedNodeIds.value = [];
-  activeNodeId.value = '';
-  selectedNodeIds.value = [];
-}
-
-// 2. 拖拽节点到 Agent 面板交互
+const videoSourceNodes = computed(() => nodes.value.filter(n => videoSourceIds.value.includes(n.id)));
+const videoDurationInput = computed({
+  get: () => canvas.value.video_duration_seconds ?? '',
+  set: (value: string | number) => { canvas.value.video_duration_seconds = value === '' ? null : Number(value); },
+});
+const videoSettingsReason = computed(() => videoSettingsBlockReason(canvas.value));
+const videoSelectionReady = computed(() => generationReady.value && !!project.value
+  && generationMatches(canvas.value, project.value.current_spec_version, videoSourceIds.value));
+const videoGenerationDisabledReason = computed(() => videoGenerationBlockReason(
+  canvas.value, project.value?.current_spec_version || 0, videoSourceIds.value, {
+    compiledPrompt: !!project.value?.compiled_prompt, preparing: isPreparingVideo.value,
+    submitting: isSubmittingJob.value, collaborating: isAgentResponding.value,
+    confirming: isConfirming.value, channel: selectedApiConfigId.value, saveStatus: saveState.value.status,
+  },
+));
+const generationModeLabel = computed(() => ({
+  text_to_video: '文本生成', first_frame_to_video: '所选或关联图片作为首帧',
+  reference_image_to_video: '多张图片作为参考素材',
+}[project.value?.current_spec.mode || 'text_to_video'] || project.value?.current_spec.mode));
+const isSelecting = ref(false);
+const isPanning = ref(false);
+const startPan = reactive({ x: 0, y: 0 });
+const startSelectPos = reactive({ x: 0, y: 0 });
+const selectionBox = reactive({ visible: false, x: 0, y: 0, w: 0, h: 0 });
+const contextMenu = reactive({ visible: false, x: 0, y: 0, canvasX: 0, canvasY: 0 });
+const connectingSource = ref<FlowNode | null>(null);
+const tempMousePos = reactive({ x: 0, y: 0 });
+let draggingNode: FlowNode | null = null;
 const isDraggingOverAgent = ref(false);
+const deletedNode = ref<{ node: FlowNode; connections: FlowConnection[] } | null>(null);
+const vAutofocus = { mounted: (element: HTMLInputElement) => { element.focus({ preventScroll: true }); element.select(); } };
 
+const referencedNodes = computed(() => {
+  const ids = referencedNodeIds.value.length ? referencedNodeIds.value : [...selectedNodeIds.value, activeNodeId.value];
+  return nodes.value.filter(n => ids.includes(n.id));
+});
+function clearReferencedNodes() { referencedNodeIds.value = []; selectedNodeIds.value = []; activeNodeId.value = ''; }
 function handleNodeDragStart(e: DragEvent, node: FlowNode) {
-  // 如果拖动的节点不在选中列表里，则将当前拖动节点加入
-  if (!selectedNodeIds.value.includes(node.id) && activeNodeId.value !== node.id) {
-    selectedNodeIds.value = [node.id];
-  }
-  const allIds = Array.from(new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean)));
-  e.dataTransfer?.setData('application/json', JSON.stringify(allIds));
+  draggingNode = null;
+  const ids = selectedNodeIds.value.includes(node.id) ? selectedNodeIds.value : [node.id];
+  e.dataTransfer?.setData('application/json', JSON.stringify(ids));
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy';
 }
-
-function handleAgentDragOver(e: DragEvent) {
-  isDraggingOverAgent.value = true;
-}
-
-function handleAgentDragLeave() {
-  isDraggingOverAgent.value = false;
-}
-
+function handleAgentDragOver(_e: DragEvent) { isDraggingOverAgent.value = true; }
+function handleAgentDragLeave() { isDraggingOverAgent.value = false; }
 function handleAgentDrop(e: DragEvent) {
   isDraggingOverAgent.value = false;
   try {
-    const rawData = e.dataTransfer?.getData('application/json');
-    if (rawData) {
-      const ids: string[] = JSON.parse(rawData);
-      // 将拖入的节点设为固定参考节点
-      referencedNodeIds.value = ids;
-      isAgentDrawerOpen.value = true;
-
-      // 自动把参考节点中的文本整合进输入框（可选便利特性）
-      const refTexts = nodes.value
-        .filter(n => ids.includes(n.id) && n.content)
-        .map(n => `【${n.title}】: ${n.content}`)
-        .join('\n');
-      if (refTexts && !inputContent.value) {
-        inputContent.value = `请参考以下选中的节点内容并进行视频创意：\n${refTexts}`;
-      }
-    }
-  } catch (err) {
-    console.error('解析拖拽节点失败', err);
-  }
+    const ids = JSON.parse(e.dataTransfer?.getData('application/json') || '[]');
+    if (!Array.isArray(ids)) return;
+    referencedNodeIds.value = ids.filter(id => nodes.value.some(node => node.id === id));
+    isAgentDrawerOpen.value = true;
+  } catch { notice.value = '无法识别参考节点，请重新拖入'; }
 }
-function generateUUID(): string {
-  if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function') {
-    return window.crypto.randomUUID();
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
+function canvasPoint(e: { clientX: number; clientY: number }) {
+  const rect = viewportRef.value?.getBoundingClientRect();
+  return { x: (e.clientX - (rect?.left || 0) - pan.value.x) / zoom.value,
+    y: (e.clientY - (rect?.top || 0) - pan.value.y) / zoom.value };
 }
-
-const router = useRouter();
-
-// ==================== 1. 节点与画布模型 ====================
-const selectedNodeIds = ref<string[]>([]);
-const isSelecting = ref(false);
-const startSelectPos = reactive({ x: 0, y: 0 });
-const selectionBox = reactive({ visible: false, x: 0, y: 0, w: 0, h: 0 });
-interface FlowNode {
-  id: string;
-  type: 'text' | 'image' | 'video';
-  title: string;
-  x: number;
-  y: number;
-  content?: string;
-  url?: string;
-  isRenaming?: boolean;
-}
-
-interface FlowConnection {
-  id: string;
-  from: string;
-  to: string;
-}
-
-const viewportRef = ref<HTMLElement | null>(null);
-const pan = reactive({ x: 120, y: 120 });
-const zoom = ref(1);
-const isPanning = ref(false);
-const startPan = reactive({ x: 0, y: 0 });
-
-const nodes = ref<FlowNode[]>([
-  { id: 'node_1', type: 'text', title: '视频脚本', x: 160, y: 160, content: '一位女子身披金色流动面料，闭目，神情宁静。空灵顶光，柔和焦外背景。' },
-  { id: 'node_2', type: 'image', title: '参考图', x: 540, y: 160, url: '' }
-]);
-
-const connections = ref<FlowConnection[]>([
-  { id: 'c1', from: 'node_1', to: 'node_2' }
-]);
-
-const activeNodeId = ref<string>('');
-const activeNode = computed(() => nodes.value.find(n => n.id === activeNodeId.value));
-
-const contextMenu = reactive({
-  visible: false,
-  x: 0,
-  y: 0,
-  canvasX: 0,
-  canvasY: 0
+watch(currentConvId, () => {
+  editingNodeId.value = '';
+  activeNodeId.value = ''; selectedNodeIds.value = []; connectingSource.value = null;
+  contextMenu.visible = false; deletedNode.value = null; handleCanvasMouseUp();
 });
-
-const connectingSource = ref<FlowNode | null>(null);
-const tempMousePos = reactive({ x: 0, y: 0 });
-
-let draggingNode: FlowNode | null = null;
-let nodeDragOffset = { x: 0, y: 0 };
-
-// ==================== 2. 后端数据与 Agent 状态 ====================
-const conversations = ref<ConversationView[]>([]);
-const currentConvId = ref<string>('');
-const messages = ref<MessageView[]>([]);
-const inputContent = ref('');
-const isAgentResponding = ref(false);
-const isCreatingConv = ref(false);
-const isAgentDrawerOpen = ref(false);
-
-const messagesContainerRef = ref<HTMLElement | null>(null);
-const textareaRef = ref<HTMLTextAreaElement | null>(null);
-
-const project = ref<VideoProjectView | null>(null);
-const spec = computed<VideoBrief>(() => project.value?.current_spec || ({} as VideoBrief));
-
-const apiConfigs = ref<VideoApiConfigView[]>([]);
-const selectedApiConfigId = ref('platform');
-const isSubmittingJob = ref(false);
-const activeJob = ref<VideoJobView | null>(null);
-let pollTimer: number | null = null;
+watch(() => messages.value.length, scrollToBottom);
+watch(() => aiTargetNode.value?.pending_ai?.message_id, scrollToBottom);
+watch(agentTab, tab => { if (tab === 'chat') scrollToBottom(); });
 
 // ==================== 3. 国际传播文化配置 ====================
 const showGuideModal = ref(false);
@@ -688,167 +657,31 @@ function getCardColorStyle(id: string) {
   };
 }
 
-onMounted(async () => {
-  await loadConversations();
-  await loadApiConfigs();
+function resetCanvasView() { pan.value.x = 100; pan.value.y = 100; zoom.value = 1; }
+async function handleDeleteConversation(id: string) {
+  if (confirm('确定删除这个创作项目吗？')) await workspace.deleteConversation(id);
+}
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') { connectingSource.value = null; contextMenu.visible = false; handleCanvasMouseUp(); }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); void retrySave(); }
+}
+onMounted(() => {
+  window.addEventListener('mousemove', handleCanvasMouseMove);
+  window.addEventListener('mouseup', handleCanvasMouseUp);
+  window.addEventListener('keydown', handleKeydown);
 });
-
-function backToProjectSpace() {
-  currentConvId.value = '';
-  activeJob.value = null;
-  isAgentDrawerOpen.value = false;
-  if (pollTimer) clearInterval(pollTimer);
-}
-
-function resetCanvasView() {
-  pan.x = 100;
-  pan.y = 100;
-  zoom.value = 1;
-}
-
-async function loadConversations() {
-  try {
-    const res: any = await request.get('/conversations');
-    conversations.value = res.items || [];
-  } catch (err) {
-    console.error('加载对话失败', err);
-  }
-}
-
-async function loadApiConfigs() {
-  try {
-    const res: any = await request.get('/video-api-configs');
-    apiConfigs.value = res.items || [];
-  } catch (err) {
-    console.warn('获取 API 配置失败');
-  }
-}
-// 切换对话函数改造
-async function switchConversation(convId: string) {
-  currentConvId.value = convId;
-  activeJob.value = null;
-  isAgentDrawerOpen.value = false;
-  if (pollTimer) clearInterval(pollTimer);
-
-  Promise.all([
-    request.get(`/conversations/${convId}/messages`).catch(() => ({ items: [] })),
-    request.get(`/conversations/${convId}/project`).catch(() => null)
-  ]).then(([msgRes, projRes]: any) => {
-    messages.value = msgRes.items || [];
-    project.value = projRes;
-
-    // 1. 尝试从本地持久化缓存恢复这个对话独有的画布节点
-    const localCanvas = localStorage.getItem(`canvas_${convId}`);
-    if (localCanvas) {
-      try {
-        const parsed = JSON.parse(localCanvas);
-        nodes.value = parsed.nodes || [];
-        connections.value = parsed.connections || [];
-        if (parsed.pan) Object.assign(pan, parsed.pan);
-        if (parsed.zoom) zoom.value = parsed.zoom;
-        scrollToBottom();
-        return;
-      } catch (e) {
-        console.warn('解析画布缓存失败');
-      }
-    }
-
-    // 2. 如果是第一次打开且没有缓存，根据后端实际数据初始化专属节点：
-    // 如果有历史消息，提取最后一条用户输入或建议作为脚本；否则读取 suggested_prompt
-    const lastUserMsg = [...messages.value].reverse().find(m => m.role === 'user')?.content;
-    const initialText = projRes?.suggested_prompt || lastUserMsg || '';
-
-    nodes.value = [
-      { 
-        id: `node_text_${convId}`, 
-        type: 'text', 
-        title: projRes ? `${projRes.title || '分镜脚本'}` : '视频脚本', 
-        x: 160, 
-        y: 160, 
-        content: initialText 
-      },
-      { 
-        id: `node_img_${convId}`, 
-        type: 'image', 
-        title: '参考图', 
-        x: 540, 
-        y: 160, 
-        url: '' 
-      }
-    ];
-
-    connections.value = [
-      { id: `c_${convId}`, from: `node_text_${convId}`, to: `node_img_${convId}` }
-    ];
-
-    scrollToBottom();
-  });
-}
-
-// 自动保存当前画布到对应对话（在节点移动、编辑、连线后调用）
-function saveCurrentCanvas() {
-  if (!currentConvId.value) return;
-  const canvasPayload = {
-    nodes: nodes.value,
-    connections: connections.value,
-    pan,
-    zoom: zoom.value
-  };
-  // 先存本地，保证切换不同卡片时内容绝对独立互不干扰！
-  localStorage.setItem(`canvas_${currentConvId.value}`, JSON.stringify(canvasPayload));
-  
-  // 如果后端加好了接口，这里顺便发请求给后端存数据库：
-  // request.put(`/conversations/${currentConvId.value}/canvas`, canvasPayload).catch(() => {});
-}
-
-async function createNewConversation() {
-  if (isCreatingConv.value) return;
-  isCreatingConv.value = true;
-  try {
-    const res: any = await request.post('/conversations', { title: '新创作对话' });
-    if (res.conversation) {
-      conversations.value.unshift(res.conversation);
-      currentConvId.value = res.conversation.id;
-    }
-    project.value = res.project || null;
-    messages.value = [];
-    activeJob.value = null;
-    isAgentDrawerOpen.value = false;
-
-    // 初始化全新对话的专属节点
-    const newId = res.conversation.id;
-    nodes.value = [
-      { id: `node_text_${newId}`, type: 'text', title: '视频脚本', x: 160, y: 160, content: '' },
-      { id: `node_img_${newId}`, type: 'image', title: '参考图', x: 540, y: 160, url: '' }
-    ];
-    connections.value = [
-      { id: `c_${newId}`, from: `node_text_${newId}`, to: `node_img_${newId}` }
-    ];
-  } catch (err: any) {
-    alert(err.message || '新建对话失败');
-  } finally {
-    isCreatingConv.value = false;
-  }
-}
-
-async function handleDeleteConversation(convId: string) {
-  if (!confirm('确定删除此创作对话吗？')) return;
-  try {
-    await request.delete(`/conversations/${convId}`);
-    conversations.value = conversations.value.filter(c => c.id !== convId);
-    if (currentConvId.value === convId) {
-      currentConvId.value = '';
-    }
-  } catch (err: any) {
-    alert(err.message || '删除失败');
-  }
-}
+onBeforeUnmount(() => {
+  window.removeEventListener('mousemove', handleCanvasMouseMove);
+  window.removeEventListener('mouseup', handleCanvasMouseUp);
+  window.removeEventListener('keydown', handleKeydown);
+});
 
 // ==================== 5. 画布拖拽、缩放与连线交互 ====================
 // 点击端口：首次点击作为起点拉线，再次点击目标端口完成连接
 // 3. 点击加号端点拉线
 function handlePortClick(node: FlowNode, portType: 'in' | 'out') {
   if (!connectingSource.value) {
+    if (portType !== 'out') return;
     connectingSource.value = node;
     const p = getNodePortPos(node, 'out');
     tempMousePos.x = p.x;
@@ -856,17 +689,18 @@ function handlePortClick(node: FlowNode, portType: 'in' | 'out') {
     return;
   }
 
+  if (portType === 'out') { connectingSource.value = node; return; }
   if (connectingSource.value.id !== node.id) {
     const fromId = connectingSource.value.id;
     const toId = node.id;
 
     const isExist = connections.value.some(
-      c => (c.from === fromId && c.to === toId) || (c.from === toId && c.to === fromId)
+      c => c.from === fromId && c.to === toId
     );
 
     if (!isExist) {
       connections.value.push({
-        id: `c_${Date.now()}`,
+        id: newId(),
         from: fromId,
         to: toId
       });
@@ -879,12 +713,11 @@ function handlePortClick(node: FlowNode, portType: 'in' | 'out') {
 // 画布鼠标移动：更新跟随鼠标的临时线末端坐标
 function handleCanvasMouseMove(e: MouseEvent) {
   if (isPanning.value) {
-    pan.x = e.clientX - startPan.x;
-    pan.y = e.clientY - startPan.y;
+    pan.value.x = e.clientX - startPan.x;
+    pan.value.y = e.clientY - startPan.y;
   } else if (draggingNode) {
     // 计算当前鼠标在画布里的坐标
-    const currentCanvasX = (e.clientX - pan.x) / zoom.value;
-    const currentCanvasY = (e.clientY - pan.y) / zoom.value;
+    const { x: currentCanvasX, y: currentCanvasY } = canvasPoint(e);
 
     // 计算鼠标平移的相对差值
     const deltaX = currentCanvasX - mouseStartCanvasPos.x;
@@ -899,11 +732,9 @@ function handleCanvasMouseMove(e: MouseEvent) {
       }
     });
   } else if (connectingSource.value) {
-    tempMousePos.x = (e.clientX - pan.x) / zoom.value;
-    tempMousePos.y = (e.clientY - pan.y) / zoom.value;
+    Object.assign(tempMousePos, canvasPoint(e));
   } else if (isSelecting.value) {
-    const curX = (e.clientX - pan.x) / zoom.value;
-    const curY = (e.clientY - pan.y) / zoom.value;
+    const { x: curX, y: curY } = canvasPoint(e);
 
     const boxX = Math.min(startSelectPos.x, curX);
     const boxY = Math.min(startSelectPos.y, curY);
@@ -918,7 +749,7 @@ function handleCanvasMouseMove(e: MouseEvent) {
     selectedNodeIds.value = nodes.value
       .filter(node => {
         const nodeW = 248;
-        const nodeH = node.type === 'image' ? 280 : 240;
+        const nodeH = node.type === 'image' ? 280 : node.type === 'text' ? 300 : 240;
         return (
           boxX < node.x + nodeW &&
           boxX + boxW > node.x &&
@@ -932,6 +763,7 @@ function handleCanvasMouseMove(e: MouseEvent) {
 
 // 画布空白处按下：取消选中；若拉线中则随时取消；若 Agent 面板打开则自动收回
 function handleCanvasMouseDown(e: MouseEvent) {
+  if (loading.value || (e.target as HTMLElement).closest('button,input,textarea,select,.floating-top-left,.floating-left-bar,.floating-bottom-right')) return;
   if (contextMenu.visible) {
     contextMenu.visible = false;
     return;
@@ -955,8 +787,7 @@ function handleCanvasMouseDown(e: MouseEvent) {
   // 左键(button === 0)点击空白处：开启矩形拉框多选
   if (e.button === 0) {
     isSelecting.value = true;
-    const canvasMouseX = (e.clientX - pan.x) / zoom.value;
-    const canvasMouseY = (e.clientY - pan.y) / zoom.value;
+    const { x: canvasMouseX, y: canvasMouseY } = canvasPoint(e);
 
     startSelectPos.x = canvasMouseX;
     startSelectPos.y = canvasMouseY;
@@ -969,8 +800,8 @@ function handleCanvasMouseDown(e: MouseEvent) {
   } else if (e.button === 1) {
     // 鼠标中键平移画布
     isPanning.value = true;
-    startPan.x = e.clientX - pan.x;
-    startPan.y = e.clientY - pan.y;
+    startPan.x = e.clientX - pan.value.x;
+    startPan.y = e.clientY - pan.value.y;
   }
 }
 // 4. 修改 handleCanvasMouseUp：结束框选
@@ -983,20 +814,29 @@ function handleCanvasMouseUp() {
 
 
 function handleCanvasZoom(e: WheelEvent) {
-  const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
-  zoom.value = Math.min(Math.max(zoom.value * zoomFactor, 0.4), 2.2);
+  if ((e.target as HTMLElement).closest('textarea,input,select,video,.agent-flyout-drawer')) return;
+  e.preventDefault();
+  const point = canvasPoint(e);
+  const next = Math.min(Math.max(zoom.value * (e.deltaY < 0 ? 1.08 : 0.92), 0.4), 2.2);
+  pan.value.x += point.x * (zoom.value - next); pan.value.y += point.y * (zoom.value - next); zoom.value = next;
 }
-
 function openContextMenu(e: MouseEvent) {
+  if ((e.target as HTMLElement).closest('textarea,input,video,.agent-flyout-drawer')) return;
+  e.preventDefault();
+  const rect = viewportRef.value?.getBoundingClientRect();
+  const point = canvasPoint(e);
   contextMenu.visible = true;
-  contextMenu.x = e.clientX;
-  contextMenu.y = e.clientY;
-  contextMenu.canvasX = (e.clientX - pan.x) / zoom.value;
-  contextMenu.canvasY = (e.clientY - pan.y) / zoom.value;
+  contextMenu.x = Math.min(e.clientX - (rect?.left || 0), Math.max(0, (rect?.width || 800) - 230));
+  contextMenu.y = Math.min(e.clientY - (rect?.top || 0), Math.max(0, (rect?.height || 600) - 180));
+  contextMenu.canvasX = point.x; contextMenu.canvasY = point.y;
+}
+function addNode(type: 'text' | 'image') {
+  contextMenu.canvasX = 160 + nodes.value.length * 35; contextMenu.canvasY = 160 + nodes.value.length * 35;
+  createNodeFromContext(type);
 }
 
 function createNodeFromContext(type: 'text' | 'image') {
-  const id = 'node_' + Date.now();
+  const id = newId();
   const newNode: FlowNode = {
     id,
     type,
@@ -1012,16 +852,38 @@ function createNodeFromContext(type: 'text' | 'image') {
 }
 
 function deleteNode(id: string) {
+  const node = nodes.value.find(n => n.id === id);
+  if (!node) return;
+  const removed = connections.value.filter(c => c.from === id || c.to === id);
+  deletedNode.value = { node: JSON.parse(JSON.stringify(node)), connections: removed };
+  if (node.job_id) canvas.value.dismissed_job_ids.push(node.job_id);
   nodes.value = nodes.value.filter(n => n.id !== id);
   connections.value = connections.value.filter(c => c.from !== id && c.to !== id);
+  referencedNodeIds.value = referencedNodeIds.value.filter(value => value !== id);
+  selectedNodeIds.value = selectedNodeIds.value.filter(value => value !== id);
   if (activeNodeId.value === id) activeNodeId.value = '';
+  if (aiTargetNodeId.value === id) aiTargetNodeId.value = '';
+  if (connectingSource.value?.id === id) connectingSource.value = null;
+  notice.value = '小框已删除，可以撤销。';
 }
-
-function deleteConnection(connId: string) {
-  connections.value = connections.value.filter(c => c.id !== connId);
+function undoDeleteNode() {
+  const removed = deletedNode.value;
+  if (!removed || nodes.value.some(n => n.id === removed.node.id)) return;
+  nodes.value.push(removed.node);
+  connections.value.push(...removed.connections.filter(c => nodes.value.some(n => n.id === c.from) && nodes.value.some(n => n.id === c.to)));
+  if (removed.node.job_id) canvas.value.dismissed_job_ids = canvas.value.dismissed_job_ids.filter(id => id !== removed.node.job_id);
+  activeNodeId.value = removed.node.id; deletedNode.value = null; notice.value = '已恢复删除的小框。';
 }
-
-function selectNode(node: FlowNode) {
+function deleteConnection(id: string) { connections.value = connections.value.filter(c => c.id !== id); }
+function selectNode(node: FlowNode, event: MouseEvent) {
+  if (event.ctrlKey || event.metaKey || event.shiftKey) {
+    const selected = new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean));
+    if (selected.has(node.id)) selected.delete(node.id); else selected.add(node.id);
+    selectedNodeIds.value = [...selected];
+    activeNodeId.value = selected.has(node.id) ? node.id : selectedNodeIds.value.at(-1) || '';
+    return;
+  }
+  if (!selectedNodeIds.value.includes(node.id)) selectedNodeIds.value = [node.id];
   activeNodeId.value = node.id;
 }
 // 记录拖拽开始时，所有选中节点的初始坐标
@@ -1029,6 +891,7 @@ let dragStartNodePos: Record<string, { x: number; y: number }> = {};
 let mouseStartCanvasPos = { x: 0, y: 0 };
 
 function startDragNode(e: MouseEvent, node: FlowNode) {
+  if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || (e.target as HTMLElement).closest('button,textarea,input,label,video,[draggable="true"]')) return;
   draggingNode = node;
 
   // 如果点击拖拽的节点不在已多选的列表里，则将当前节点设为唯一选中
@@ -1040,8 +903,7 @@ function startDragNode(e: MouseEvent, node: FlowNode) {
   }
 
   // 记录按下时的画布实际坐标
-  mouseStartCanvasPos.x = (e.clientX - pan.x) / zoom.value;
-  mouseStartCanvasPos.y = (e.clientY - pan.y) / zoom.value;
+  Object.assign(mouseStartCanvasPos, canvasPoint(e));
 
   // 记录所有当前选中节点的初始位置，用于多选同步位移
   dragStartNodePos = {};
@@ -1056,7 +918,7 @@ function startDragNode(e: MouseEvent, node: FlowNode) {
 // 辅助函数：精准获取节点端口圆心的相对偏移坐标
 function getNodePortPos(node: FlowNode, type: 'in' | 'out') {
   // 根据节点类型精准获取卡片高度的中点（图片卡片高约280px，文本卡片高约240px）
-  const cardHeight = node.type === 'image' ? 280 : (node.type === 'video' ? 240 : 240);
+  const cardHeight = node.type === 'image' ? 280 : node.type === 'text' ? 300 : 240;
   const centerY = node.y + cardHeight / 2;
 
   return {
@@ -1089,148 +951,20 @@ function calculateTempBezier(fromNode: FlowNode, mouse: { x: number; y: number }
 
 
 
-function handleImageUpload(e: Event, node: FlowNode) {
-  const files = (e.target as HTMLInputElement).files;
-  if (!files || files.length === 0) return;
-  const file = files[0];
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    node.url = event.target?.result as string;
-  };
-  reader.readAsDataURL(file);
-}
-
-// ==================== 6. Agent 抽屉与视频任务 ====================
-function toggleAgentDrawer() {
-  isAgentDrawerOpen.value = !isAgentDrawerOpen.value;
-}
-
+function handleImageUpload(event: Event, node: FlowNode) { void workspace.uploadImage(event, node); }
+function toggleAgentDrawer() { agentTab.value = 'chat'; isAgentDrawerOpen.value = !isAgentDrawerOpen.value; }
 function askAgentHelpNode(node: FlowNode) {
-  activeNodeId.value = node.id;
-  isAgentDrawerOpen.value = true;
-  inputContent.value = `请参考节点【${node.title}】，帮我拓展优化以下视听内容：\n${node.content || ''}`;
-  nextTick(() => textareaRef.value?.focus());
+  agentTab.value = 'chat'; activeNodeId.value = node.id; aiTargetNodeId.value = node.id; isAgentDrawerOpen.value = true;
+  if (!inputContent.value.trim()) inputContent.value = '请优化这个小框中的内容，补充可执行的视听细节。';
+  nextTick(() => textareaRef.value?.focus({ preventScroll: true }));
 }
-
-async function sendMessage() {
-  if (!inputContent.value.trim() || isAgentResponding.value || !currentConvId.value) return;
-
-  const content = inputContent.value;
-  inputContent.value = '';
-  isAgentResponding.value = true;
-  const clientRequestId = generateUUID();
-
-  try {
-    const res: any = await request.post(`/conversations/${currentConvId.value}/messages`, {
-      content,
-      client_request_id: clientRequestId,
-      web_search_enabled: true
-    });
-
-    if (res.user_message) messages.value.push(res.user_message);
-    if (res.assistant_message) {
-      messages.value.push(res.assistant_message);
-      if (activeNode.value && activeNode.value.type === 'text' && !activeNode.value.content) {
-        activeNode.value.content = res.assistant_message.content;
-      }
-    }
-    if (res.project) project.value = res.project;
-    scrollToBottom();
-  } catch (err: any) {
-    alert(err.message || 'Agent 响应失败，请重试');
-  } finally {
-    isAgentResponding.value = false;
-  }
+function sendMessage() {
+  const target = nodes.value.find(n => n.id === aiTargetNodeId.value);
+  void workspace.sendMessage(target, referencedNodes.value.map(n => n.id));
 }
-
-async function confirmProjectSpec() {
-  if (!currentConvId.value || !project.value) return;
-  try {
-    const res: any = await request.post(`/conversations/${currentConvId.value}/project/confirm`, {
-      spec_version: project.value.current_spec_version
-    });
-    project.value = res;
-  } catch (err: any) {
-    alert(err.message || '方案版本冲突，请刷新');
-  }
-}
-
-async function submitVideoJob() {
-  if (!project.value || !project.value.is_current_version_confirmed) {
-    alert('请先确认当前方案版本！');
-    return;
-  }
-
-  isSubmittingJob.value = true;
-  const idempotencyKey = generateUUID();
-
-  // 聚合工作台上与当前节点连通的参考节点
-  const baseNode = activeNode.value || nodes.value[nodes.value.length - 1];
-  const linkedImgNode = nodes.value.find(n => n.type === 'image' && connections.value.some(c => (c.from === n.id && c.to === baseNode?.id) || (c.to === n.id && c.from === baseNode?.id)));
-
-  try {
-    const res: any = await request.post(
-      '/video-jobs',
-      {
-        conversation_id: currentConvId.value,
-        project_id: project.value.id,
-        spec_version: project.value.current_spec_version,
-        api_config_id: selectedApiConfigId.value,
-        mode: linkedImgNode?.url ? 'image_to_video' : (spec.value.mode || 'text_to_video'),
-        generation_options: {
-          resolution: '1080p',
-          generate_audio: false,
-          image_prompt: linkedImgNode?.url || undefined
-        },
-        previous_job_id: null
-      },
-      { headers: { 'Idempotency-Key': idempotencyKey } }
-    );
-
-    activeJob.value = res;
-    startPollingJob(res.id, res.poll_after_seconds || 4);
-  } catch (err: any) {
-    alert(err.message || '视频任务提交失败');
-  } finally {
-    isSubmittingJob.value = false;
-  }
-}
-
-function startPollingJob(jobId: string, intervalSec: number) {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = window.setInterval(async () => {
-    try {
-      const res: any = await request.get(`/video-jobs/${jobId}`);
-      activeJob.value = res;
-      if (res.status === 'succeeded') {
-        if (pollTimer) clearInterval(pollTimer);
-        // 生成完成：新增视频节点并与源节点连线
-        const videoNodeId = 'video_' + Date.now();
-        const baseNode = activeNode.value || nodes.value[nodes.value.length - 1];
-        const newVideoNode: FlowNode = {
-          id: videoNodeId,
-          type: 'video',
-          title: '生成视频结果',
-          x: baseNode ? baseNode.x + 360 : 600,
-          y: baseNode ? baseNode.y : 200,
-          url: `/api/v1/assets/${res.result_asset_id}/content`
-        };
-        nodes.value.push(newVideoNode);
-        if (baseNode) {
-          connections.value.push({
-            id: `c_${Date.now()}`,
-            from: baseNode.id,
-            to: videoNodeId
-          });
-        }
-      } else if (['failed', 'cancelled'].includes(res.status)) {
-        if (pollTimer) clearInterval(pollTimer);
-      }
-    } catch (e) {
-      console.warn('轮询中...');
-    }
-  }, Math.max(intervalSec, 3) * 1000);
-}
+function confirmProjectSpec() { if (canApplyAiContent.value) void workspace.confirmSpec(); }
+function prepareVideo() { void workspace.prepareVideo(videoSourceIds.value); }
+function submitVideoJob() { void workspace.submitVideoJob(videoSourceIds.value); }
 
 // 国际传播建议应用到节点
 function applyGuidanceToNode() {
@@ -1240,7 +974,7 @@ function applyGuidanceToNode() {
       ? `${activeNode.value.content}\n\n${guideText}`
       : guideText;
   } else {
-    const newNodeId = 'node_' + Date.now();
+    const newNodeId = newId();
     nodes.value.push({
       id: newNodeId,
       type: 'text',
@@ -1259,14 +993,6 @@ function closeGuideModal() { showGuideModal.value = false; }
 function selectCountry(code: string) { selectedCountryCode.value = code; }
 function openAssetsDrawer() { alert('素材库已预留：后续可直接调取历史生成资源！'); }
 
-function renderMd(text: string): string {
-  if (!text) return '';
-  let escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
-  return escaped;
-}
-
 function scrollToBottom() {
   nextTick(() => {
     if (messagesContainerRef.value) {
@@ -1281,16 +1007,91 @@ function formatFullTime(isoStr?: string | null) {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
-async function handleLogout() {
-  try {
-    await request.post('/auth/logout');
-  } finally {
-    router.push('/login');
-  }
-}
 </script>
 
 <style scoped>
+.workspace-layout :deep(*) { scrollbar-width: thin; scrollbar-color: #46536a #11151e; }
+.workspace-layout :deep(*::-webkit-scrollbar) { width: 8px; height: 8px; }
+.workspace-layout :deep(*::-webkit-scrollbar-track) { background: #11151e; border-radius: 8px; }
+.workspace-layout :deep(*::-webkit-scrollbar-thumb) { background: #46536a; border: 2px solid #11151e; border-radius: 8px; }
+.workspace-layout :deep(*::-webkit-scrollbar-thumb:hover) { background: #657590; }
+.workspace-layout :deep(*::-webkit-scrollbar-corner) { background: #11151e; }
+.node-text-preview { height: 164px; overflow: auto; color: #cbd5e1; box-sizing: border-box; user-select: text; cursor: text; }
+.node-text-preview:focus-visible { outline: 1px solid #818cf8; outline-offset: 3px; border-radius: 4px; }
+.node-edit-btn { flex-shrink: 0; border: 0; background: transparent; color: #a5b4fc; font-size: 11px; padding: 3px 4px; cursor: pointer; }
+.node-edit-btn:hover { color: #fff; }
+.video-review-feedback { padding: 14px; background: #172136; border: 1px solid #344665; border-radius: 8px; }
+.video-review-feedback.error { border-color: #6c5842; background: #242127; }
+.video-review-feedback.success { border-color: #325b54; }
+.review-heading { font-size: 13px; font-weight: 600; color: #c7d2fe; margin-bottom: 9px; }
+.video-review-feedback.error .review-heading { color: #e7c9a0; }
+.video-review-feedback.success .review-heading { color: #a7dbc7; }
+.drawer-conversation { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.drawer-video-area { flex: 1; min-height: 0; overflow-y: auto; }
+.agent-flyout-drawer.expanded { width: min(1000px, 100%); }
+.drawer-header-actions { display: flex; gap: 16px; align-items: center; }
+.drawer-expand { color: #c7d2fe; background: #202b41; border: 1px solid #3a4967; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.drawer-tabs { display: flex; flex-shrink: 0; padding: 8px 18px; gap: 8px; border-bottom: 1px solid #263247; }
+.drawer-tabs button { flex: 1; padding: 9px; color: #a5b4cf; background: transparent; border: 0; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.drawer-tabs button[aria-selected="true"] { color: #fff; background: #334b78; }
+.target-select-row { display: flex; align-items: center; gap: 10px; }
+.target-select-row select { flex: 1; min-width: 0; }
+.message-source { font-size: 11px; color: #a5b4cf; margin-bottom: 6px; }
+.pending-content-card { margin-top: 16px; padding: 16px; border: 1px solid #4d648d; background: #172239; border-radius: 10px; flex-shrink: 0; }
+.pending-content-title { color: #c7d2fe; font-size: 14px; font-weight: 600; }
+.proposal-help, .chat-empty { color: #a5b4cf; font-size: 12px; line-height: 1.6; }
+.chat-empty { margin: auto 12px; }
+.drawer-confirm-row { flex-wrap: wrap; }
+.drawer-confirm-row .confirm-pill { padding: 8px 12px; background: #334b78; color: #fff; }
+@media (max-width: 760px) { .agent-flyout-drawer { width: 100%; } }
+.pending-plan-preview summary, .video-prompt-preview summary { cursor: pointer; padding: 8px 0; color: #c7d2fe; }
+.generation-help, .generation-source-list { color: #cbd5e1; font-size: 12px; line-height: 1.6; margin: 8px 0; }
+.prepare-video-btn { width: 100%; padding: 9px; margin: 6px 0 12px; background: #243652; color: #e2e8f0; border: 1px solid #456388; border-radius: 8px; cursor: pointer; }
+.prepare-video-btn:disabled, .confirm-pill:disabled { opacity: .5; cursor: default; }
+.video-prompt-preview { padding: 10px; background: #101b2d; border: 1px solid #324462; border-radius: 8px; margin-bottom: 12px; }
+.video-prompt-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 12px; line-height: 1.7; color: #e2e8f0; }
+.video-prompt-preview small { font-size: 11px; line-height: 1.5; color: #94a3b8; }
+.prompt-status { color: #c7d2fe; font-size: 12px; }
+.prompt-settings { color: #94a3b8; font-size: 11px; margin: 6px 0; }
+.drawer-confirm-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.drawer-confirm-row span { font-size: 11px; color: #a5b4fc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer-confirm-row .confirm-pill { flex-shrink: 0; }
+.msg-content { overflow-wrap: anywhere; font-size: 14px; line-height: 1.75; min-width: 0; }
+.msg-content :deep(p) { margin: .6em 0; }
+.msg-content :deep(p:first-child) { margin-top: 0; }
+.msg-content :deep(p:last-child) { margin-bottom: 0; }
+.msg-content :deep(h1), .msg-content :deep(h2), .msg-content :deep(h3), .msg-content :deep(h4) { margin: .9em 0 .4em; line-height: 1.4; font-size: 1.1em; }
+.msg-content :deep(ul), .msg-content :deep(ol) { margin: .5em 0; padding-left: 1.6em; }
+.msg-content :deep(li) { margin: .25em 0; }
+.msg-content :deep(blockquote) { margin: .6em 0; padding: 2px 10px; border-left: 3px solid #818cf8; color: #cbd5e1; background: #ffffff08; }
+.msg-content :deep(pre) { overflow: auto; white-space: pre; background: #0a1020; padding: 10px; border-radius: 6px; max-width: 100%; }
+.msg-content :deep(code) { font-family: Consolas, monospace; background: #0a1020; border-radius: 3px; padding: 1px 4px; font-size: .9em; }
+.msg-content :deep(pre code) { padding: 0; }
+.msg-content :deep(table) { display: block; overflow-x: auto; border-collapse: collapse; margin: .7em 0; }
+.msg-content :deep(th), .msg-content :deep(td) { border: 1px solid #40516b; padding: 5px 8px; text-align: left; }
+.msg-content :deep(th) { background: #26344c; }
+.msg-content :deep(a) { color: #a5b4fc; text-decoration: underline; }
+.save-indicator { font-size: 12px; color: #86efac; }
+.save-indicator.error, .save-indicator.conflict { color: #fbbf24; }
+.save-indicator.pending, .save-indicator.saving { color: #94a3b8; }
+.workspace-notice { background: #172033; color: #dbeafe; padding: 9px 20px; display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.workspace-notice span { flex: 1; }
+.workspace-notice button { background: #27344f; border: 1px solid #465779; border-radius: 6px; color: #e2e8f0; padding: 5px 9px; cursor: pointer; }
+.workspace-loading { position: absolute; inset: 0; z-index: 250; background: #07090eea; display: grid; place-items: center; color: #c7d2fe; }
+.ai-target-picker { flex-shrink: 0; padding: 10px 18px; display: grid; gap: 6px; border-bottom: 1px solid #263247; }
+.ai-target-picker label { font-size: 13px; color: #cbd5e1; }
+.ai-target-picker select { background: #111827; color: #e2e8f0; border: 1px solid #3a4967; border-radius: 6px; padding: 7px; }
+.ai-target-picker small, .node-ai-status { font-size: 11px; color: #a5b4fc; }
+.node-ai-status { padding: 3px 0; }
+.node-footer-actions { gap: 6px; flex-wrap: wrap; }
+.text-body textarea, .node-title-input { user-select: text; }
+.node-type-icon[draggable] { cursor: grab; }
+.node-title { display: block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.floating-top-left { flex-wrap: wrap; max-width: calc(100% - 60px); }
+.workspace-body { min-height: 0; }
+button:disabled { opacity: .55; cursor: wait; }
+@media(max-width: 720px) { .save-indicator { max-width: 130px; } .workspace-notice { flex-wrap: wrap; } .brand-name { display: none; } }
+
 /* 参考节点标签排版 */
 .node-binding-banner {
   background: rgba(99, 102, 241, 0.12);
@@ -1672,7 +1473,7 @@ async function handleLogout() {
   width: 100%;
   height: 100%;
   position: relative;
-  overflow: hidden;
+  overflow: clip;
   user-select: none;
   cursor: default;
   /* 改为平时是默认指针，不再常驻小手 */
@@ -1827,7 +1628,7 @@ async function handleLogout() {
 
 /* 统一节点卡片的高度，确保端点严格在 50% 居中位置 */
 .canvas-node.text {
-  height: 240px;
+  height: 300px;
 }
 
 .canvas-node.image {
@@ -1972,7 +1773,7 @@ async function handleLogout() {
 
 .text-body textarea {
   width: 100%;
-  height: 140px;
+  height: 164px;
   background: transparent;
   border: none;
   color: #cbd5e1;
@@ -2298,15 +2099,11 @@ async function handleLogout() {
 
 /* 侧边滑出：Agent 对话与生成面板（严格固定在屏幕视口最右侧） */
 .agent-flyout-drawer {
-  position: fixed;
-  /* 改为 fixed，确保永远相对于浏览器视口最右侧贴边，不受任何父级缩放/画布影响 */
+  position: absolute;
   right: 0;
-  top: clamp(60px, 7.5vh, 76px);
-  /* 顶端精准紧贴顶部导航栏下方 */
+  top: 0;
   bottom: 0;
-  width: 30vw;
-  /* 调整为饱满适中的宽度 */
-  max-width: 500px;
+  width: min(680px, 56vw);
   background: #101217;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: -12px 0 35px rgba(0, 0, 0, 0.85);
@@ -2314,6 +2111,7 @@ async function handleLogout() {
   /* 提升层级，浮于所有节点和连线之上 */
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   transform: translateX(100%);
   /* 默认隐藏在屏幕右侧外面 */
   transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
@@ -2325,6 +2123,7 @@ async function handleLogout() {
 }
 
 .drawer-top-bar {
+  flex-shrink: 0;
   padding: 14px 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   display: flex;
@@ -2337,7 +2136,7 @@ async function handleLogout() {
   align-items: center;
   gap: 8px;
   font-weight: 600;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .orb-mini {
@@ -2372,8 +2171,19 @@ async function handleLogout() {
   font-size: 15px;
 }
 
+.drawer-scroll-area {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.drawer-scroll-area > .ai-target-picker,
+.drawer-scroll-area > .node-binding-banner,
+.drawer-scroll-area > .drawer-spec-panel { flex-shrink: 0; }
 .drawer-messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px;
   display: flex;
@@ -2415,7 +2225,9 @@ async function handleLogout() {
   padding: 10px 14px;
   border-radius: 10px;
   line-height: 1.5;
-  max-width: 80%;
+  max-width: calc(100% - 42px);
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .user .bubble {
@@ -2464,6 +2276,9 @@ async function handleLogout() {
   font-size: 15px;
 }
 
+.video-generation-settings { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 18px 0 8px; }
+.video-generation-settings input { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid #2a3446; border-radius: 7px; background: #1b222e; color: #e1e7ef; font: inherit; }
+.video-generation-settings input:focus { outline: 2px solid #7484f6; outline-offset: 1px; }
 .create-video-btn {
   background: #10b981;
   color: #fff;
@@ -2508,7 +2323,8 @@ async function handleLogout() {
 
 /* 消息输入区域（增大整体高度与内边距） */
 .drawer-input-box {
-  padding: 16px 20px 20px;
+  flex-shrink: 0;
+  padding: 12px 18px 14px;
   background: #0c0e12;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -2516,7 +2332,7 @@ async function handleLogout() {
 /* 输入框本体放大：高度增加到 110px，字号提升至 14px，行高更宽松 */
 .drawer-input-box textarea {
   width: 100%;
-  height: 25vh; /* 原先为 56px，直接提升近一倍高度 */
+  height: clamp(80px, 14vh, 120px);
   background: #161820;
   border: 1px solid #282c37;
   border-radius: 10px;
@@ -2524,7 +2340,7 @@ async function handleLogout() {
   color: #fff;
   font-size: 14px; /* 原先为 12px */
   line-height: 1.6;
-  resize: vertical; /* 支持鼠标上下自由拖动拉伸 */
+  resize: none;
   min-height: 80px;
   max-height: 240px;
   outline: none;

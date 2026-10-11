@@ -62,6 +62,9 @@ export interface VideoProjectView {
   current_spec: VideoBrief;
   current_spec_version: number;
   suggested_prompt: string | null;
+  compiled_prompt?: string;
+  canvas_data: import('./canvas').CanvasDocument | null;
+  canvas_version: number;
   confirmed_spec_version: number | null;
   confirmed_at: string | null;
   is_current_version_confirmed: boolean;
@@ -75,7 +78,7 @@ export interface VideoJobView {
   conversation_id: string;
   project_id: string;
   project_version: number;
-  api_config_id: string;
+  api_config_id: string | null;
   api_config_revision: number;
   previous_job_id: string | null;
   protocol_code: string;
@@ -84,7 +87,9 @@ export interface VideoJobView {
   status: 'created' | 'submitting' | 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
   progress: number | null;
   generation_options: Record<string, any>;
-  download_status: 'not_started' | 'pending' | 'downloading' | 'stored' | 'failed';
+  download_status: 'not_started' | 'pending' | 'downloading' | 'stored' | 'direct' | 'failed';
+  result_direct_url: string | null;
+  result_expires_at: string | null;
   result_asset_id: string | null;
   error: { code: string; message: string; retryable: boolean } | null;
   poll_after_seconds: number | null;

@@ -145,10 +145,11 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import request from '@/utils/request';
 
 const router = useRouter();
+const route = useRoute();
 
 type TabType = 'password_login' | 'code_login' | 'register';
 
@@ -253,7 +254,9 @@ async function handleSubmit() {
 
     // 后端已自动写入 HttpOnly Cookie (hw_session) 与 hw_csrf
     // 登录/注册成功后，直接跳转到创作工作台
-    router.push('/workspace');
+    const redirect = route.query.redirect;
+    await router.replace(typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//')
+      ? redirect : '/workspace');
   } catch (err: any) {
     errorMessage.value = err.message || '操作失败，请检查输入';
   } finally {

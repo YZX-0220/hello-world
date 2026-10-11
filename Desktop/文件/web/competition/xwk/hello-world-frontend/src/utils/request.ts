@@ -1,13 +1,14 @@
-import axios, { type AxiosRequestConfig } from 'axios';
+import axios from 'axios';
+import router from '@/router';
 
 // 辅助函数：从 document.cookie 读取 hw_csrf 的值
 function getCsrfToken(): string | null {
   const match = document.cookie.match(new RegExp('(^|;\\s*)hw_csrf=([^;]+)'));
-  return match ? decodeURIComponent(match[2]) : null;
+  return match ? decodeURIComponent(match[2] || '') : null;
 }
 const service = axios.create({
   baseURL: '/api/v1',
-  timeout: 30000,
+  timeout: 120000,
   withCredentials: true, // 契约规则 1: 必须携带 Cookie
   headers: {
     'Content-Type': 'application/json; charset=utf-8',
@@ -19,7 +20,7 @@ service.interceptors.request.use(
   (config) => {
     const method = config.method?.toUpperCase();
     // 后端契约强制要求：POST, PATCH, DELETE 必须携带 X-CSRF-Token
-    if (method && ['POST', 'PATCH', 'DELETE'].includes(method)) {
+    if (method && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
       const csrfToken = getCsrfToken();
       if (csrfToken) {
         config.headers['X-CSRF-Token'] = csrfToken;
@@ -42,8 +43,9 @@ service.interceptors.response.use(
       
       // 契约规则 13: 遇到 401 跳转登录
       if (status === 401) {
-        if (!window.location.pathname.startsWith('/login')) {
-          window.location.href = '/login';
+        const path = router.currentRoute.value.path;
+        if (path !== '/login' && path !== '/' && !error.config?.url?.startsWith('/auth/login')) {
+          void router.replace({ path: '/login', query: { redirect: router.currentRoute.value.fullPath } });
         }
       }
       

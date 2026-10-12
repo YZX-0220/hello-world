@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, Uplo
 from fastapi.responses import FileResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import db_session, get_current_user, get_material_library_admin, require_csrf
+from app.api.deps import db_session, get_material_library_admin, require_csrf
 from app.core.errors import ErrorResponse
 from app.db.models.user import User
 from app.schemas.asset import AssetView
@@ -45,7 +45,6 @@ admin_router = APIRouter(
 
 @router.get("/material-library", response_model=LibraryPage)
 async def list_library(
-    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(db_session),
     q: str | None = Query(default=None, max_length=200),
     model_name: str | None = Query(default=None, min_length=1, max_length=200),
@@ -60,7 +59,6 @@ async def list_library(
 @router.get("/material-library/{item_id}", response_model=LibraryItemView)
 async def get_library_item(
     item_id: str,
-    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(db_session),
 ):
     return await MaterialLibraryService(session).get(item_id)
@@ -81,7 +79,6 @@ def _file_response(asset, path) -> FileResponse:
 async def read_library_media(
     item_id: str,
     role: Literal["video", "cover"],
-    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(db_session),
 ):
     asset, path = await MaterialLibraryService(session).open_content(item_id, role)

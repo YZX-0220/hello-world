@@ -4,7 +4,7 @@
     <div class="stars-layer">
       <div v-for="i in 18" :key="'star-' + i" :class="'star star-' + i"></div>
     </div>
-    
+
     <div class="lines-layer">
       <div class="light-line line-1"></div>
       <div class="light-line line-2"></div>
@@ -15,50 +15,77 @@
     <div class="ambient-glow"></div>
 
     <!-- 顶部固定导航 -->
-    <header class="landing-nav">
-      <div class="brand" @click="scrollToTop">
-        <div class="brand-avatar">H</div>
-        <span class="brand-name">Hello World</span>
-      </div>
-      <div class="nav-right">
-        <a href="javascript:void(0)" class="nav-btn nav-link-about" @click="scrollToAbout">关于项目</a>
-        <a href="javascript:void(0)" class="nav-btn nav-link-pricing" @click="scrollToPricing">价格优势</a>
-        <a href="javascript:void(0)" class="nav-btn nav-link-painpoints" @click="scrollToPainPoints">用户痛点</a>
-        <router-link to="/settings/api" class="nav-btn nav-link-api">API 配置中心</router-link>
+    <!-- 顶部固定导航 -->
+<header class="landing-nav">
+  <div class="nav-left">
+    <div class="brand" @click="scrollToTop">
+      <div class="brand-avatar">H</div>
+      <span class="brand-name">Hello World</span>
+    </div>
 
-        <!-- 已登录：展示用户头像 SVG 徽章 -->
-        <router-link 
-          v-if="isLoggedIn" 
-          to="/settings/api?tab=account" 
-          class="user-avatar-btn" 
-          title="点击进入个人账户信息"
-        >
+    <router-link to="/tv" class="nav-tv-btn" title="浏览 TV 频道">
+      <span class="tv-icon-wrapper">
+        <svg class="tv-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M7 3L11.5 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          <path d="M17 3L12.5 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          <rect x="2.5" y="7.5" width="19" height="13.5" rx="3" stroke="currentColor" stroke-width="1.8" />
+          <path d="M6 11.5H14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.8" />
+          <path d="M6 14.5H11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.4" />
+          <circle cx="18" cy="11.5" r="1.1" fill="currentColor" />
+          <circle cx="18" cy="15.5" r="1.1" fill="currentColor" />
+        </svg>
+        <span class="live-dot"></span>
+      </span>
+      <span class="tv-btn-label">TV 频道</span>
+    </router-link>
+  </div>
+
+  <div class="nav-right">
+    <!-- 右侧菜单保持不变 -->
+    <a href="javascript:void(0)" class="nav-btn nav-link-about" @click="scrollToAbout">关于项目</a>
+    <a href="javascript:void(0)" class="nav-btn nav-link-pricing" @click="scrollToPricing">价格优势</a>
+    <a href="javascript:void(0)" class="nav-btn nav-link-painpoints" @click="scrollToPainPoints">用户痛点</a>
+    <router-link to="/settings/api" class="nav-btn nav-link-api">API 配置中心</router-link>
+    <!-- ... 头像 / 登录按钮 ... -->
+         <!-- 已登录：展示用户头像 SVG 徽章 -->
+
+        <router-link v-if="isLoggedIn" to="/settings/api?tab=account" class="user-avatar-btn" title="点击进入个人账户信息">
+
           <div class="avatar-circle">
+
             <svg class="user-avatar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+
             </svg>
+
             <span class="online-status-dot"></span>
+
           </div>
+
         </router-link>
+
+
 
         <!-- 未登录：展示登录/注册按钮 -->
-        <router-link 
-          v-else 
-          to="/login" 
-          class="nav-btn login-btn"
-        >
-          登录 / 注册
-        </router-link>
-      </div>
-    </header>
 
+        <router-link v-else to="/login" class="nav-btn login-btn">
+
+          登录 / 注册
+
+        </router-link>
+  </div>
+
+</header>
     <!-- 主体整屏吸附滚动容器 -->
     <main class="snap-container" ref="scrollContainerRef">
-      
+
       <!-- ================= 第一屏：主视觉 Hero ================= -->
       <section class="snap-section hero-screen">
         <div class="hero-container">
-         
+
 
           <h1 class="main-title">
             让每一种文化声量<br />
@@ -108,13 +135,14 @@
       <!-- ================= 第二屏：产品介绍 ================= -->
       <section class="snap-section about-screen" ref="aboutSectionRef">
         <div class="about-container">
-          
+
           <div class="external-header">
             <h2 class="platform-main-title">
               <span class="en-title">Hello World</span>
               <span class="logo-symbol">
                 <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                  <path
+                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
                 </svg>
               </span>
               <span class="cn-title">国际传播特化平台</span>
@@ -206,7 +234,7 @@
       <!-- ================= 第三屏：核心价格与成本优势 ================= -->
       <section class="snap-section pricing-screen" ref="pricingSectionRef">
         <div class="pricing-container">
-          
+
           <div class="external-header pricing-header">
             <div class="section-badge-pill">COST & PRICING ADVANTAGE</div>
             <h2 class="platform-main-title">
@@ -220,7 +248,7 @@
 
           <div class="chart-mega-card">
             <div class="chart-card-inner">
-              
+
               <div class="chart-meta-row">
                 <span class="chart-spec-tag">测试规格：1080P · 16:9 · 5 秒文生视频</span>
                 <span class="chart-model-tag">底模：Seedance 2.5 API</span>
@@ -296,7 +324,8 @@
 
               <div class="pricing-note-strip">
                 <svg class="info-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>注：成本计算未计算暂时的优惠活动，行业主流平台成本计算使用最高档会员下的积分使用折算。</span>
               </div>
@@ -323,7 +352,7 @@
       <!-- ================= 第四屏：紧跟用户需求 · 核心痛点调研 (新增) ================= -->
       <section class="snap-section painpoints-screen" ref="painpointsSectionRef">
         <div class="painpoints-container">
-          
+
           <div class="external-header painpoints-header">
             <div class="section-badge-pill">USER-DRIVEN INNOVATION</div>
             <h2 class="platform-main-title">
@@ -338,7 +367,7 @@
           <!-- 横向条形图大卡片 -->
           <div class="chart-mega-card">
             <div class="chart-card-inner">
-              
+
               <div class="chart-meta-row">
                 <span class="chart-spec-tag">调研主题：创作者在日常使用 AI 视频生成工具时面临的主要痛点</span>
                 <span class="chart-model-tag">平台实测调研样本 (N=619)</span>
@@ -346,7 +375,7 @@
 
               <!-- 水平条形图结构 -->
               <div class="hbar-visual-wrapper">
-                
+
                 <!-- 刻度垂直网格线 (0 ~ 70) -->
                 <div class="v-grid-line vline-0"></div>
                 <div class="v-grid-line vline-10"></div>
@@ -358,7 +387,7 @@
                 <div class="v-grid-line vline-70"></div>
 
                 <div class="hbar-rows-container">
-                  
+
                   <!-- 行 1：多平台频繁切换 (59.45%) -->
                   <div class="hbar-row">
                     <div class="hbar-label">多平台频繁切换</div>
@@ -413,7 +442,8 @@
               <!-- 必加说明注释 -->
               <div class="pricing-note-strip">
                 <svg class="info-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>注：数据来自于平台的数据收集。</span>
               </div>
@@ -486,6 +516,102 @@ function scrollToTop() {
 </script>
 
 <style scoped>
+/* TV 频道导航交互按钮 */
+/* 新增：左侧包裹层，控制 Logo 与 TV 按钮紧挨着 */
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 16px; /* 控制两者之间的间距，可根据视觉效果微调为 12px ~ 20px */
+}
+
+/* TV 频道导航交互按钮：删除原有 left: -18vw; */
+.nav-tv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 16px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(8px);
+}
+
+
+/* 电视图标容器 */
+.tv-icon-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 电视 SVG */
+.tv-svg {
+  width: 18px;
+  height: 18px;
+  color: #94a3b8;
+  transition: all 0.25s ease;
+}
+
+/* 模拟信号接收/正在连线小红点 */
+.live-dot {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  width: 5px;
+  height: 5px;
+  background-color: #ef4444;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #ef4444;
+  animation: tvDotPulse 2s infinite ease-in-out;
+}
+
+@keyframes tvDotPulse {
+
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+    box-shadow: 0 0 8px #f87171;
+  }
+}
+
+.tv-btn-label {
+  letter-spacing: 0.4px;
+  transition: color 0.2s ease;
+}
+
+/* 鼠标悬停动效：浮起、渐变外边框发光、天线与图标上跳 */
+.nav-tv-btn:hover {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(129, 140, 248, 0.45);
+  color: #ffffff;
+  transform: translateY(-1.5px);
+  box-shadow: 0 6px 20px -4px rgba(99, 102, 241, 0.3);
+}
+
+.nav-tv-btn:hover .tv-svg {
+  color: #818cf8;
+  transform: scale(1.1) rotate(-4deg);
+}
+
+/* 点击激活状态 */
+.nav-tv-btn:active {
+  transform: translateY(0);
+}
+
 /* 全屏容器 */
 .landing-page {
   position: relative;
@@ -515,12 +641,14 @@ function scrollToTop() {
   backdrop-filter: blur(16px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
+
 .brand {
   display: flex;
   align-items: center;
   gap: 12px;
   cursor: pointer;
 }
+
 .brand-avatar {
   width: 36px;
   height: 36px;
@@ -534,16 +662,19 @@ function scrollToTop() {
   font-size: 18px;
   box-shadow: 0 0 16px rgba(99, 102, 241, 0.4);
 }
+
 .brand-name {
   font-size: 20px;
   font-weight: 600;
   letter-spacing: 0.5px;
 }
+
 .nav-right {
   display: flex;
   align-items: center;
   gap: 24px;
 }
+
 .nav-btn {
   color: #94a3b8;
   text-decoration: none;
@@ -551,15 +682,18 @@ function scrollToTop() {
   transition: color 0.2s;
   cursor: pointer;
 }
+
 .nav-btn:hover {
   color: #ffffff;
 }
+
 .login-btn {
   padding: 6px 16px;
   border: 1px solid #2e384d;
   border-radius: 6px;
   background-color: #121826;
 }
+
 .login-btn:hover {
   background-color: #1a2336;
   border-color: #6366f1;
@@ -572,6 +706,7 @@ function scrollToTop() {
   align-items: center;
   justify-content: center;
 }
+
 .avatar-circle {
   position: relative;
   width: 38px;
@@ -587,11 +722,13 @@ function scrollToTop() {
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   box-shadow: 0 0 12px rgba(99, 102, 241, 0.3);
 }
+
 .user-avatar-svg {
   width: 20px;
   height: 20px;
   color: #e2e8f0;
 }
+
 .online-status-dot {
   position: absolute;
   bottom: 1px;
@@ -603,6 +740,7 @@ function scrollToTop() {
   border: 2px solid #07090e;
   box-shadow: 0 0 6px #10b981;
 }
+
 .avatar-circle:hover {
   transform: translateY(-2px) scale(1.06);
   border-color: #818cf8;
@@ -623,6 +761,7 @@ function scrollToTop() {
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;
 }
+
 .snap-container::-webkit-scrollbar {
   display: none !important;
   width: 0 !important;
@@ -650,6 +789,7 @@ function scrollToTop() {
   padding-top: clamp(64px, 8vh, 90px);
   padding-bottom: clamp(20px, 3vh, 36px);
 }
+
 .hero-container {
   display: flex;
   flex-direction: column;
@@ -658,6 +798,7 @@ function scrollToTop() {
   width: min(92vw, 1300px);
   margin: auto 0;
 }
+
 .badge-tag {
   display: inline-flex;
   align-items: center;
@@ -671,6 +812,7 @@ function scrollToTop() {
   margin-bottom: 24px;
   backdrop-filter: blur(8px);
 }
+
 .pulse-point {
   width: 8px;
   height: 8px;
@@ -680,6 +822,7 @@ function scrollToTop() {
   animation: pulse 2s infinite;
   flex-shrink: 0;
 }
+
 .main-title {
   font-size: clamp(100px, 4.8vw, 68px);
   font-weight: 800;
@@ -689,25 +832,31 @@ function scrollToTop() {
   width: 100%;
   max-width: 85vw;
 }
+
 .gradient-text {
-  background: linear-gradient(
-    90deg,
-    #818cf8 0%,
-    #38bdf8 25%,
-    #34d399 50%,
-    #f472b6 75%,
-    #818cf8 100%
-  );
+  background: linear-gradient(90deg,
+      #818cf8 0%,
+      #38bdf8 25%,
+      #34d399 50%,
+      #f472b6 75%,
+      #818cf8 100%);
   background-size: 300% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: rainbowFlow 5s linear infinite;
 }
+
 @keyframes rainbowFlow {
-  0% { background-position: 0% 50%; }
-  100% { background-position: 300% 50%; }
+  0% {
+    background-position: 0% 50%;
+  }
+
+  100% {
+    background-position: 300% 50%;
+  }
 }
+
 .sub-title {
   font-size: clamp(15px, 1.3vw, 19px);
   color: #94a3b8;
@@ -715,10 +864,12 @@ function scrollToTop() {
   line-height: 1.65;
   margin-bottom: clamp(24px, 4vh, 44px);
 }
+
 .cta-wrapper {
   position: relative;
   margin-bottom: clamp(24px, 4vh, 44px);
 }
+
 .launch-btn {
   position: relative;
   display: flex;
@@ -737,19 +888,38 @@ function scrollToTop() {
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
 }
+
 .launch-btn:hover {
   transform: translateY(-2px) scale(1.02);
   box-shadow: 0 16px 40px -4px rgba(99, 102, 241, 0.8);
   border-color: #a5b4fc;
 }
-.btn-arrow { width: 22px; height: 22px; transition: transform 0.25s ease; }
-.launch-btn:hover .btn-arrow { transform: translateX(5px); }
-.btn-glow {
-  position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, transparent 60%);
-  pointer-events: none; opacity: 0; transition: opacity 0.3s;
+
+.btn-arrow {
+  width: 22px;
+  height: 22px;
+  transition: transform 0.25s ease;
 }
-.launch-btn:hover .btn-glow { opacity: 1; }
+
+.launch-btn:hover .btn-arrow {
+  transform: translateX(5px);
+}
+
+.btn-glow {
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, transparent 60%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.launch-btn:hover .btn-glow {
+  opacity: 1;
+}
 
 .feature-metrics {
   display: flex;
@@ -763,10 +933,30 @@ function scrollToTop() {
   backdrop-filter: blur(12px);
   width: min(92vw, 840px);
 }
-.metric-item { display: flex; flex-direction: column; gap: 4px; text-align: left; }
-.metric-value { font-size: clamp(15px, 1.2vw, 18px); font-weight: 700; color: #f8fafc; }
-.metric-desc { font-size: clamp(12px, 0.95vw, 14px); color: #94a3b8; }
-.divider { width: 1px; height: 30px; background-color: rgba(255, 255, 255, 0.12); }
+
+.metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+
+.metric-value {
+  font-size: clamp(15px, 1.2vw, 18px);
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.metric-desc {
+  font-size: clamp(12px, 0.95vw, 14px);
+  color: #94a3b8;
+}
+
+.divider {
+  width: 1px;
+  height: 30px;
+  background-color: rgba(255, 255, 255, 0.12);
+}
 
 .scroll-down-hint {
   position: absolute;
@@ -784,9 +974,27 @@ function scrollToTop() {
   animation: floatUpDown 2s infinite ease-in-out;
   z-index: 20;
 }
-.scroll-down-hint:hover { color: #94a3b8; }
-.scroll-arrow { width: 18px; height: 18px; }
-@keyframes floatUpDown { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+
+.scroll-down-hint:hover {
+  color: #94a3b8;
+}
+
+.scroll-arrow {
+  width: 18px;
+  height: 18px;
+}
+
+@keyframes floatUpDown {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(6px);
+  }
+}
 
 /* ================= 第二屏：产品介绍 ================= */
 .about-screen {
@@ -794,6 +1002,7 @@ function scrollToTop() {
   padding-bottom: clamp(24px, 3vh, 36px);
   background: linear-gradient(180deg, rgba(7, 9, 14, 0.4) 0%, rgba(10, 13, 22, 0.95) 100%);
 }
+
 .about-container {
   width: min(94vw, 1480px);
   height: 100%;
@@ -802,10 +1011,12 @@ function scrollToTop() {
   align-items: center;
   justify-content: center;
 }
+
 .external-header {
   margin-bottom: clamp(20px, 3.5vh, 38px);
   text-align: center;
 }
+
 .platform-main-title {
   display: inline-flex;
   align-items: center;
@@ -816,7 +1027,11 @@ function scrollToTop() {
   color: #ffffff;
   letter-spacing: -0.5px;
 }
-.en-title { font-weight: 800; }
+
+.en-title {
+  font-weight: 800;
+}
+
 .logo-symbol {
   width: clamp(32px, 3.4vw, 48px);
   height: clamp(32px, 3.4vw, 48px);
@@ -825,8 +1040,16 @@ function scrollToTop() {
   align-items: center;
   flex-shrink: 0;
 }
-.logo-symbol svg { width: 100%; height: 100%; }
-.cn-title { font-weight: 700; color: #f1f5f9; }
+
+.logo-symbol svg {
+  width: 100%;
+  height: 100%;
+}
+
+.cn-title {
+  font-weight: 700;
+  color: #f1f5f9;
+}
 
 .tapnow-card {
   width: 100%;
@@ -842,6 +1065,7 @@ function scrollToTop() {
   gap: clamp(36px, 4vw, 64px);
   box-sizing: border-box;
 }
+
 .card-left-content {
   flex: 1.25;
   display: flex;
@@ -849,6 +1073,7 @@ function scrollToTop() {
   align-items: flex-start;
   text-align: left;
 }
+
 .left-big-heading {
   font-size: clamp(34px, 3.8vw, 54px);
   font-weight: 800;
@@ -857,6 +1082,7 @@ function scrollToTop() {
   margin-bottom: clamp(16px, 2.2vh, 26px);
   letter-spacing: -0.5px;
 }
+
 .left-desc-text {
   font-size: clamp(15px, 1.25vw, 19px);
   line-height: 1.85;
@@ -864,6 +1090,7 @@ function scrollToTop() {
   margin-bottom: clamp(28px, 4vh, 44px);
   max-width: 620px;
 }
+
 .left-action-btn {
   background-color: #ffffff;
   color: #0b0f19;
@@ -876,6 +1103,7 @@ function scrollToTop() {
   transition: all 0.25s ease;
   box-shadow: 0 6px 22px rgba(255, 255, 255, 0.18);
 }
+
 .left-action-btn:hover {
   transform: translateY(-2px);
   background-color: #f1f5f9;
@@ -887,6 +1115,7 @@ function scrollToTop() {
   width: 100%;
   max-width: 540px;
 }
+
 .brief-preview-box {
   background: #0d121f;
   border: 1px solid #1e2638;
@@ -895,13 +1124,20 @@ function scrollToTop() {
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
   text-align: left;
 }
+
 .preview-header-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
 }
-.preview-title { font-size: 18px; font-weight: 700; color: #f8fafc; }
+
+.preview-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
 .preview-version-pill {
   background-color: #1e293b;
   color: #38bdf8;
@@ -910,6 +1146,7 @@ function scrollToTop() {
   font-size: 13px;
   font-weight: 600;
 }
+
 .preview-status-strip {
   background-color: #111827;
   border: 1px solid #1e293b;
@@ -920,6 +1157,7 @@ function scrollToTop() {
   align-items: center;
   margin-bottom: 16px;
 }
+
 .strip-left {
   display: flex;
   align-items: center;
@@ -927,6 +1165,7 @@ function scrollToTop() {
   font-size: 13px;
   color: #cbd5e1;
 }
+
 .strip-dot {
   width: 10px;
   height: 10px;
@@ -934,6 +1173,7 @@ function scrollToTop() {
   background-color: #eab308;
   flex-shrink: 0;
 }
+
 .strip-confirm-btn {
   background-color: #1e293b;
   color: #38bdf8;
@@ -943,6 +1183,7 @@ function scrollToTop() {
   font-size: 13px;
   cursor: pointer;
 }
+
 .preview-fields-container {
   background-color: #101625;
   border: 1px solid #1c2639;
@@ -953,19 +1194,28 @@ function scrollToTop() {
   gap: 14px;
   scrollbar-width: none;
 }
-.preview-fields-container::-webkit-scrollbar { display: none; }
+
+.preview-fields-container::-webkit-scrollbar {
+  display: none;
+}
+
 .field-block .field-title {
   font-size: 13px;
   color: #94a3b8;
   margin-bottom: 4px;
   font-weight: 500;
 }
+
 .field-block .field-desc {
   font-size: 14px;
   color: #e2e8f0;
   line-height: 1.55;
 }
-.field-block .field-desc strong { color: #f8fafc; }
+
+.field-block .field-desc strong {
+  color: #f8fafc;
+}
+
 .prompt-preview-shell {
   background-color: #0b0f19;
   border: 1px solid #1b2436;
@@ -982,6 +1232,7 @@ function scrollToTop() {
   padding-bottom: clamp(24px, 3vh, 36px);
   background: linear-gradient(180deg, rgba(10, 13, 22, 0.95) 0%, rgba(7, 9, 14, 0.98) 100%);
 }
+
 .pricing-container {
   width: min(94vw, 1300px);
   height: 100%;
@@ -999,6 +1250,7 @@ function scrollToTop() {
   text-align: center;
   margin-bottom: clamp(16px, 3vh, 32px);
 }
+
 .section-badge-pill {
   display: inline-flex;
   align-items: center;
@@ -1014,6 +1266,7 @@ function scrollToTop() {
   margin-bottom: 12px;
   width: fit-content;
 }
+
 .pricing-sub-desc {
   font-size: clamp(14px, 1.15vw, 17px);
   color: #94a3b8;
@@ -1030,11 +1283,13 @@ function scrollToTop() {
   box-shadow: 0 30px 70px -15px rgba(0, 0, 0, 0.85);
   box-sizing: border-box;
 }
+
 .chart-card-inner {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
+
 .chart-meta-row {
   display: flex;
   justify-content: space-between;
@@ -1044,8 +1299,16 @@ function scrollToTop() {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   padding-bottom: 12px;
 }
-.chart-spec-tag { color: #cbd5e1; font-weight: 600; }
-.chart-model-tag { color: #818cf8; font-family: monospace; }
+
+.chart-spec-tag {
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+.chart-model-tag {
+  color: #818cf8;
+  font-family: monospace;
+}
 
 .chart-visual-wrapper {
   display: flex;
@@ -1053,6 +1316,7 @@ function scrollToTop() {
   margin-top: 16px;
   position: relative;
 }
+
 .y-axis-labels {
   display: flex;
   flex-direction: column;
@@ -1064,6 +1328,7 @@ function scrollToTop() {
   text-align: right;
   height: 80%;
 }
+
 .bars-canvas {
   flex: 1;
   position: relative;
@@ -1081,13 +1346,35 @@ function scrollToTop() {
   border-top: 1px dashed rgba(255, 255, 255, 0.08);
   pointer-events: none;
 }
-.line-30 { top: 0%; }
-.line-25 { top: 16.6%; }
-.line-20 { top: 33.3%; }
-.line-15 { top: 50%; }
-.line-10 { top: 66.6%; }
-.line-5  { top: 83.3%; }
-.line-0  { bottom: 0%; border-top: none; }
+
+.line-30 {
+  top: 0%;
+}
+
+.line-25 {
+  top: 16.6%;
+}
+
+.line-20 {
+  top: 33.3%;
+}
+
+.line-15 {
+  top: 50%;
+}
+
+.line-10 {
+  top: 66.6%;
+}
+
+.line-5 {
+  top: 83.3%;
+}
+
+.line-0 {
+  bottom: 0%;
+  border-top: none;
+}
 
 .bar-column {
   position: relative;
@@ -1099,6 +1386,7 @@ function scrollToTop() {
   height: 100%;
   justify-content: flex-end;
 }
+
 .bar-value-label {
   display: flex;
   flex-direction: column;
@@ -1106,17 +1394,25 @@ function scrollToTop() {
   margin-bottom: 12px;
   text-align: center;
 }
+
 .bar-value-label .price-val {
   font-size: clamp(16px, 1.4vw, 22px);
   font-weight: 800;
   color: #94a3b8;
 }
-.bar-value-label .diff-tag { font-size: 12px; color: #64748b; margin-top: 2px; }
+
+.bar-value-label .diff-tag {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
 .bar-value-label.self-highlight .price-val {
   color: #6366f1;
   font-size: clamp(20px, 1.8vw, 28px);
   text-shadow: 0 0 16px rgba(99, 102, 241, 0.6);
 }
+
 .bar-value-label .cost-adv-tag {
   font-size: 13px;
   font-weight: 700;
@@ -1133,6 +1429,7 @@ function scrollToTop() {
   display: flex;
   align-items: flex-end;
 }
+
 .bar-fill {
   width: 100%;
   border-radius: 8px 8px 0 0;
@@ -1140,9 +1437,17 @@ function scrollToTop() {
   transition: height 1s cubic-bezier(0.16, 1, 0.3, 1);
   animation: growUp 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
 @keyframes growUp {
-  from { transform: scaleY(0); transform-origin: bottom; }
-  to { transform: scaleY(1); transform-origin: bottom; }
+  from {
+    transform: scaleY(0);
+    transform-origin: bottom;
+  }
+
+  to {
+    transform: scaleY(1);
+    transform-origin: bottom;
+  }
 }
 
 .self-bar {
@@ -1151,6 +1456,7 @@ function scrollToTop() {
   border: 1px solid #818cf8;
   border-bottom: none;
 }
+
 .bar-top-glow {
   position: absolute;
   top: 0;
@@ -1167,6 +1473,7 @@ function scrollToTop() {
   border-bottom: none;
   opacity: 0.85;
 }
+
 .competitor-bar-b {
   background: linear-gradient(180deg, #94a3b8 0%, #475569 100%);
   border: 1px solid #cbd5e1;
@@ -1183,9 +1490,21 @@ function scrollToTop() {
   color: #94a3b8;
   text-align: center;
 }
-.bar-x-label.active-platform { color: #ffffff; }
-.bar-x-label.active-platform strong { font-size: 16px; color: #818cf8; }
-.bar-x-label small { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+.bar-x-label.active-platform {
+  color: #ffffff;
+}
+
+.bar-x-label.active-platform strong {
+  font-size: 16px;
+  color: #818cf8;
+}
+
+.bar-x-label small {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
 
 .pricing-note-strip {
   display: flex;
@@ -1199,9 +1518,19 @@ function scrollToTop() {
   color: #94a3b8;
   margin-top: 6px;
 }
-.info-icon { width: 16px; height: 16px; color: #38bdf8; flex-shrink: 0; }
 
-.chart-action-bar { display: flex; justify-content: flex-end; }
+.info-icon {
+  width: 16px;
+  height: 16px;
+  color: #38bdf8;
+  flex-shrink: 0;
+}
+
+.chart-action-bar {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .pricing-cta-btn {
   background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
   color: #ffffff;
@@ -1214,6 +1543,7 @@ function scrollToTop() {
   transition: all 0.25s ease;
   box-shadow: 0 4px 18px rgba(99, 102, 241, 0.4);
 }
+
 .pricing-cta-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(99, 102, 241, 0.6);
@@ -1226,6 +1556,7 @@ function scrollToTop() {
   padding-bottom: clamp(24px, 3vh, 36px);
   background: linear-gradient(180deg, rgba(7, 9, 14, 0.98) 0%, rgba(9, 12, 20, 1) 100%);
 }
+
 .painpoints-container {
   width: min(94vw, 1300px);
   height: 100%;
@@ -1234,6 +1565,7 @@ function scrollToTop() {
   align-items: center;
   justify-content: center;
 }
+
 .painpoints-header {
   display: flex;
   flex-direction: column;
@@ -1261,15 +1593,39 @@ function scrollToTop() {
   pointer-events: none;
   z-index: 1;
 }
+
 /* 映射到 0~75% 刻度 */
-.vline-0  { left: 160px; }
-.vline-10 { left: calc(160px + (100% - 160px) * (10 / 75)); }
-.vline-20 { left: calc(160px + (100% - 160px) * (20 / 75)); }
-.vline-30 { left: calc(160px + (100% - 160px) * (30 / 75)); }
-.vline-40 { left: calc(160px + (100% - 160px) * (40 / 75)); }
-.vline-50 { left: calc(160px + (100% - 160px) * (50 / 75)); }
-.vline-60 { left: calc(160px + (100% - 160px) * (60 / 75)); }
-.vline-70 { left: calc(160px + (100% - 160px) * (70 / 75)); }
+.vline-0 {
+  left: 160px;
+}
+
+.vline-10 {
+  left: calc(160px + (100% - 160px) * (10 / 75));
+}
+
+.vline-20 {
+  left: calc(160px + (100% - 160px) * (20 / 75));
+}
+
+.vline-30 {
+  left: calc(160px + (100% - 160px) * (30 / 75));
+}
+
+.vline-40 {
+  left: calc(160px + (100% - 160px) * (40 / 75));
+}
+
+.vline-50 {
+  left: calc(160px + (100% - 160px) * (50 / 75));
+}
+
+.vline-60 {
+  left: calc(160px + (100% - 160px) * (60 / 75));
+}
+
+.vline-70 {
+  left: calc(160px + (100% - 160px) * (70 / 75));
+}
 
 .hbar-rows-container {
   position: relative;
@@ -1285,6 +1641,7 @@ function scrollToTop() {
   align-items: center;
   width: 100%;
 }
+
 .hbar-label {
   width: 160px;
   min-width: 160px;
@@ -1303,15 +1660,22 @@ function scrollToTop() {
   align-items: center;
   height: 40px;
 }
+
 .hbar-fill {
   height: 100%;
   border-radius: 4px;
   animation: growRight 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   transform-origin: left;
 }
+
 @keyframes growRight {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
+  from {
+    transform: scaleX(0);
+  }
+
+  to {
+    transform: scaleX(1);
+  }
 }
 
 /* 渐变与色彩层级 */
@@ -1319,10 +1683,12 @@ function scrollToTop() {
   background: linear-gradient(90deg, #00f2fe 0%, #38bdf8 100%);
   box-shadow: 0 0 20px rgba(0, 242, 254, 0.4);
 }
+
 .bar-sky {
   background: linear-gradient(90deg, #0284c7 0%, #0369a1 100%);
   opacity: 0.9;
 }
+
 .bar-deepblue {
   background: linear-gradient(90deg, #1e3a8a 0%, #172554 100%);
   border: 1px solid rgba(59, 130, 246, 0.4);
@@ -1334,10 +1700,12 @@ function scrollToTop() {
   font-weight: 800;
   white-space: nowrap;
 }
+
 .cyan-text {
   color: #00f2fe;
   text-shadow: 0 0 10px rgba(0, 242, 254, 0.5);
 }
+
 .muted-text {
   color: #cbd5e1;
 }
@@ -1351,11 +1719,13 @@ function scrollToTop() {
   display: flex;
   flex-direction: column;
 }
+
 .x-axis-ticks {
   position: relative;
   width: 100%;
   height: 20px;
 }
+
 .x-axis-ticks span {
   position: absolute;
   color: #64748b;
@@ -1363,14 +1733,38 @@ function scrollToTop() {
   font-family: monospace;
   transform: translateX(-50%);
 }
-.x-axis-ticks span:nth-child(1) { left: 0%; }
-.x-axis-ticks span:nth-child(2) { left: calc(100% * (10 / 75)); }
-.x-axis-ticks span:nth-child(3) { left: calc(100% * (20 / 75)); }
-.x-axis-ticks span:nth-child(4) { left: calc(100% * (30 / 75)); }
-.x-axis-ticks span:nth-child(5) { left: calc(100% * (40 / 75)); }
-.x-axis-ticks span:nth-child(6) { left: calc(100% * (50 / 75)); }
-.x-axis-ticks span:nth-child(7) { left: calc(100% * (60 / 75)); }
-.x-axis-ticks span:nth-child(8) { left: calc(100% * (70 / 75)); }
+
+.x-axis-ticks span:nth-child(1) {
+  left: 0%;
+}
+
+.x-axis-ticks span:nth-child(2) {
+  left: calc(100% * (10 / 75));
+}
+
+.x-axis-ticks span:nth-child(3) {
+  left: calc(100% * (20 / 75));
+}
+
+.x-axis-ticks span:nth-child(4) {
+  left: calc(100% * (30 / 75));
+}
+
+.x-axis-ticks span:nth-child(5) {
+  left: calc(100% * (40 / 75));
+}
+
+.x-axis-ticks span:nth-child(6) {
+  left: calc(100% * (50 / 75));
+}
+
+.x-axis-ticks span:nth-child(7) {
+  left: calc(100% * (60 / 75));
+}
+
+.x-axis-ticks span:nth-child(8) {
+  left: calc(100% * (70 / 75));
+}
 
 .x-axis-title {
   text-align: center;
@@ -1381,61 +1775,273 @@ function scrollToTop() {
 
 /* ================= 动态背景装饰 ================= */
 .ambient-glow {
-  position: fixed; top: 25%; left: 50%; transform: translate(-50%, -50%);
-  width: min(80vw, 700px); height: min(50vh, 400px);
+  position: fixed;
+  top: 25%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(80vw, 700px);
+  height: min(50vh, 400px);
   background: radial-gradient(ellipse at center, rgba(99, 102, 241, 0.15) 0%, rgba(56, 189, 248, 0.05) 50%, transparent 80%);
-  pointer-events: none; filter: blur(60px);
+  pointer-events: none;
+  filter: blur(60px);
 }
-.lines-layer { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+
+.lines-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
 .light-line {
-  position: absolute; width: 2px; height: 180vh;
+  position: absolute;
+  width: 2px;
+  height: 180vh;
   background: linear-gradient(180deg, transparent 0%, rgba(99, 102, 241, 0.6) 50%, transparent 100%);
-  transform: rotate(-35deg); opacity: 0.25;
+  transform: rotate(-35deg);
+  opacity: 0.25;
 }
-.line-1 { left: 15%; animation: moveLine 9s linear infinite; }
-.line-2 { left: 38%; opacity: 0.18; animation: moveLine 13s linear infinite 3s; }
-.line-3 { left: 65%; opacity: 0.3; animation: moveLine 8s linear infinite 1.5s; }
-.line-4 { left: 88%; opacity: 0.15; animation: moveLine 11s linear infinite 5s; }
-@keyframes moveLine { 0% { transform: translateY(-60%) rotate(-35deg); } 100% { transform: translateY(60%) rotate(-35deg); } }
 
-.stars-layer { position: fixed; inset: 0; pointer-events: none; }
+.line-1 {
+  left: 15%;
+  animation: moveLine 9s linear infinite;
+}
+
+.line-2 {
+  left: 38%;
+  opacity: 0.18;
+  animation: moveLine 13s linear infinite 3s;
+}
+
+.line-3 {
+  left: 65%;
+  opacity: 0.3;
+  animation: moveLine 8s linear infinite 1.5s;
+}
+
+.line-4 {
+  left: 88%;
+  opacity: 0.15;
+  animation: moveLine 11s linear infinite 5s;
+}
+
+@keyframes moveLine {
+  0% {
+    transform: translateY(-60%) rotate(-35deg);
+  }
+
+  100% {
+    transform: translateY(60%) rotate(-35deg);
+  }
+}
+
+.stars-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
 .star {
-  position: absolute; background-color: #ffffff; border-radius: 50%;
-  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8); animation: twinkle ease-in-out infinite alternate;
+  position: absolute;
+  background-color: #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+  animation: twinkle ease-in-out infinite alternate;
 }
-@keyframes twinkle { 0% { opacity: 0.1; transform: scale(0.6); } 100% { opacity: 1; transform: scale(1.4); } }
-@keyframes pulse { 0% { opacity: 0.5; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.2); } 100% { opacity: 0.5; transform: scale(0.9); } }
 
-.star-1  { top: 12%; left: 18%; width: 2px; height: 2px; animation-duration: 2.2s; }
-.star-2  { top: 22%; left: 75%; width: 3px; height: 3px; animation-duration: 3.1s; animation-delay: 0.5s; }
-.star-3  { top: 40%; left: 88%; width: 2px; height: 2px; animation-duration: 1.8s; animation-delay: 1.2s; }
-.star-4  { top: 68%; left: 12%; width: 3px; height: 3px; animation-duration: 2.5s; animation-delay: 0.8s; }
-.star-5  { top: 82%; left: 30%; width: 2px; height: 2px; animation-duration: 3.5s; }
-.star-6  { top: 18%; left: 45%; width: 2px; height: 2px; animation-duration: 2.7s; animation-delay: 1.5s; }
-.star-7  { top: 55%; left: 22%; width: 2px; height: 2px; animation-duration: 2.1s; }
-.star-8  { top: 75%; left: 82%; width: 3px; height: 3px; animation-duration: 2.9s; animation-delay: 0.3s; }
-.star-9  { top: 32%; left: 8%;  width: 2px; height: 2px; animation-duration: 3.8s; }
-.star-10 { top: 88%; left: 62%; width: 2px; height: 2px; animation-duration: 2.4s; }
-.star-11 { top: 10%; left: 92%; width: 2px; height: 2px; animation-duration: 1.9s; }
-.star-12 { top: 50%; left: 95%; width: 2px; height: 2px; animation-duration: 3.2s; }
-.star-13 { top: 8%;  left: 35%; width: 3px; height: 3px; animation-duration: 2.8s; }
-.star-14 { top: 62%; left: 72%; width: 2px; height: 2px; animation-duration: 2.6s; animation-delay: 1.1s; }
-.star-15 { top: 30%; left: 60%; width: 2px; height: 2px; animation-duration: 3.4s; }
-.star-16 { top: 85%; left: 15%; width: 2px; height: 2px; animation-duration: 2.3s; }
-.star-17 { top: 25%; left: 28%; width: 2px; height: 2px; animation-duration: 1.7s; }
-.star-18 { top: 70%; left: 48%; width: 2px; height: 2px; animation-duration: 3.6s; }
+@keyframes twinkle {
+  0% {
+    opacity: 0.1;
+    transform: scale(0.6);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1.4);
+  }
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+
+  100% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+}
+
+.star-1 {
+  top: 12%;
+  left: 18%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 2.2s;
+}
+
+.star-2 {
+  top: 22%;
+  left: 75%;
+  width: 3px;
+  height: 3px;
+  animation-duration: 3.1s;
+  animation-delay: 0.5s;
+}
+
+.star-3 {
+  top: 40%;
+  left: 88%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 1.8s;
+  animation-delay: 1.2s;
+}
+
+.star-4 {
+  top: 68%;
+  left: 12%;
+  width: 3px;
+  height: 3px;
+  animation-duration: 2.5s;
+  animation-delay: 0.8s;
+}
+
+.star-5 {
+  top: 82%;
+  left: 30%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 3.5s;
+}
+
+.star-6 {
+  top: 18%;
+  left: 45%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 2.7s;
+  animation-delay: 1.5s;
+}
+
+.star-7 {
+  top: 55%;
+  left: 22%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 2.1s;
+}
+
+.star-8 {
+  top: 75%;
+  left: 82%;
+  width: 3px;
+  height: 3px;
+  animation-duration: 2.9s;
+  animation-delay: 0.3s;
+}
+
+.star-9 {
+  top: 32%;
+  left: 8%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 3.8s;
+}
+
+.star-10 {
+  top: 88%;
+  left: 62%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 2.4s;
+}
+
+.star-11 {
+  top: 10%;
+  left: 92%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 1.9s;
+}
+
+.star-12 {
+  top: 50%;
+  left: 95%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 3.2s;
+}
+
+.star-13 {
+  top: 8%;
+  left: 35%;
+  width: 3px;
+  height: 3px;
+  animation-duration: 2.8s;
+}
+
+.star-14 {
+  top: 62%;
+  left: 72%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 2.6s;
+  animation-delay: 1.1s;
+}
+
+.star-15 {
+  top: 30%;
+  left: 60%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 3.4s;
+}
+
+.star-16 {
+  top: 85%;
+  left: 15%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 2.3s;
+}
+
+.star-17 {
+  top: 25%;
+  left: 28%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 1.7s;
+}
+
+.star-18 {
+  top: 70%;
+  left: 48%;
+  width: 2px;
+  height: 2px;
+  animation-duration: 3.6s;
+}
 
 /* ================= 移动端适配 (<= 868px) ================= */
 @media (max-width: 868px) {
+
   .nav-link-about,
   .nav-link-pricing,
   .nav-link-painpoints,
   .nav-link-api {
     display: none;
   }
+
   .snap-container {
     scroll-snap-type: none;
   }
+
   .snap-section {
     scroll-snap-align: none;
     height: auto;
@@ -1443,70 +2049,155 @@ function scrollToTop() {
     padding-top: 76px;
     padding-bottom: 40px;
   }
+
   .hero-container {
     margin: 20px auto 0;
   }
+
   .main-title {
     font-size: 8.5vw;
     line-height: 1.3;
   }
+
   .sub-title {
     font-size: 3.8vw;
   }
+
   .feature-metrics {
     flex-direction: column;
     gap: 12px;
     padding: 16px 20px;
     width: 88vw;
   }
+
   .divider {
     width: 80%;
     height: 1px;
   }
+
   .metric-item {
     text-align: center;
     align-items: center;
   }
+
   .scroll-down-hint {
     display: none;
   }
 
   /* 第二屏移动端 */
-  .about-container { width: 90vw; }
-  .platform-main-title { font-size: 6vw; flex-wrap: wrap; gap: 6px; }
+  .about-container {
+    width: 90vw;
+  }
+
+  .platform-main-title {
+    font-size: 6vw;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
   .tapnow-card {
     display: flex;
     flex-direction: column;
     padding: 28px 20px;
     gap: 24px;
   }
-  .card-left-content { display: contents; }
-  .left-big-heading { order: 1; font-size: 7vw; margin-bottom: 8px; text-align: center; width: 100%; }
-  .left-desc-text { order: 1; font-size: 3.8vw; margin-bottom: 8px; text-align: center; width: 100%; }
-  .card-right-preview { order: 2; max-width: 100%; width: 100%; }
-  .left-action-btn { order: 3; width: 100%; max-width: 320px; margin: 8px auto 0 auto; padding: 14px 0; font-size: 16px; }
+
+  .card-left-content {
+    display: contents;
+  }
+
+  .left-big-heading {
+    order: 1;
+    font-size: 7vw;
+    margin-bottom: 8px;
+    text-align: center;
+    width: 100%;
+  }
+
+  .left-desc-text {
+    order: 1;
+    font-size: 3.8vw;
+    margin-bottom: 8px;
+    text-align: center;
+    width: 100%;
+  }
+
+  .card-right-preview {
+    order: 2;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .left-action-btn {
+    order: 3;
+    width: 100%;
+    max-width: 320px;
+    margin: 8px auto 0 auto;
+    padding: 14px 0;
+    font-size: 16px;
+  }
 
   /* 第三屏与第四屏通用移动端修饰 */
   .pricing-container,
-  .painpoints-container { width: 90vw; }
-  .chart-mega-card { padding: 20px 14px; }
-  .chart-visual-wrapper { height: 260px; }
-  .y-axis-labels { display: none; }
-  .bar-track { width: 36px; }
-  .bar-value-label .price-val { font-size: 15px; }
-  .bar-value-label.self-highlight .price-val { font-size: 18px; }
-  .bar-value-label .cost-adv-tag { font-size: 10px; }
-  .bar-value-label .diff-tag { font-size: 9px; }
-  .bar-x-label { font-size: 11px; }
-  .bar-x-label small { display: none; }
-  .pricing-note-strip { font-size: 11px; }
-  .chart-action-bar { justify-content: center; }
-  .pricing-cta-btn { width: 100%; }
+  .painpoints-container {
+    width: 90vw;
+  }
 
-/* 手机端彻底隐藏第四屏（用户痛点） */
+  .chart-mega-card {
+    padding: 20px 14px;
+  }
+
+  .chart-visual-wrapper {
+    height: 260px;
+  }
+
+  .y-axis-labels {
+    display: none;
+  }
+
+  .bar-track {
+    width: 36px;
+  }
+
+  .bar-value-label .price-val {
+    font-size: 15px;
+  }
+
+  .bar-value-label.self-highlight .price-val {
+    font-size: 18px;
+  }
+
+  .bar-value-label .cost-adv-tag {
+    font-size: 10px;
+  }
+
+  .bar-value-label .diff-tag {
+    font-size: 9px;
+  }
+
+  .bar-x-label {
+    font-size: 11px;
+  }
+
+  .bar-x-label small {
+    display: none;
+  }
+
+  .pricing-note-strip {
+    font-size: 11px;
+  }
+
+  .chart-action-bar {
+    justify-content: center;
+  }
+
+  .pricing-cta-btn {
+    width: 100%;
+  }
+
+  /* 手机端彻底隐藏第四屏（用户痛点） */
   .painpoints-screen {
     display: none !important;
   }
 }
-
 </style>

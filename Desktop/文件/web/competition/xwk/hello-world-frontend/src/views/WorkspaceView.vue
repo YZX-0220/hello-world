@@ -1,17 +1,74 @@
 <template>
   <div class="workspace-layout">
-    <!-- 顶部导航栏 -->
-    <header class="top-nav">
-      <router-link to="/" class="brand-link" title="点击返回品牌首页">
-        <div class="brand">
-          <div class="brand-avatar">H</div>
-          <span class="brand-name">Hello World</span>
-          <span class="sub-badge desktop-only">国际传播特化 AI 视频工作台</span>
+  <!-- 手机端专用全屏阻断提示 -->
+    <div class="mobile-block-overlay">
+      <div class="mobile-block-card">
+        <div class="mobile-device-icon">💻</div>
+        <h1 class="mobile-block-title">手机端暂不支持</h1>
+        <p class="mobile-block-desc">请前往电脑端使用</p>
+        <span class="mobile-block-sub">当前工作台专为桌面端复杂节点连线与多模态创作设计</span>
+
+        <!-- 移动端快捷跳转按钮组 -->
+        <div class="mobile-actions-group">
+          <router-link to="/" class="mobile-btn home-btn">
+            <svg class="mobile-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+            </svg>
+            <span>返回品牌首页</span>
+          </router-link>
+
+          <router-link to="/tv" class="mobile-btn tv-btn">
+            <span class="mobile-tv-icon-wrap">
+              <svg class="mobile-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M7 3L11.5 7.5" stroke-width="1.8" stroke-linecap="round" />
+                <path d="M17 3L12.5 7.5" stroke-width="1.8" stroke-linecap="round" />
+                <rect x="2.5" y="7.5" width="19" height="13.5" rx="3" stroke-width="1.8" />
+                <circle cx="18" cy="11.5" r="1.1" fill="currentColor" />
+                <circle cx="18" cy="15.5" r="1.1" fill="currentColor" />
+              </svg>
+              <span class="live-dot-mini"></span>
+            </span>
+            <span>浏览 TV 频道</span>
+          </router-link>
         </div>
-      </router-link>
+      </div>
+    </div>
+    <!-- 顶部导航栏 -->
+   <!-- 顶部导航栏 -->
+   <!-- 顶部导航栏 -->
+    <header class="top-nav">
+      <div class="nav-left">
+        <router-link to="/" class="brand-link" title="点击返回品牌首页">
+          <div class="brand">
+            <div class="brand-avatar">H</div>
+            <span class="brand-name">Hello World</span>
+            <span class="sub-badge desktop-only">国际传播特化 AI 视频工作台</span>
+          </div>
+        </router-link>
+
+        <router-link to="/tv" class="nav-tv-btn" title="浏览 TV 频道">
+          <!-- 精致电视天线 SVG 标识 -->
+          <span class="tv-icon-wrapper">
+            <svg class="tv-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M7 3L11.5 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <path d="M17 3L12.5 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              <rect x="2.5" y="7.5" width="19" height="13.5" rx="3" stroke="currentColor" stroke-width="1.8" />
+              <path d="M6 11.5H14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.8" />
+              <path d="M6 14.5H11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.4" />
+              <circle cx="18" cy="11.5" r="1.1" fill="currentColor" />
+              <circle cx="18" cy="15.5" r="1.1" fill="currentColor" />
+            </svg>
+            <span class="live-dot"></span>
+          </span>
+          <span class="tv-btn-label">TV 频道</span>
+        </router-link>
+      </div>
+
       <div class="nav-actions">
+        <!-- 原有保存状态、API配置、退出登录等按钮保持不变 -->
         <span v-if="currentConvId" class="save-indicator" :class="saveState.status" role="status">{{ saveLabel }}</span>
-        <button v-if="currentConvId" class="glass-pill-btn" @click="retrySave" :disabled="saveState.status === 'saving'">保存</button>
+        <button v-if="currentConvId" class="glass-pill-btn" @click="retrySave"
+          :disabled="saveState.status === 'saving'">保存</button>
         <router-link to="/settings/api" class="nav-link" title="点击进入 API 配置中心">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -23,11 +80,13 @@
       </div>
     </header>
 
-    <div v-if="notice || saveState.status === 'error' || saveState.status === 'conflict'" class="workspace-notice" role="status" aria-live="polite">
+    <div v-if="notice || saveState.status === 'error' || saveState.status === 'conflict'" class="workspace-notice"
+      role="status" aria-live="polite">
       <span>{{ saveState.status === 'error' || saveState.status === 'conflict' ? saveState.error : notice }}</span>
       <button v-if="deletedNode" @click="undoDeleteNode">撤销删除</button>
       <button v-if="saveState.status === 'error' && currentConvId" @click="retrySave">重试保存</button>
-      <button v-if="saveState.status === 'conflict' && currentConvId" @click="resolveConflict('local')">保留并保存我的草稿</button>
+      <button v-if="saveState.status === 'conflict' && currentConvId"
+        @click="resolveConflict('local')">保留并保存我的草稿</button>
       <button v-if="saveState.status === 'conflict' && currentConvId" @click="resolveConflict('remote')">使用云端版本</button>
       <button aria-label="关闭提示" @click="notice = ''">×</button>
     </div>
@@ -44,7 +103,9 @@
           </div>
 
           <div class="cards-grid">
-            <div class="square-card add-card" role="button" tabindex="0" :aria-disabled="!initialized || isCreatingConv || loading" @keydown.enter="createNewConversation" @click="createNewConversation">
+            <div class="square-card add-card" role="button" tabindex="0"
+              :aria-disabled="!initialized || isCreatingConv || loading" @keydown.enter="createNewConversation"
+              @click="createNewConversation">
               <div class="plus-icon">+</div>
               <span class="add-text">{{ isCreatingConv ? '正在初始化...' : '开启新创作对话' }}</span>
               <div class="add-glow"></div>
@@ -72,8 +133,8 @@
         </main>
 
         <!-- ================= 视图 B：网格节点 AI 视频工作台 ================= -->
-        <div v-else key="view-b" class="canvas-viewport" ref="viewportRef"
-          @mousedown="handleCanvasMouseDown" @contextmenu="openContextMenu" @wheel="handleCanvasZoom">
+        <div v-else key="view-b" class="canvas-viewport" ref="viewportRef" @mousedown="handleCanvasMouseDown"
+          @contextmenu="openContextMenu" @wheel="handleCanvasZoom">
           <!-- 左上角悬浮：返回创作项目空间与重置视图 -->
           <div class="floating-top-left">
             <button class="glass-pill-btn" @click="backToProjectSpace" title="返回项目空间看板">
@@ -150,15 +211,10 @@
             </svg>
 
             <!-- 节点列表 -->
-           <div 
-  v-for="node in nodes" 
-  :key="node.id" 
-  class="canvas-node"
-  :class="[node.type, { selected: activeNodeId === node.id || selectedNodeIds.includes(node.id) }]"
-  :style="{ transform: `translate(${node.x}px,${node.y}px)` }"
-  @mousedown.stop="startDragNode($event, node)"
-  @click.stop="selectNode(node, $event)"
->
+            <div v-for="node in nodes" :key="node.id" class="canvas-node"
+              :class="[node.type, { selected: activeNodeId === node.id || selectedNodeIds.includes(node.id) }]"
+              :style="{ transform: `translate(${node.x}px,${node.y}px)` }" @mousedown.stop="startDragNode($event, node)"
+              @click.stop="selectNode(node, $event)">
               <!-- 节点左侧连接点 (In) -->
               <div class="node-port in-port"
                 :class="{ 'port-target-active': connectingSource && connectingSource.id !== node.id }" @mousedown.stop
@@ -169,7 +225,8 @@
               </div>
               <!-- 节点头部 -->
               <div class="node-header">
-                <div class="node-type-icon" draggable="true" title="拖入 Agent 作为参考" @mousedown.stop @dragstart.stop="handleNodeDragStart($event, node)">
+                <div class="node-type-icon" draggable="true" title="拖入 Agent 作为参考" @mousedown.stop
+                  @dragstart.stop="handleNodeDragStart($event, node)">
                   <span v-if="node.type === 'text'">≡</span>
                   <span v-else-if="node.type === 'image'">🖼</span>
                   <span v-else>🎬</span>
@@ -177,8 +234,9 @@
 
                 <!-- 节点命名（双击修改） -->
                 <div class="node-title-wrap">
-                  <input v-if="node.isRenaming" v-model="node.title" class="node-title-input" v-autofocus maxlength="200" aria-label="小框名称" @mousedown.stop @click.stop
-                    @blur="node.isRenaming = false" @keydown.enter="node.isRenaming = false" />
+                  <input v-if="node.isRenaming" v-model="node.title" class="node-title-input" v-autofocus
+                    maxlength="200" aria-label="小框名称" @mousedown.stop @click.stop @blur="node.isRenaming = false"
+                    @keydown.enter="node.isRenaming = false" />
                   <span v-else class="node-title" @dblclick.stop="node.isRenaming = true" title="双击进行重命名">
                     {{ node.title }}
                   </span>
@@ -186,28 +244,33 @@
 
                 <button v-if="node.type === 'text'" class="node-edit-btn" @mousedown.stop
                   :aria-label="(editingNodeId === node.id ? '完成编辑：' : '编辑文本：') + node.title"
-                  @click.stop="editingNodeId === node.id ? finishNodeEditing() : beginNodeEditing(node)">{{ editingNodeId === node.id ? '完成' : '编辑' }}</button>
-                <button class="node-del-btn" @click.stop="deleteNode(node.id)" title="删除节点" aria-label="删除小框" @mousedown.stop>✕</button>
+                  @click.stop="editingNodeId === node.id ? finishNodeEditing() : beginNodeEditing(node)">{{
+                    editingNodeId === node.id ? '完成' : '编辑' }}</button>
+                <button class="node-del-btn" @click.stop="deleteNode(node.id)" title="删除节点" aria-label="删除小框"
+                  @mousedown.stop>✕</button>
               </div>
 
               <!-- 文本节点 -->
               <div v-if="node.type === 'text'" class="node-body text-body">
-                <textarea v-if="editingNodeId === node.id || !node.content?.trim()" :ref="el => setNodeEditor(node.id, el)"
-                  v-model="node.content" placeholder="直接编辑脚本、镜头描述或广告词…" :aria-label="node.title + '内容'" :disabled="loading"
+                <textarea v-if="editingNodeId === node.id || !node.content?.trim()"
+                  :ref="el => setNodeEditor(node.id, el)" v-model="node.content" placeholder="直接编辑脚本、镜头描述或广告词…"
+                  :aria-label="node.title + '内容'" :disabled="loading"
                   @focus="editingNodeId = node.id; activeNodeId = node.id" @mousedown.stop @click.stop
                   @keydown.ctrl.enter.prevent="finishNodeEditing" @keydown.escape.stop="finishNodeEditing"></textarea>
                 <div v-else class="node-text-preview msg-content" tabindex="0" :aria-label="node.title + '正文'"
                   title="双击正文或点击“编辑”修改文本" @mousedown.stop @click.stop="selectNode(node, $event)"
                   @dblclick.stop="beginNodeEditing(node)" @keydown.enter.prevent="beginNodeEditing(node)" @wheel.stop
                   v-html="renderMd(node.content || '')"></div>
-                <div v-if="node.ai_running || (isAgentResponding && aiTargetNodeId === node.id)" class="node-ai-status" role="status">AI 正在协作，回复后需点击“确定并写入小框”…</div>
+                <div v-if="node.ai_running || (isAgentResponding && aiTargetNodeId === node.id)" class="node-ai-status"
+                  role="status">AI 正在协作，回复后需点击“确定并写入小框”…</div>
                 <div v-else-if="node.pending_ai" class="node-ai-status">AI 正文尚未写入，当前文字已保留</div>
                 <div v-if="node.ai_error" class="node-ai-status">{{ node.ai_error }}</div>
                 <div class="node-footer-actions" @mousedown.stop>
                   <button class="ai-assist-pill" @click.stop="askAgentHelpNode(node)">
                     <span>{{ node.pending_ai ? 'AI 协作 · 待写入' : '✨ AI 协作' }}</span>
                   </button>
-                  <button v-if="node.last_ai && node.content === node.last_ai.after" class="ai-assist-pill" @click.stop="restoreBeforeAi(node)">撤销 AI 写入</button>
+                  <button v-if="node.last_ai && node.content === node.last_ai.after" class="ai-assist-pill"
+                    @click.stop="restoreBeforeAi(node)">撤销 AI 写入</button>
                 </div>
               </div>
 
@@ -284,13 +347,15 @@
 
           <aside class="agent-flyout-drawer"
             :class="{ open: isAgentDrawerOpen, expanded: isAgentExpanded, 'drag-over': isDraggingOverAgent }"
-            :inert="!isAgentDrawerOpen" :aria-hidden="!isAgentDrawerOpen"
-            @click.stop @mousedown.stop @dragover.prevent="handleAgentDragOver"
-            @dragleave="handleAgentDragLeave" @drop.prevent="handleAgentDrop">
+            :inert="!isAgentDrawerOpen" :aria-hidden="!isAgentDrawerOpen" @click.stop @mousedown.stop
+            @dragover.prevent="handleAgentDragOver" @dragleave="handleAgentDragLeave" @drop.prevent="handleAgentDrop">
             <div class="drawer-top-bar">
-              <div class="drawer-brand"><div class="orb-mini"></div><span>创作助手</span></div>
+              <div class="drawer-brand">
+                <div class="orb-mini"></div><span>创作助手</span>
+              </div>
               <div class="drawer-header-actions">
-                <button class="drawer-expand" @click="isAgentExpanded = !isAgentExpanded">{{ isAgentExpanded ? '收起宽度' : '展开对话' }}</button>
+                <button class="drawer-expand" @click="isAgentExpanded = !isAgentExpanded">{{ isAgentExpanded ? '收起宽度' :
+                  '展开对话' }}</button>
                 <button class="drawer-close" aria-label="关闭创作助手" @click="isAgentDrawerOpen = false">✕</button>
               </div>
             </div>
@@ -303,15 +368,18 @@
               <div class="ai-target-picker">
                 <div class="target-select-row">
                   <label for="ai-target">正在协作</label>
-                  <select id="ai-target" v-model="aiTargetNodeId" :disabled="isAgentResponding || isConfirming || isPreparingVideo">
+                  <select id="ai-target" v-model="aiTargetNodeId"
+                    :disabled="isAgentResponding || isConfirming || isPreparingVideo">
                     <option value="">新建文本小框</option>
-                    <option v-for="node in nodes.filter(n => n.type === 'text')" :key="node.id" :value="node.id">{{ node.title }}</option>
+                    <option v-for="node in nodes.filter(n => n.type === 'text')" :key="node.id" :value="node.id">{{
+                      node.title }}</option>
                   </select>
                 </div>
                 <small>自由讨论不会改动小框。点击“确定并写入小框”后，待写入正文才会替换小框文字，可撤销。</small>
               </div>
               <div v-if="referencedNodes.length" class="node-binding-banner">
-                <div class="banner-tags"><span class="banner-label">参考：</span><span v-for="node in referencedNodes" :key="node.id" class="ref-pill">{{ node.title }}</span></div>
+                <div class="banner-tags"><span class="banner-label">参考：</span><span v-for="node in referencedNodes"
+                    :key="node.id" class="ref-pill">{{ node.title }}</span></div>
                 <button class="clear-bind" @click="clearReferencedNodes">清空参考</button>
               </div>
               <div v-if="isDraggingOverAgent" class="drag-drop-hint">松开鼠标，将小框添加为参考</div>
@@ -323,30 +391,38 @@
                     <div v-if="msg.model_name === 'local-preview'" class="message-source">历史模拟回复 · 江南旅行示例</div>
                     <div v-else-if="msg.model_name" class="message-source">{{ msg.model_name }}</div>
                     <div class="msg-content" v-html="renderMd(msg.content)"></div>
-                <div v-if="aiTargetNode?.pending_ai?.message_id === msg.id" class="pending-content-card">
-                  <div class="pending-content-title">待写入正文 · {{ aiTargetNode.title }}</div>
-                  <p v-if="aiTargetNode.pending_ai.source_model === 'local-preview'" class="proposal-help">这是之前的模拟测试内容。发送消息后，真实 AI 会为你重新创作。</p>
-                  <p v-else class="proposal-help">下方正文是点击“确定并写入小框”后实际写入的内容，聊天中的解释不会写入。</p>
-                  <div class="msg-content" v-html="renderMd(aiTargetNode.pending_ai.content)"></div>
-                  <p v-if="aiTargetNode.pending_ai.original !== undefined && aiTargetNode.pending_ai.original !== (aiTargetNode.content || '')" class="proposal-help">你已修改小框文字。采用这份正文会替换当前文字，可通过“撤销 AI 写入”恢复。</p>
-                </div>
-                    <div v-if="msg.citations?.length" class="citations-fold"><span class="citations-tag">已参考 {{ msg.citations.length }} 条资料</span></div>
+                    <div v-if="aiTargetNode?.pending_ai?.message_id === msg.id" class="pending-content-card">
+                      <div class="pending-content-title">待写入正文 · {{ aiTargetNode.title }}</div>
+                      <p v-if="aiTargetNode.pending_ai.source_model === 'local-preview'" class="proposal-help">
+                        这是之前的模拟测试内容。发送消息后，真实 AI 会为你重新创作。</p>
+                      <p v-else class="proposal-help">下方正文是点击“确定并写入小框”后实际写入的内容，聊天中的解释不会写入。</p>
+                      <div class="msg-content" v-html="renderMd(aiTargetNode.pending_ai.content)"></div>
+                      <p v-if="aiTargetNode.pending_ai.original !== undefined && aiTargetNode.pending_ai.original !== (aiTargetNode.content || '')"
+                        class="proposal-help">你已修改小框文字。采用这份正文会替换当前文字，可通过“撤销 AI 写入”恢复。</p>
+                    </div>
+                    <div v-if="msg.citations?.length" class="citations-fold"><span class="citations-tag">已参考 {{
+                      msg.citations.length }} 条资料</span></div>
                   </div>
                 </div>
                 <div v-if="isAgentResponding" class="message-row assistant">
-                  <div class="avatar">AI</div><div class="bubble thinking"><span class="loading-spinner"></span><span>AI 正在回复，小框原文已保留…</span></div>
+                  <div class="avatar">AI</div>
+                  <div class="bubble thinking"><span class="loading-spinner"></span><span>AI 正在回复，小框原文已保留…</span></div>
                 </div>
               </div>
               <div class="drawer-input-box">
                 <div v-if="aiTargetNode?.pending_ai" class="drawer-confirm-row">
                   <span>写入“{{ aiTargetNode.title }}” · 替换当前文字</span>
-                  <button class="confirm-pill" :disabled="!canApplyAiContent || isConfirming || isAgentResponding || isPreparingVideo"
+                  <button class="confirm-pill"
+                    :disabled="!canApplyAiContent || isConfirming || isAgentResponding || isPreparingVideo"
                     @click="confirmProjectSpec">{{ isConfirming ? '正在写入…' : '确定并写入小框' }}</button>
                 </div>
-                <textarea ref="textareaRef" v-model="inputContent" aria-label="发送给 AI 的消息" placeholder="描述想法、提出问题，或告诉 AI 如何修改…"
+                <textarea ref="textareaRef" v-model="inputContent" aria-label="发送给 AI 的消息"
+                  placeholder="描述想法、提出问题，或告诉 AI 如何修改…"
                   @keydown.enter.exact="!$event.isComposing && ($event.preventDefault(), sendMessage())"></textarea>
                 <div class="input-actions-row"><span class="hint">Enter 发送 · Shift+Enter 换行</span>
-                  <button class="send-btn" :disabled="!inputContent.trim() || isAgentResponding || isPreparingVideo || isConfirming" @click="sendMessage">发送</button>
+                  <button class="send-btn"
+                    :disabled="!inputContent.trim() || isAgentResponding || isPreparingVideo || isConfirming"
+                    @click="sendMessage">发送</button>
                 </div>
               </div>
             </div>
@@ -355,41 +431,62 @@
               <div class="drawer-spec-panel">
                 <h3 class="spec-quick-header">把选中的小框生成视频</h3>
                 <p class="generation-help">选中一个或多个小框，AI 会先给出可直接生成的最终方案，再提供可选建议。缺少的创作细节会补全并注明。</p>
-                <div class="generation-source-list">当前选中：{{ videoSourceNodes.map(n => n.title).join('、') || '请先在画布选中小框' }}</div>
+                <div class="generation-source-list">当前选中：{{videoSourceNodes.map(n => n.title).join('、') || '请先在画布选中小框'
+                  }}</div>
                 <small class="generation-help">Ctrl 点击或拖动画布框选可选择多个小框。</small>
-                <p v-if="videoSourceNodes.some(n => n.pending_ai)" class="generation-help">部分小框有尚未采用的 AI 正文。视频只使用小框当前文字；需要采用时，请先回到“AI 协作”写入。</p>
+                <p v-if="videoSourceNodes.some(n => n.pending_ai)" class="generation-help">部分小框有尚未采用的 AI
+                  正文。视频只使用小框当前文字；需要采用时，请先回到“AI 协作”写入。</p>
                 <div class="video-generation-settings">
                   <div class="spec-field-mini"><label for="video-duration">视频时长（秒，必填）</label>
-                    <input id="video-duration" v-model="videoDurationInput" type="number" min="1" max="15" step="1" required placeholder="填写 1–15 秒" :disabled="isSubmittingJob" />
+                    <input id="video-duration" v-model="videoDurationInput" type="number" min="1" max="15" step="1"
+                      required placeholder="填写 1–15 秒" :disabled="isSubmittingJob" />
                   </div>
                   <div class="spec-field-mini"><label for="video-resolution">视频清晰度（必选）</label>
-                    <select id="video-resolution" v-model="canvas.video_resolution" required :disabled="isSubmittingJob">
-                      <option disabled value="">请选择清晰度</option><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option>
+                    <select id="video-resolution" v-model="canvas.video_resolution" required
+                      :disabled="isSubmittingJob">
+                      <option disabled value="">请选择清晰度</option>
+                      <option value="480p">480p</option>
+                      <option value="720p">720p</option>
+                      <option value="1080p">1080p</option>
                     </select>
                   </div>
                 </div>
                 <p class="generation-help">AI 将按你填写的时长安排分镜。修改时长或清晰度后，请重新审理方案。</p>
-                <button class="prepare-video-btn" :disabled="!videoSourceNodes.length || !!videoSettingsReason || isPreparingVideo || isAgentResponding || isSubmittingJob || isConfirming"
+                <button class="prepare-video-btn"
+                  :disabled="!videoSourceNodes.length || !!videoSettingsReason || isPreparingVideo || isAgentResponding || isSubmittingJob || isConfirming"
                   @click="prepareVideo">{{ isPreparingVideo ? 'AI 正在审理…' : 'AI审理方案' }}</button>
-                <div v-if="videoReview" class="video-review-feedback" :class="videoReview.kind" role="status" aria-live="polite">
-                  <div class="review-heading">{{ videoReview.kind === 'loading' ? 'AI审理中' : videoReview.kind === 'success' && !videoSelectionReady ? '上次审理结果（来源或参数已变化）' : 'AI审理结果' }}</div>
+                <div v-if="videoReview" class="video-review-feedback" :class="videoReview.kind" role="status"
+                  aria-live="polite">
+                  <div class="review-heading">{{ videoReview.kind === 'loading' ? 'AI审理中' : videoReview.kind ===
+                    'success' && !videoSelectionReady ? '上次审理结果（来源或参数已变化）' : 'AI审理结果' }}</div>
                   <div class="msg-content" v-html="renderMd(videoReview.content)"></div>
                 </div>
-                <div v-if="project?.compiled_prompt && canvas.generation_source_ids.length" class="video-prompt-preview">
+                <div v-if="project?.compiled_prompt && canvas.generation_source_ids.length"
+                  class="video-prompt-preview">
                   <div class="prompt-status">{{ videoSelectionReady ? '方案已准备好，可直接生成' : '生成来源或参数已变化，请重新审理方案' }}</div>
-                  <div class="prompt-settings">{{ project.current_spec.duration_seconds }} 秒 · {{ project.current_spec.aspect_ratio }} · {{ canvas.generation_settings?.resolution || '清晰度未确认' }} · {{ generationModeLabel }}</div>
+                  <div class="prompt-settings">{{ project.current_spec.duration_seconds }} 秒 · {{
+                    project.current_spec.aspect_ratio }} · {{ canvas.generation_settings?.resolution || '清晰度未确认' }} · {{
+                    generationModeLabel }}</div>
                   <small>时长和清晰度按上方设置生成，画幅未指定时默认 16:9。需要调整画面或画幅，请编辑小框后重新审理。</small>
                 </div>
-                <div class="spec-field-mini"><label for="video-api">视频生成通道</label><select id="video-api" v-model="selectedApiConfigId">
-                  <option value="platform">平台体验通道（每日限 1 次）</option>
-                  <option v-for="cfg in apiConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.display_name }} ({{ cfg.remote_model_id }})</option>
-                </select></div>
-                <button class="create-video-btn" :disabled="!!videoGenerationDisabledReason" :aria-describedby="videoGenerationDisabledReason ? 'video-generation-reason' : undefined"
+                <div class="spec-field-mini"><label for="video-api">视频生成通道</label><select id="video-api"
+                    v-model="selectedApiConfigId">
+                    <option value="platform">平台体验通道（每日限 1 次）</option>
+                    <option v-for="cfg in apiConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.display_name }} ({{
+                      cfg.remote_model_id }})</option>
+                  </select></div>
+                <button class="create-video-btn" :disabled="!!videoGenerationDisabledReason"
+                  :aria-describedby="videoGenerationDisabledReason ? 'video-generation-reason' : undefined"
                   @click="submitVideoJob">{{ isSubmittingJob ? '正在提交生成…' : '2. 确认并生成视频' }}</button>
-                <p v-if="videoGenerationDisabledReason" id="video-generation-reason" class="generation-help" role="status">{{ videoGenerationDisabledReason }}</p>
+                <p v-if="videoGenerationDisabledReason" id="video-generation-reason" class="generation-help"
+                  role="status">{{ videoGenerationDisabledReason }}</p>
                 <div v-if="activeJob" class="active-job-strip">
-                  <div class="progress-bar-bg"><div class="progress-bar-inner" :style="{ width: (activeJob.progress || 30) + '%' }"></div></div>
-                  <span class="status-txt">{{ activeJob.status === 'succeeded' ? '生成完成' : activeJob.status === 'failed' ? '视频生成失败' : activeJob.status === 'cancelled' ? '任务已取消' : '视频生成中…' }} ({{ activeJob.progress || 0 }}%)</span>
+                  <div class="progress-bar-bg">
+                    <div class="progress-bar-inner" :style="{ width: (activeJob.progress || 30) + '%' }"></div>
+                  </div>
+                  <span class="status-txt">{{ activeJob.status === 'succeeded' ? '生成完成' : activeJob.status === 'failed'
+                    ? '视频生成失败' : activeJob.status === 'cancelled' ? '任务已取消' : '视频生成中…' }} ({{ activeJob.progress || 0
+                    }}%)</span>
                 </div>
               </div>
             </div>
@@ -462,6 +559,20 @@ import type { FlowNode, FlowConnection } from '@/types/canvas';
 import { renderMd } from '@/utils/markdown';
 import { generationMatches, videoGenerationBlockReason, videoSettingsBlockReason } from '@/services/generationState';
 
+
+import { useRouter, useRoute } from 'vue-router'; // 确保引入了 useRoute
+
+const route = useRoute();
+
+onMounted(async () => {
+  // 如果通过跳转带入了 conv_id，直接自动切换至该对话进入 B 页面
+  if (route.query.conv_id) {
+    await switchConversation(String(route.query.conv_id));
+  } else if (!currentConvId.value && conversations.value.length > 0) {
+    // 若希望每次直接进入 B 页面，可默认激活最近的一个会话
+    // await switchConversation(conversations.value[0].id);
+  }
+});
 const workspace = useWorkspace();
 const {
   canvas, nodes, connections, pan, zoom, conversations, currentConvId, messages, inputContent,
@@ -511,10 +622,10 @@ const videoSelectionReady = computed(() => generationReady.value && !!project.va
   && generationMatches(canvas.value, project.value.current_spec_version, videoSourceIds.value));
 const videoGenerationDisabledReason = computed(() => videoGenerationBlockReason(
   canvas.value, project.value?.current_spec_version || 0, videoSourceIds.value, {
-    compiledPrompt: !!project.value?.compiled_prompt, preparing: isPreparingVideo.value,
-    submitting: isSubmittingJob.value, collaborating: isAgentResponding.value,
-    confirming: isConfirming.value, channel: selectedApiConfigId.value, saveStatus: saveState.value.status,
-  },
+  compiledPrompt: !!project.value?.compiled_prompt, preparing: isPreparingVideo.value,
+  submitting: isSubmittingJob.value, collaborating: isAgentResponding.value,
+  confirming: isConfirming.value, channel: selectedApiConfigId.value, saveStatus: saveState.value.status,
+},
 ));
 const generationModeLabel = computed(() => ({
   text_to_video: '文本生成', first_frame_to_video: '所选或关联图片作为首帧',
@@ -557,8 +668,10 @@ function handleAgentDrop(e: DragEvent) {
 }
 function canvasPoint(e: { clientX: number; clientY: number }) {
   const rect = viewportRef.value?.getBoundingClientRect();
-  return { x: (e.clientX - (rect?.left || 0) - pan.value.x) / zoom.value,
-    y: (e.clientY - (rect?.top || 0) - pan.value.y) / zoom.value };
+  return {
+    x: (e.clientX - (rect?.left || 0) - pan.value.x) / zoom.value,
+    y: (e.clientY - (rect?.top || 0) - pan.value.y) / zoom.value
+  };
 }
 watch(currentConvId, () => {
   editingNodeId.value = '';
@@ -1006,91 +1119,632 @@ function formatFullTime(isoStr?: string | null) {
   const d = new Date(isoStr);
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
+onMounted(async () => {
+  window.addEventListener('mousemove', handleCanvasMouseMove);
+  window.addEventListener('mouseup', handleCanvasMouseUp);
+  window.addEventListener('keydown', handleKeydown);
 
+  // 关键：检查 URL 参数或已有会话，直接进入视图 B
+  const queryConvId = route.query.conv_id as string;
+  if (queryConvId) {
+    // 优先进入指定的会话
+    await switchConversation(queryConvId);
+  } else if (!currentConvId.value) {
+    // 如果没有指定参数且当前没进入任何会话，直接自动打开最新的对话进入视图 B
+    if (conversations.value.length > 0) {
+      await switchConversation(conversations.value[0].id);
+    } else {
+      // 如果一个历史对话都没有，自动新建一个对话进入视图 B
+      await createNewConversation();
+    }
+  }
+});
 </script>
 
 <style scoped>
-.workspace-layout :deep(*) { scrollbar-width: thin; scrollbar-color: #46536a #11151e; }
-.workspace-layout :deep(*::-webkit-scrollbar) { width: 8px; height: 8px; }
-.workspace-layout :deep(*::-webkit-scrollbar-track) { background: #11151e; border-radius: 8px; }
-.workspace-layout :deep(*::-webkit-scrollbar-thumb) { background: #46536a; border: 2px solid #11151e; border-radius: 8px; }
-.workspace-layout :deep(*::-webkit-scrollbar-thumb:hover) { background: #657590; }
-.workspace-layout :deep(*::-webkit-scrollbar-corner) { background: #11151e; }
-.node-text-preview { height: 164px; overflow: auto; color: #cbd5e1; box-sizing: border-box; user-select: text; cursor: text; }
-.node-text-preview:focus-visible { outline: 1px solid #818cf8; outline-offset: 3px; border-radius: 4px; }
-.node-edit-btn { flex-shrink: 0; border: 0; background: transparent; color: #a5b4fc; font-size: 11px; padding: 3px 4px; cursor: pointer; }
-.node-edit-btn:hover { color: #fff; }
-.video-review-feedback { padding: 14px; background: #172136; border: 1px solid #344665; border-radius: 8px; }
-.video-review-feedback.error { border-color: #6c5842; background: #242127; }
-.video-review-feedback.success { border-color: #325b54; }
-.review-heading { font-size: 13px; font-weight: 600; color: #c7d2fe; margin-bottom: 9px; }
-.video-review-feedback.error .review-heading { color: #e7c9a0; }
-.video-review-feedback.success .review-heading { color: #a7dbc7; }
-.drawer-conversation { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.drawer-video-area { flex: 1; min-height: 0; overflow-y: auto; }
-.agent-flyout-drawer.expanded { width: min(1000px, 100%); }
-.drawer-header-actions { display: flex; gap: 16px; align-items: center; }
-.drawer-expand { color: #c7d2fe; background: #202b41; border: 1px solid #3a4967; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
-.drawer-tabs { display: flex; flex-shrink: 0; padding: 8px 18px; gap: 8px; border-bottom: 1px solid #263247; }
-.drawer-tabs button { flex: 1; padding: 9px; color: #a5b4cf; background: transparent; border: 0; border-radius: 8px; cursor: pointer; font-size: 14px; }
-.drawer-tabs button[aria-selected="true"] { color: #fff; background: #334b78; }
-.target-select-row { display: flex; align-items: center; gap: 10px; }
-.target-select-row select { flex: 1; min-width: 0; }
-.message-source { font-size: 11px; color: #a5b4cf; margin-bottom: 6px; }
-.pending-content-card { margin-top: 16px; padding: 16px; border: 1px solid #4d648d; background: #172239; border-radius: 10px; flex-shrink: 0; }
-.pending-content-title { color: #c7d2fe; font-size: 14px; font-weight: 600; }
-.proposal-help, .chat-empty { color: #a5b4cf; font-size: 12px; line-height: 1.6; }
-.chat-empty { margin: auto 12px; }
-.drawer-confirm-row { flex-wrap: wrap; }
-.drawer-confirm-row .confirm-pill { padding: 8px 12px; background: #334b78; color: #fff; }
-@media (max-width: 760px) { .agent-flyout-drawer { width: 100%; } }
-.pending-plan-preview summary, .video-prompt-preview summary { cursor: pointer; padding: 8px 0; color: #c7d2fe; }
-.generation-help, .generation-source-list { color: #cbd5e1; font-size: 12px; line-height: 1.6; margin: 8px 0; }
-.prepare-video-btn { width: 100%; padding: 9px; margin: 6px 0 12px; background: #243652; color: #e2e8f0; border: 1px solid #456388; border-radius: 8px; cursor: pointer; }
-.prepare-video-btn:disabled, .confirm-pill:disabled { opacity: .5; cursor: default; }
-.video-prompt-preview { padding: 10px; background: #101b2d; border: 1px solid #324462; border-radius: 8px; margin-bottom: 12px; }
-.video-prompt-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 12px; line-height: 1.7; color: #e2e8f0; }
-.video-prompt-preview small { font-size: 11px; line-height: 1.5; color: #94a3b8; }
-.prompt-status { color: #c7d2fe; font-size: 12px; }
-.prompt-settings { color: #94a3b8; font-size: 11px; margin: 6px 0; }
-.drawer-confirm-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-.drawer-confirm-row span { font-size: 11px; color: #a5b4fc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.drawer-confirm-row .confirm-pill { flex-shrink: 0; }
-.msg-content { overflow-wrap: anywhere; font-size: 14px; line-height: 1.75; min-width: 0; }
-.msg-content :deep(p) { margin: .6em 0; }
-.msg-content :deep(p:first-child) { margin-top: 0; }
-.msg-content :deep(p:last-child) { margin-bottom: 0; }
-.msg-content :deep(h1), .msg-content :deep(h2), .msg-content :deep(h3), .msg-content :deep(h4) { margin: .9em 0 .4em; line-height: 1.4; font-size: 1.1em; }
-.msg-content :deep(ul), .msg-content :deep(ol) { margin: .5em 0; padding-left: 1.6em; }
-.msg-content :deep(li) { margin: .25em 0; }
-.msg-content :deep(blockquote) { margin: .6em 0; padding: 2px 10px; border-left: 3px solid #818cf8; color: #cbd5e1; background: #ffffff08; }
-.msg-content :deep(pre) { overflow: auto; white-space: pre; background: #0a1020; padding: 10px; border-radius: 6px; max-width: 100%; }
-.msg-content :deep(code) { font-family: Consolas, monospace; background: #0a1020; border-radius: 3px; padding: 1px 4px; font-size: .9em; }
-.msg-content :deep(pre code) { padding: 0; }
-.msg-content :deep(table) { display: block; overflow-x: auto; border-collapse: collapse; margin: .7em 0; }
-.msg-content :deep(th), .msg-content :deep(td) { border: 1px solid #40516b; padding: 5px 8px; text-align: left; }
-.msg-content :deep(th) { background: #26344c; }
-.msg-content :deep(a) { color: #a5b4fc; text-decoration: underline; }
-.save-indicator { font-size: 12px; color: #86efac; }
-.save-indicator.error, .save-indicator.conflict { color: #fbbf24; }
-.save-indicator.pending, .save-indicator.saving { color: #94a3b8; }
-.workspace-notice { background: #172033; color: #dbeafe; padding: 9px 20px; display: flex; align-items: center; gap: 12px; font-size: 13px; }
-.workspace-notice span { flex: 1; }
-.workspace-notice button { background: #27344f; border: 1px solid #465779; border-radius: 6px; color: #e2e8f0; padding: 5px 9px; cursor: pointer; }
-.workspace-loading { position: absolute; inset: 0; z-index: 250; background: #07090eea; display: grid; place-items: center; color: #c7d2fe; }
-.ai-target-picker { flex-shrink: 0; padding: 10px 18px; display: grid; gap: 6px; border-bottom: 1px solid #263247; }
-.ai-target-picker label { font-size: 13px; color: #cbd5e1; }
-.ai-target-picker select { background: #111827; color: #e2e8f0; border: 1px solid #3a4967; border-radius: 6px; padding: 7px; }
-.ai-target-picker small, .node-ai-status { font-size: 11px; color: #a5b4fc; }
-.node-ai-status { padding: 3px 0; }
-.node-footer-actions { gap: 6px; flex-wrap: wrap; }
-.text-body textarea, .node-title-input { user-select: text; }
-.node-type-icon[draggable] { cursor: grab; }
-.node-title { display: block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.floating-top-left { flex-wrap: wrap; max-width: calc(100% - 60px); }
-.workspace-body { min-height: 0; }
-button:disabled { opacity: .55; cursor: wait; }
-@media(max-width: 720px) { .save-indicator { max-width: 130px; } .workspace-notice { flex-wrap: wrap; } .brand-name { display: none; } }
+/* TV 频道导航交互按钮 */
+/* 新增：左侧包裹容器，使 Logo 与 TV 按钮紧挨在一起 */
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 16px; /* 控制两者之间的间距，如需更紧凑可调整为 12px ~ 14px */
+}
+
+/* TV 频道导航交互按钮：删除原有 left: 2vw; */
+.nav-tv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 16px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(8px);
+}
+
+/* 电视图标容器 */
+.tv-icon-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 电视 SVG */
+.tv-svg {
+  width: 18px;
+  height: 18px;
+  color: #94a3b8;
+  transition: all 0.25s ease;
+}
+
+/* 模拟信号接收/正在连线小红点 */
+.live-dot {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  width: 5px;
+  height: 5px;
+  background-color: #ef4444;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #ef4444;
+  animation: tvDotPulse 2s infinite ease-in-out;
+}
+
+@keyframes tvDotPulse {
+
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+    box-shadow: 0 0 8px #f87171;
+  }
+}
+
+.tv-btn-label {
+  letter-spacing: 0.4px;
+  transition: color 0.2s ease;
+}
+
+/* 鼠标悬停动效：浮起、渐变外边框发光、天线与图标上跳 */
+.nav-tv-btn:hover {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(129, 140, 248, 0.45);
+  color: #ffffff;
+  transform: translateY(-1.5px);
+  box-shadow: 0 6px 20px -4px rgba(99, 102, 241, 0.3);
+}
+
+.nav-tv-btn:hover .tv-svg {
+  color: #818cf8;
+  transform: scale(1.1) rotate(-4deg);
+}
+
+/* 点击激活状态 */
+.nav-tv-btn:active {
+  transform: translateY(0);
+}
+
+.workspace-layout :deep(*) {
+  scrollbar-width: thin;
+  scrollbar-color: #46536a #11151e;
+}
+
+.workspace-layout :deep(*::-webkit-scrollbar) {
+  width: 8px;
+  height: 8px;
+}
+
+.workspace-layout :deep(*::-webkit-scrollbar-track) {
+  background: #11151e;
+  border-radius: 8px;
+}
+
+.workspace-layout :deep(*::-webkit-scrollbar-thumb) {
+  background: #46536a;
+  border: 2px solid #11151e;
+  border-radius: 8px;
+}
+
+.workspace-layout :deep(*::-webkit-scrollbar-thumb:hover) {
+  background: #657590;
+}
+
+.workspace-layout :deep(*::-webkit-scrollbar-corner) {
+  background: #11151e;
+}
+
+.node-text-preview {
+  height: 164px;
+  overflow: auto;
+  color: #cbd5e1;
+  box-sizing: border-box;
+  user-select: text;
+  cursor: text;
+}
+
+.node-text-preview:focus-visible {
+  outline: 1px solid #818cf8;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.node-edit-btn {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: #a5b4fc;
+  font-size: 11px;
+  padding: 3px 4px;
+  cursor: pointer;
+}
+
+.node-edit-btn:hover {
+  color: #fff;
+}
+
+.video-review-feedback {
+  padding: 14px;
+  background: #172136;
+  border: 1px solid #344665;
+  border-radius: 8px;
+}
+
+.video-review-feedback.error {
+  border-color: #6c5842;
+  background: #242127;
+}
+
+.video-review-feedback.success {
+  border-color: #325b54;
+}
+
+.review-heading {
+  font-size: 13px;
+  font-weight: 600;
+  color: #c7d2fe;
+  margin-bottom: 9px;
+}
+
+.video-review-feedback.error .review-heading {
+  color: #e7c9a0;
+}
+
+.video-review-feedback.success .review-heading {
+  color: #a7dbc7;
+}
+
+.drawer-conversation {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-video-area {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.agent-flyout-drawer.expanded {
+  width: min(1000px, 100%);
+}
+
+.drawer-header-actions {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.drawer-expand {
+  color: #c7d2fe;
+  background: #202b41;
+  border: 1px solid #3a4967;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.drawer-tabs {
+  display: flex;
+  flex-shrink: 0;
+  padding: 8px 18px;
+  gap: 8px;
+  border-bottom: 1px solid #263247;
+}
+
+.drawer-tabs button {
+  flex: 1;
+  padding: 9px;
+  color: #a5b4cf;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.drawer-tabs button[aria-selected="true"] {
+  color: #fff;
+  background: #334b78;
+}
+
+.target-select-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.target-select-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.message-source {
+  font-size: 11px;
+  color: #a5b4cf;
+  margin-bottom: 6px;
+}
+
+.pending-content-card {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #4d648d;
+  background: #172239;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.pending-content-title {
+  color: #c7d2fe;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.proposal-help,
+.chat-empty {
+  color: #a5b4cf;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.chat-empty {
+  margin: auto 12px;
+}
+
+.drawer-confirm-row {
+  flex-wrap: wrap;
+}
+
+.drawer-confirm-row .confirm-pill {
+  padding: 8px 12px;
+  background: #334b78;
+  color: #fff;
+}
+
+@media (max-width: 760px) {
+  .agent-flyout-drawer {
+    width: 100%;
+  }
+}
+
+.pending-plan-preview summary,
+.video-prompt-preview summary {
+  cursor: pointer;
+  padding: 8px 0;
+  color: #c7d2fe;
+}
+
+.generation-help,
+.generation-source-list {
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 8px 0;
+}
+
+.prepare-video-btn {
+  width: 100%;
+  padding: 9px;
+  margin: 6px 0 12px;
+  background: #243652;
+  color: #e2e8f0;
+  border: 1px solid #456388;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.prepare-video-btn:disabled,
+.confirm-pill:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.video-prompt-preview {
+  padding: 10px;
+  background: #101b2d;
+  border: 1px solid #324462;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.video-prompt-preview pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #e2e8f0;
+}
+
+.video-prompt-preview small {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #94a3b8;
+}
+
+.prompt-status {
+  color: #c7d2fe;
+  font-size: 12px;
+}
+
+.prompt-settings {
+  color: #94a3b8;
+  font-size: 11px;
+  margin: 6px 0;
+}
+
+.drawer-confirm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.drawer-confirm-row span {
+  font-size: 11px;
+  color: #a5b4fc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-confirm-row .confirm-pill {
+  flex-shrink: 0;
+}
+
+.msg-content {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.75;
+  min-width: 0;
+}
+
+.msg-content :deep(p) {
+  margin: .6em 0;
+}
+
+.msg-content :deep(p:first-child) {
+  margin-top: 0;
+}
+
+.msg-content :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.msg-content :deep(h1),
+.msg-content :deep(h2),
+.msg-content :deep(h3),
+.msg-content :deep(h4) {
+  margin: .9em 0 .4em;
+  line-height: 1.4;
+  font-size: 1.1em;
+}
+
+.msg-content :deep(ul),
+.msg-content :deep(ol) {
+  margin: .5em 0;
+  padding-left: 1.6em;
+}
+
+.msg-content :deep(li) {
+  margin: .25em 0;
+}
+
+.msg-content :deep(blockquote) {
+  margin: .6em 0;
+  padding: 2px 10px;
+  border-left: 3px solid #818cf8;
+  color: #cbd5e1;
+  background: #ffffff08;
+}
+
+.msg-content :deep(pre) {
+  overflow: auto;
+  white-space: pre;
+  background: #0a1020;
+  padding: 10px;
+  border-radius: 6px;
+  max-width: 100%;
+}
+
+.msg-content :deep(code) {
+  font-family: Consolas, monospace;
+  background: #0a1020;
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: .9em;
+}
+
+.msg-content :deep(pre code) {
+  padding: 0;
+}
+
+.msg-content :deep(table) {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: .7em 0;
+}
+
+.msg-content :deep(th),
+.msg-content :deep(td) {
+  border: 1px solid #40516b;
+  padding: 5px 8px;
+  text-align: left;
+}
+
+.msg-content :deep(th) {
+  background: #26344c;
+}
+
+.msg-content :deep(a) {
+  color: #a5b4fc;
+  text-decoration: underline;
+}
+
+.save-indicator {
+  font-size: 12px;
+  color: #86efac;
+}
+
+.save-indicator.error,
+.save-indicator.conflict {
+  color: #fbbf24;
+}
+
+.save-indicator.pending,
+.save-indicator.saving {
+  color: #94a3b8;
+}
+
+.workspace-notice {
+  background: #172033;
+  color: #dbeafe;
+  padding: 9px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.workspace-notice span {
+  flex: 1;
+}
+
+.workspace-notice button {
+  background: #27344f;
+  border: 1px solid #465779;
+  border-radius: 6px;
+  color: #e2e8f0;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+
+.workspace-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 250;
+  background: #07090eea;
+  display: grid;
+  place-items: center;
+  color: #c7d2fe;
+}
+
+.ai-target-picker {
+  flex-shrink: 0;
+  padding: 10px 18px;
+  display: grid;
+  gap: 6px;
+  border-bottom: 1px solid #263247;
+}
+
+.ai-target-picker label {
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.ai-target-picker select {
+  background: #111827;
+  color: #e2e8f0;
+  border: 1px solid #3a4967;
+  border-radius: 6px;
+  padding: 7px;
+}
+
+.ai-target-picker small,
+.node-ai-status {
+  font-size: 11px;
+  color: #a5b4fc;
+}
+
+.node-ai-status {
+  padding: 3px 0;
+}
+
+.node-footer-actions {
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.text-body textarea,
+.node-title-input {
+  user-select: text;
+}
+
+.node-type-icon[draggable] {
+  cursor: grab;
+}
+
+.node-title {
+  display: block;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.floating-top-left {
+  flex-wrap: wrap;
+  max-width: calc(100% - 60px);
+}
+
+.workspace-body {
+  min-height: 0;
+}
+
+button:disabled {
+  opacity: .55;
+  cursor: wait;
+}
+
+@media(max-width: 720px) {
+  .save-indicator {
+    max-width: 130px;
+  }
+
+  .workspace-notice {
+    flex-wrap: wrap;
+  }
+
+  .brand-name {
+    display: none;
+  }
+}
 
 /* 参考节点标签排版 */
 .node-binding-banner {
@@ -1144,6 +1798,7 @@ button:disabled { opacity: .55; cursor: wait; }
   font-size: 12px;
   animation: pulse 1s infinite alternate;
 }
+
 /* 鼠标拖拽出的蓝色透明选框 */
 .selection-box {
   position: absolute;
@@ -2178,9 +2833,13 @@ button:disabled { opacity: .55; cursor: wait; }
   display: flex;
   flex-direction: column;
 }
-.drawer-scroll-area > .ai-target-picker,
-.drawer-scroll-area > .node-binding-banner,
-.drawer-scroll-area > .drawer-spec-panel { flex-shrink: 0; }
+
+.drawer-scroll-area>.ai-target-picker,
+.drawer-scroll-area>.node-binding-banner,
+.drawer-scroll-area>.drawer-spec-panel {
+  flex-shrink: 0;
+}
+
 .drawer-messages {
   flex: 1;
   min-height: 0;
@@ -2276,9 +2935,29 @@ button:disabled { opacity: .55; cursor: wait; }
   font-size: 15px;
 }
 
-.video-generation-settings { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 18px 0 8px; }
-.video-generation-settings input { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid #2a3446; border-radius: 7px; background: #1b222e; color: #e1e7ef; font: inherit; }
-.video-generation-settings input:focus { outline: 2px solid #7484f6; outline-offset: 1px; }
+.video-generation-settings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 18px 0 8px;
+}
+
+.video-generation-settings input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #2a3446;
+  border-radius: 7px;
+  background: #1b222e;
+  color: #e1e7ef;
+  font: inherit;
+}
+
+.video-generation-settings input:focus {
+  outline: 2px solid #7484f6;
+  outline-offset: 1px;
+}
+
 .create-video-btn {
   background: #10b981;
   color: #fff;
@@ -2338,7 +3017,8 @@ button:disabled { opacity: .55; cursor: wait; }
   border-radius: 10px;
   padding: 12px 14px;
   color: #fff;
-  font-size: 14px; /* 原先为 12px */
+  font-size: 14px;
+  /* 原先为 12px */
   line-height: 1.6;
   resize: none;
   min-height: 80px;
@@ -2370,7 +3050,8 @@ button:disabled { opacity: .55; cursor: wait; }
   background: #6366f1;
   color: #fff;
   border: none;
-  padding: 8px 20px; /* 增大按钮点击区域 */
+  padding: 8px 20px;
+  /* 增大按钮点击区域 */
   border-radius: 8px;
   font-size: 14px;
   font-weight: 500;
@@ -2590,6 +3271,145 @@ button:disabled { opacity: .55; cursor: wait; }
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+/* ================= 移动端暂不支持提示层 ================= */
+.mobile-block-overlay {
+  display: none; /* 桌面端默认完全隐藏 */
+}
+
+@media (max-width: 768px) {
+  /* 移动端全屏弹层高优先级覆盖 */
+  .mobile-block-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: radial-gradient(circle at center, #111827 0%, #030712 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+
+  .mobile-block-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    max-width: 340px;
+  }
+
+  .mobile-device-icon {
+    font-size: 54px;
+    margin-bottom: 20px;
+    filter: drop-shadow(0 0 16px rgba(99, 102, 241, 0.45));
+    animation: iconBounce 2s infinite ease-in-out;
+  }
+
+  .mobile-block-title {
+    font-size: 26px;
+    font-weight: 800;
+    color: #f8fafc;
+    letter-spacing: 0.5px;
+    margin: 0 0 12px 0;
+  }
+
+  .mobile-block-desc {
+    font-size: 20px;
+    font-weight: 700;
+    color: #818cf8;
+    margin: 0 0 16px 0;
+    letter-spacing: 0.5px;
+  }
+
+  .mobile-block-sub {
+    font-size: 13px;
+    color: #64748b;
+    line-height: 1.6;
+  }
+
+  @keyframes iconBounce {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-8px);
+    }
+  }
+
+  /* 移动端下隐藏原有工作台主体及导航，避免背景依然可滚动或接收手势 */
+  .top-nav,
+  .workspace-body,
+  .floating-bottom-right,
+  .guide-modal-mask {
+    display: none !important;
+  }
+  /* 按钮组合容器 */
+  .mobile-actions-group {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    margin-top: 28px;
+  }
+
+  /* 通用按钮胶囊质感 */
+  .mobile-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    box-sizing: border-box;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
+
+  .mobile-btn:active {
+    transform: scale(0.97);
+  }
+
+  .mobile-btn-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* 返回首页：低调微光边框 */
+  .mobile-btn.home-btn {
+    background: rgba(30, 41, 59, 0.7);
+    color: #e2e8f0;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  /* TV 频道：主色高亮与霓虹渐变效果 */
+  .mobile-btn.tv-btn {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(79, 70, 229, 0.45));
+    border: 1px solid rgba(129, 140, 248, 0.5);
+    color: #ffffff;
+    box-shadow: 0 4px 20px -2px rgba(99, 102, 241, 0.35);
+  }
+
+  /* TV 图标与直播小红点 */
+  .mobile-tv-icon-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .live-dot-mini {
+    position: absolute;
+    top: -1px;
+    right: -2px;
+    width: 5px;
+    height: 5px;
+    background-color: #ef4444;
+    border-radius: 50%;
+    box-shadow: 0 0 6px #ef4444;
   }
 }
 </style>

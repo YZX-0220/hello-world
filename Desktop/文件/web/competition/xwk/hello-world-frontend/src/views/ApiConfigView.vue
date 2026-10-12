@@ -9,10 +9,11 @@
           <span class="sub-badge desktop-only">视频 API 接口配置中心</span>
         </div>
       </router-link>
-      <router-link to="/workspace" class="link-btn">
+      <!-- 返回工作台：直接定位至 B 页面（网格节点视图） -->
+      <button class="link-btn" @click="goToWorkspaceB">
         <span class="desktop-only">返回创作工作台</span>
         <span class="mobile-only">返回工作台</span>
-      </router-link>
+      </button>
     </header>
 
     <div class="main-body">
@@ -23,7 +24,7 @@
           <a 
             class="menu-item" 
             :class="{ active: activeTab === 'account' }" 
-            @click="activeTab = 'account'"
+            @click="switchTab('account')"
           >
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -33,12 +34,23 @@
           <a 
             class="menu-item" 
             :class="{ active: activeTab === 'byok' }" 
-            @click="activeTab = 'byok'"
+            @click="switchTab('byok')"
           >
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
             </svg>
             <span>自备视频 API (BYOK)</span>
+          </a>
+          <!-- 新增：已有 API 选项卡 -->
+          <a 
+            class="menu-item" 
+            :class="{ active: activeTab === 'existing' }" 
+            @click="switchTab('existing')"
+          >
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            </svg>
+            <span>已有 API</span>
           </a>
         </nav>
       </aside>
@@ -98,10 +110,10 @@
         </section>
       </main>
 
-      <!-- 选项卡 2：自备视频 API (BYOK) 面板 -->
-      <main class="content-panel" v-else>
+      <!-- 选项卡 2：新增 / 配置自备视频 API (BYOK) 面板 -->
+      <main class="content-panel" v-else-if="activeTab === 'byok'">
         <div class="panel-header">
-          <h1 class="page-title">添加 / 管理视频 API</h1>
+          <h1 class="page-title">添加 / 配置视频 API</h1>
           <p class="page-subtitle">自备 API Key 模式：直接对接火山方舟官方或任意第三方中转协议。</p>
         </div>
 
@@ -205,6 +217,121 @@
           </button>
         </div>
       </main>
+
+      <!-- 选项卡 3：已有 API 管理面板 -->
+      <main class="content-panel" v-else-if="activeTab === 'existing'">
+        <div class="panel-header">
+          <div class="header-with-btn">
+            <div>
+              <h1 class="page-title">已有 API 接口列表</h1>
+              <p class="page-subtitle">查看并管理已配置的视频生成接口凭证，支持直接编辑名称与 Key 或删除废弃配置。</p>
+            </div>
+            <button class="secondary-btn add-new-btn" @click="activeTab = 'byok'">+ 新增接口</button>
+          </div>
+        </div>
+
+        <div v-if="isLoadingConfigs" class="loading-box">
+          <span class="loading-spinner"></span>
+          <span>正在加载 API 配置列表...</span>
+        </div>
+
+        <div v-else-if="existingConfigs.length === 0" class="empty-box">
+          <div class="empty-icon">🔌</div>
+          <div class="empty-title">暂未添加任何自备视频 API</div>
+          <p class="empty-desc">配置自备 Key 后，即可在工作台自由调用高画质底模生成视频。</p>
+          <button class="primary-save-btn" @click="activeTab = 'byok'">前往添加 API</button>
+        </div>
+
+        <div v-else class="configs-list">
+          <div v-for="cfg in existingConfigs" :key="cfg.id" class="card-section config-item-card">
+            <!-- 头部基本状态 -->
+            <div class="config-item-header">
+              <div class="config-title-group">
+                <span class="protocol-badge">{{ cfg.protocol_code }}</span>
+                <span class="model-tag">{{ cfg.remote_model_id || '默认底模' }}</span>
+              </div>
+              <div class="config-actions">
+                <button 
+                  v-if="editingConfigId !== cfg.id" 
+                  class="action-text-btn edit-btn" 
+                  @click="startEditConfig(cfg)"
+                >
+                  编辑
+                </button>
+                <button 
+                  v-else 
+                  class="action-text-btn save-edit-btn" 
+                  :disabled="isUpdating" 
+                  @click="saveEditConfig(cfg)"
+                >
+                  保存修改
+                </button>
+                <button 
+                  v-if="editingConfigId === cfg.id" 
+                  class="action-text-btn cancel-btn" 
+                  @click="editingConfigId = null"
+                >
+                  取消
+                </button>
+                <button 
+                  class="action-text-btn delete-btn" 
+                  :disabled="isDeletingId === cfg.id" 
+                  @click="deleteConfig(cfg.id)"
+                >
+                  {{ isDeletingId === cfg.id ? '删除中...' : '删除' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 展示 / 编辑主体 -->
+            <div class="config-item-body">
+              <!-- 配置显示名称 -->
+              <div class="config-field-row">
+                <label class="field-tag">显示名称：</label>
+                <div class="field-val-box">
+                  <input 
+                    v-if="editingConfigId === cfg.id" 
+                    type="text" 
+                    v-model="editForm.display_name" 
+                    class="edit-input" 
+                    placeholder="配置显示名称"
+                  />
+                  <span v-else class="val-text font-bold">{{ cfg.display_name }}</span>
+                </div>
+              </div>
+
+              <!-- API Key -->
+              <div class="config-field-row">
+                <label class="field-tag">API Key：</label>
+                <div class="field-val-box">
+                  <div v-if="editingConfigId === cfg.id" class="input-with-action">
+                    <input 
+                      :type="showEditKey ? 'text' : 'password'" 
+                      v-model="editForm.api_key" 
+                      class="edit-input" 
+                      placeholder="留空表示不修改原 Key，输入新 Key 则覆盖更新"
+                    />
+                    <button type="button" class="inline-btn" @click="showEditKey = !showEditKey">
+                      {{ showEditKey ? '隐藏' : '显示' }}
+                    </button>
+                  </div>
+                  <span v-else class="val-text key-mask font-mono">
+                    {{ cfg.masked_key || '••••••••••••••••' }}
+                  </span>
+                </div>
+              </div>
+
+              <!-- Base URL -->
+              <div class="config-field-row">
+                <label class="field-tag">接入地址：</label>
+                <div class="field-val-box">
+                  <span class="val-text font-mono text-muted">{{ cfg.base_url || '官方默认端点' }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   </div>
 </template>
@@ -217,19 +344,45 @@ import request from '@/utils/request';
 const router = useRouter();
 const route = useRoute();
 
-// 根据路由参数自适应激活对应 Tab
-const activeTab = ref<'account' | 'byok'>(
-  route.query.tab === 'byok' ? 'byok' : 'account'
+// 选项卡状态：支持 account / byok / existing
+const activeTab = ref<'account' | 'byok' | 'existing'>(
+  (route.query.tab as any) || 'byok'
 );
+
+function switchTab(tab: 'account' | 'byok' | 'existing') {
+  activeTab.value = tab;
+  if (tab === 'existing') {
+    fetchExistingConfigs();
+  }
+}
 
 watch(
   () => route.query.tab,
   (newTab) => {
-    if (newTab === 'account' || newTab === 'byok') {
+    if (newTab === 'account' || newTab === 'byok' || newTab === 'existing') {
       activeTab.value = newTab;
+      if (newTab === 'existing') fetchExistingConfigs();
     }
   }
 );
+
+// ==================== 返回工作台 B 视图逻辑 ====================
+async function goToWorkspaceB() {
+  try {
+    // 优先拉取当前用户的历史会话
+    const res: any = await request.get('/conversations');
+    const convs = res.items || res || [];
+    if (convs.length > 0 && convs[0].id) {
+      // 存在会话时，带上最靠前/活跃的会话 ID 进入工作台，直接激活 B 视图（网格节点视图）
+      router.push(`/workspace?conv_id=${convs[0].id}`);
+      return;
+    }
+  } catch (e) {
+    // 异常兜底
+  }
+  // 若未获取到特定会话，直接进入工作台根路由
+  router.push('/workspace');
+}
 
 // 用户信息
 const isLoggedIn = ref(true);
@@ -267,9 +420,83 @@ const testMessage = ref('');
 
 const currentPreset = computed(() => presets.value.find(p => p.code === form.protocol_code));
 
+// ==================== 已有 API 列表及编辑逻辑 ====================
+const existingConfigs = ref<any[]>([]);
+const isLoadingConfigs = ref(false);
+const editingConfigId = ref<string | null>(null);
+const isUpdating = ref(false);
+const isDeletingId = ref<string | null>(null);
+const showEditKey = ref(false);
+
+const editForm = reactive({
+  display_name: '',
+  api_key: ''
+});
+
+async function fetchExistingConfigs() {
+  isLoadingConfigs.value = true;
+  try {
+    const res: any = await request.get('/video-api-configs');
+    existingConfigs.value = res.items || res || [];
+  } catch (err: any) {
+    console.error('获取 API 配置失败', err);
+  } finally {
+    isLoadingConfigs.value = false;
+  }
+}
+
+function startEditConfig(cfg: any) {
+  editingConfigId.value = cfg.id;
+  editForm.display_name = cfg.display_name || '';
+  editForm.api_key = ''; // 新输入的密钥，留空表示不修改
+  showEditKey.value = false;
+}
+
+async function saveEditConfig(cfg: any) {
+  if (!editForm.display_name.trim()) {
+    alert('配置名称不能为空');
+    return;
+  }
+  isUpdating.value = true;
+  try {
+    const payload: any = {
+      display_name: editForm.display_name
+    };
+    // 如果用户输入了新 key 则一并提交修改
+    if (editForm.api_key.trim()) {
+      payload.auth = { api_key: editForm.api_key.trim() };
+    }
+    await request.put(`/video-api-configs/${cfg.id}`, payload);
+    alert('配置修改成功！');
+    editingConfigId.value = null;
+    await fetchExistingConfigs();
+  } catch (err: any) {
+    alert(err.message || '更新失败');
+  } finally {
+    isUpdating.value = false;
+  }
+}
+
+async function deleteConfig(id: string) {
+  if (!confirm('确定要删除这个 API 配置吗？删除后相关视频生成通道将不可用。')) return;
+  isDeletingId.value = id;
+  try {
+    await request.delete(`/video-api-configs/${id}`);
+    alert('已成功删除');
+    await fetchExistingConfigs();
+  } catch (err: any) {
+    alert(err.message || '删除失败');
+  } finally {
+    isDeletingId.value = null;
+  }
+}
+
 onMounted(async () => {
   await fetchUserProfile();
   await loadPresets();
+  if (activeTab.value === 'existing') {
+    await fetchExistingConfigs();
+  }
 });
 
 async function fetchUserProfile() {
@@ -384,7 +611,9 @@ async function handleSave() {
       relay_risk_accepted: form.relay_risk_accepted
     });
     alert('配置已成功加密保存！');
-    router.push('/workspace');
+    // 保存后自动跳至“已有 API”查看
+    activeTab.value = 'existing';
+    await fetchExistingConfigs();
   } catch (err: any) {
     alert(err.message || '保存失败');
   } finally {
@@ -437,7 +666,7 @@ async function handleSave() {
 .link-btn {
   color: #94a3b8; text-decoration: none; font-size: 13px;
   padding: 6px 12px; border: 1px solid #334155; border-radius: 6px;
-  white-space: nowrap; transition: all 0.2s;
+  white-space: nowrap; transition: all 0.2s; background: transparent; cursor: pointer;
 }
 .link-btn:hover { color: #fff; border-color: #64748b; }
 
@@ -466,6 +695,7 @@ async function handleSave() {
 /* 右侧内容面板 */
 .content-panel { flex: 1; max-width: 900px; min-width: 0; }
 .panel-header { margin-bottom: 20px; }
+.header-with-btn { display: flex; justify-content: space-between; align-items: center; }
 .page-title { font-size: clamp(20px, 2.2vw, 24px); font-weight: 600; color: #fff; margin-bottom: 4px; }
 .page-subtitle { color: #94a3b8; font-size: 13px; }
 
@@ -535,7 +765,7 @@ input:focus, select:focus { border-color: #6366f1; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* 账户信息卡片样式 */
+/* ================= 账户信息卡片样式 ================= */
 .profile-card { display: flex; flex-direction: column; gap: 24px; }
 .profile-header {
   display: flex; align-items: center; gap: 20px;
@@ -585,6 +815,126 @@ input:focus, select:focus { border-color: #6366f1; }
 }
 .logout-action-btn:hover:not(:disabled) { background-color: #3b1922; border-color: #ef4444; }
 
+/* ================= 已有 API 列表卡片样式 ================= */
+.add-new-btn {
+  background-color: #1d283a;
+  border-color: #435472;
+  color: #38bdf8;
+}
+.add-new-btn:hover { background-color: #293952; }
+
+.loading-box, .empty-box {
+  background-color: #111624;
+  border: 1px dashed #1e283d;
+  border-radius: 12px;
+  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #94a3b8;
+}
+.empty-icon { font-size: 40px; margin-bottom: 4px; }
+.empty-title { font-size: 16px; font-weight: 600; color: #f1f5f9; }
+.empty-desc { font-size: 13px; color: #64748b; margin-bottom: 12px; }
+
+.configs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.config-item-card {
+  padding: 18px 22px;
+  margin-bottom: 0;
+  transition: border-color 0.2s;
+}
+.config-item-card:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+}
+.config-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #1a2235;
+  margin-bottom: 12px;
+}
+.config-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.protocol-badge {
+  background-color: #1e293b;
+  color: #38bdf8;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+.model-tag {
+  background-color: #162033;
+  color: #a5b4fc;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+.config-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.action-text-btn {
+  background: transparent;
+  border: none;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 4px;
+  transition: color 0.15s;
+}
+.edit-btn { color: #818cf8; }
+.edit-btn:hover { color: #a5b4fc; }
+.save-edit-btn { color: #34d399; font-weight: 600; }
+.save-edit-btn:hover { color: #6ee7b7; }
+.cancel-btn { color: #94a3b8; }
+.cancel-btn:hover { color: #cbd5e1; }
+.delete-btn { color: #f87171; }
+.delete-btn:hover { color: #ef4444; }
+
+.config-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.config-field-row {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+}
+.field-tag {
+  width: 90px;
+  flex-shrink: 0;
+  color: #64748b;
+}
+.field-val-box {
+  flex: 1;
+  min-width: 0;
+}
+.val-text {
+  color: #cbd5e1;
+}
+.font-bold { font-weight: 600; color: #f8fafc; font-size: 14px; }
+.font-mono { font-family: monospace; }
+.key-mask { color: #94a3b8; }
+.text-muted { color: #64748b; }
+.edit-input {
+  height: 34px !important;
+  font-size: 13px !important;
+  padding: 0 10px !important;
+}
+
 /* ================= 移动端适配 (<= 768px) ================= */
 @media (max-width: 768px) {
   .desktop-only { display: none !important; }
@@ -614,17 +964,18 @@ input:focus, select:focus { border-color: #6366f1; }
     padding: 4px;
     border-radius: 10px;
     gap: 4px;
+    overflow-x: auto;
   }
   .menu-item {
     flex: 1;
     justify-content: center;
     padding: 9px 8px;
-    font-size: 13px;
+    font-size: 12px;
     border-radius: 6px;
-    gap: 6px;
+    gap: 4px;
     white-space: nowrap;
   }
-  .menu-item .icon { width: 16px; height: 16px; }
+  .menu-item .icon { width: 15px; height: 15px; }
   .menu-item.active {
     background-color: #1e293b;
     color: #38bdf8;
@@ -643,7 +994,6 @@ input:focus, select:focus { border-color: #6366f1; }
   .page-title { font-size: 20px; }
   .page-subtitle { font-size: 12px; }
 
-  /* 单选组与连通性检测在手机端换行堆叠 */
   .radio-group {
     gap: 12px;
     margin-top: 2px;
@@ -686,5 +1036,17 @@ input:focus, select:focus { border-color: #6366f1; }
     width: 100%;
     padding: 11px;
   }
+
+  .config-item-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .config-field-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .field-tag { width: auto; }
 }
 </style>

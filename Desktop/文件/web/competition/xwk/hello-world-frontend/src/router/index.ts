@@ -12,6 +12,19 @@ const routes = [
     component: () => import('@/views/WorkspaceView.vue'),
   },
   {
+  path: '/tv',
+  name: 'TV',
+  component: () => import('@/views/TV.vue'),
+},
+{
+  path: '/tv/admin',
+  name: 'TVAdmin',
+  component: () => import('@/views/TVAdmin.vue'),
+  meta: {
+    title: 'TV 素材库管理控制台'
+  }
+},
+  {
     path: '/settings/api',
     name: 'ApiConfig',
     component: () => import('@/views/ApiConfigView.vue'),

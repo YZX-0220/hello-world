@@ -326,7 +326,7 @@ export function useWorkspace() {
       const job = await request.post<VideoJobView, VideoJobView>('/video-jobs', {
         conversation_id: id, project_id: snapshot.id, spec_version: snapshot.current_spec_version,
         api_config_id: selectedApiConfigId.value, mode: snapshot.current_spec.mode || 'text_to_video',
-        generation_options: { ...store.sessions.get(id)?.document.generation_settings, generate_audio: false, canvas_source_node_id: sourceId,
+        generation_options: { ...store.sessions.get(id)?.document.generation_settings, generate_audio: true, canvas_source_node_id: sourceId,
           canvas_source_node_ids: selectedIds }, previous_job_id: null,
       }, { headers: { 'Idempotency-Key': newId() } });
       if (currentConvId.value === id) {

@@ -10,9 +10,8 @@
         </div>
       </router-link>
       <!-- 返回工作台：直接定位至 B 页面（网格节点视图） -->
-      <button class="link-btn" @click="goToWorkspaceB">
-        <span class="desktop-only">返回创作工作台</span>
-        <span class="mobile-only">返回工作台</span>
+      <button class="link-btn" @click="handleGoBack" title="返回上一页">
+        <span>返回上一个界面</span>
       </button>
     </header>
 
@@ -21,34 +20,25 @@
       <aside class="sidebar">
         <div class="sidebar-title desktop-only">设置与集成</div>
         <nav class="sidebar-menu">
-          <a 
-            class="menu-item" 
-            :class="{ active: activeTab === 'account' }" 
-            @click="switchTab('account')"
-          >
+          <a class="menu-item" :class="{ active: activeTab === 'account' }" @click="switchTab('account')">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
             <span>账户信息</span>
           </a>
-          <a 
-            class="menu-item" 
-            :class="{ active: activeTab === 'byok' }" 
-            @click="switchTab('byok')"
-          >
+          <a class="menu-item" :class="{ active: activeTab === 'byok' }" @click="switchTab('byok')">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
             </svg>
             <span>自备视频 API (BYOK)</span>
           </a>
           <!-- 新增：已有 API 选项卡 -->
-          <a 
-            class="menu-item" 
-            :class="{ active: activeTab === 'existing' }" 
-            @click="switchTab('existing')"
-          >
+          <a class="menu-item" :class="{ active: activeTab === 'existing' }" @click="switchTab('existing')">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 6h16M4 10h16M4 14h16M4 18h16" />
             </svg>
             <span>已有 API</span>
           </a>
@@ -119,7 +109,9 @@
 
         <div class="info-alert">
           <svg class="alert-icon" viewBox="0 0 24 24" fill="currentColor">
-            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+            <path fill-rule="evenodd"
+              d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+              clip-rule="evenodd" />
           </svg>
           <span>当前页面仅配置视频生成底模。首期文本叙事 Agent 由服务器环境变量统一托管。</span>
         </div>
@@ -149,11 +141,13 @@
               <label>接口来源 <span class="required">*</span></label>
               <div class="radio-group">
                 <label class="radio-label">
-                  <input type="radio" value="official" v-model="form.source_type" :disabled="!currentPreset?.source_types.includes('official')" />
+                  <input type="radio" value="official" v-model="form.source_type"
+                    :disabled="!currentPreset?.source_types.includes('official')" />
                   <span>厂商官方直连</span>
                 </label>
                 <label class="radio-label">
-                  <input type="radio" value="relay" v-model="form.source_type" :disabled="!currentPreset?.source_types.includes('relay')" />
+                  <input type="radio" value="relay" v-model="form.source_type"
+                    :disabled="!currentPreset?.source_types.includes('relay')" />
                   <span>第三方兼容中转站</span>
                 </label>
               </div>
@@ -185,7 +179,8 @@
           <div class="form-group">
             <label>API Key <span class="required">*</span></label>
             <div class="input-with-action">
-              <input :type="showKey ? 'text' : 'password'" v-model="form.auth.api_key" placeholder="填写对应的服务密钥 (sk-...)" />
+              <input :type="showKey ? 'text' : 'password'" v-model="form.auth.api_key"
+                placeholder="填写对应的服务密钥 (sk-...)" />
               <button type="button" class="inline-btn" @click="showKey = !showKey">
                 {{ showKey ? '隐藏' : '显示' }}
               </button>
@@ -251,33 +246,20 @@
                 <span class="model-tag">{{ cfg.remote_model_id || '默认底模' }}</span>
               </div>
               <div class="config-actions">
-                <button 
-                  v-if="editingConfigId !== cfg.id" 
-                  class="action-text-btn edit-btn" 
-                  @click="startEditConfig(cfg)"
-                >
+                <button v-if="editingConfigId !== cfg.id" class="action-text-btn edit-btn"
+                  @click="startEditConfig(cfg)">
                   编辑
                 </button>
-                <button 
-                  v-else 
-                  class="action-text-btn save-edit-btn" 
-                  :disabled="isUpdating" 
-                  @click="saveEditConfig(cfg)"
-                >
+                <button v-else class="action-text-btn save-edit-btn" :disabled="isUpdating"
+                  @click="saveEditConfig(cfg)">
                   保存修改
                 </button>
-                <button 
-                  v-if="editingConfigId === cfg.id" 
-                  class="action-text-btn cancel-btn" 
-                  @click="editingConfigId = null"
-                >
+                <button v-if="editingConfigId === cfg.id" class="action-text-btn cancel-btn"
+                  @click="editingConfigId = null">
                   取消
                 </button>
-                <button 
-                  class="action-text-btn delete-btn" 
-                  :disabled="isDeletingId === cfg.id" 
-                  @click="deleteConfig(cfg.id)"
-                >
+                <button class="action-text-btn delete-btn" :disabled="isDeletingId === cfg.id"
+                  @click="deleteConfig(cfg.id)">
                   {{ isDeletingId === cfg.id ? '删除中...' : '删除' }}
                 </button>
               </div>
@@ -289,13 +271,8 @@
               <div class="config-field-row">
                 <label class="field-tag">显示名称：</label>
                 <div class="field-val-box">
-                  <input 
-                    v-if="editingConfigId === cfg.id" 
-                    type="text" 
-                    v-model="editForm.display_name" 
-                    class="edit-input" 
-                    placeholder="配置显示名称"
-                  />
+                  <input v-if="editingConfigId === cfg.id" type="text" v-model="editForm.display_name"
+                    class="edit-input" placeholder="配置显示名称" />
                   <span v-else class="val-text font-bold">{{ cfg.display_name }}</span>
                 </div>
               </div>
@@ -305,12 +282,8 @@
                 <label class="field-tag">API Key：</label>
                 <div class="field-val-box">
                   <div v-if="editingConfigId === cfg.id" class="input-with-action">
-                    <input 
-                      :type="showEditKey ? 'text' : 'password'" 
-                      v-model="editForm.api_key" 
-                      class="edit-input" 
-                      placeholder="留空表示不修改原 Key，输入新 Key 则覆盖更新"
-                    />
+                    <input :type="showEditKey ? 'text' : 'password'" v-model="editForm.api_key" class="edit-input"
+                      placeholder="留空表示不修改原 Key，输入新 Key 则覆盖更新" />
                     <button type="button" class="inline-btn" @click="showEditKey = !showEditKey">
                       {{ showEditKey ? '隐藏' : '显示' }}
                     </button>
@@ -366,24 +339,14 @@ watch(
   }
 );
 
-// ==================== 返回工作台 B 视图逻辑 ====================
-async function goToWorkspaceB() {
-  try {
-    // 优先拉取当前用户的历史会话
-    const res: any = await request.get('/conversations');
-    const convs = res.items || res || [];
-    if (convs.length > 0 && convs[0].id) {
-      // 存在会话时，带上最靠前/活跃的会话 ID 进入工作台，直接激活 B 视图（网格节点视图）
-      router.push(`/workspace?conv_id=${convs[0].id}`);
-      return;
-    }
-  } catch (e) {
-    // 异常兜底
+// ==================== 返回上一个界面逻辑 ====================
+function handleGoBack() {
+  if (window.history.length > 1) {
+    router.back();
+  } else {
+    router.push('/workspace'); // 兜底：若直接从新标签页打开则回退至工作台
   }
-  // 若未获取到特定会话，直接进入工作台根路由
-  router.push('/workspace');
 }
-
 // 用户信息
 const isLoggedIn = ref(true);
 const isLoggingOut = ref(false);
@@ -635,8 +598,13 @@ async function handleSave() {
   box-sizing: border-box;
 }
 
-.mobile-only { display: none !important; }
-.desktop-only { display: inline-flex; }
+.mobile-only {
+  display: none !important;
+}
+
+.desktop-only {
+  display: inline-flex;
+}
 
 /* 顶部导航 */
 .top-nav {
@@ -651,24 +619,62 @@ async function handleSave() {
   top: 0;
   z-index: 40;
 }
-.brand-link { text-decoration: none; }
-.brand { display: flex; align-items: center; gap: 10px; }
+
+.brand-link {
+  text-decoration: none;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .brand-avatar {
-  width: 32px; height: 32px; background-color: #6366f1; color: #fff;
-  font-weight: bold; border-radius: 8px; display: flex;
-  align-items: center; justify-content: center; font-size: 16px;
+  width: 32px;
+  height: 32px;
+  background-color: #6366f1;
+  color: #fff;
+  font-weight: bold;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
 }
-.brand-name { font-weight: 600; color: #fff; font-size: 17px; }
+
+.brand-name {
+  font-weight: 600;
+  color: #fff;
+  font-size: 17px;
+}
+
 .sub-badge {
-  font-size: 12px; background-color: #1e293b; color: #94a3b8;
-  padding: 3px 8px; border-radius: 6px; border: 1px solid #334155;
+  font-size: 12px;
+  background-color: #1e293b;
+  color: #94a3b8;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #334155;
 }
+
 .link-btn {
-  color: #94a3b8; text-decoration: none; font-size: 13px;
-  padding: 6px 12px; border: 1px solid #334155; border-radius: 6px;
-  white-space: nowrap; transition: all 0.2s; background: transparent; cursor: pointer;
+  color: #94a3b8;
+  text-decoration: none;
+  font-size: 13px;
+  padding: 6px 12px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: all 0.2s;
+  background: transparent;
+  cursor: pointer;
 }
-.link-btn:hover { color: #fff; border-color: #64748b; }
+
+.link-btn:hover {
+  color: #fff;
+  border-color: #64748b;
+}
 
 /* 主体容器 */
 .main-body {
@@ -680,140 +686,462 @@ async function handleSave() {
 }
 
 /* PC 端侧边栏 */
-.sidebar { width: 220px; flex-shrink: 0; }
-.sidebar-title { color: #64748b; font-size: 13px; margin-bottom: 12px; padding-left: 12px; }
-.sidebar-menu { display: flex; flex-direction: column; gap: 6px; }
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+}
+
+.sidebar-title {
+  color: #64748b;
+  font-size: 13px;
+  margin-bottom: 12px;
+  padding-left: 12px;
+}
+
+.sidebar-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .menu-item {
-  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-  border-radius: 8px; color: #94a3b8; text-decoration: none; cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: #94a3b8;
+  text-decoration: none;
+  cursor: pointer;
   transition: all 0.2s;
 }
-.menu-item:hover { background-color: #161e2e; color: #e2e8f0; }
-.menu-item .icon { width: 18px; height: 18px; flex-shrink: 0; }
-.menu-item.active { background-color: #1f293d; color: #818cf8; font-weight: 600; }
+
+.menu-item:hover {
+  background-color: #161e2e;
+  color: #e2e8f0;
+}
+
+.menu-item .icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.menu-item.active {
+  background-color: #1f293d;
+  color: #818cf8;
+  font-weight: 600;
+}
 
 /* 右侧内容面板 */
-.content-panel { flex: 1; max-width: 900px; min-width: 0; }
-.panel-header { margin-bottom: 20px; }
-.header-with-btn { display: flex; justify-content: space-between; align-items: center; }
-.page-title { font-size: clamp(20px, 2.2vw, 24px); font-weight: 600; color: #fff; margin-bottom: 4px; }
-.page-subtitle { color: #94a3b8; font-size: 13px; }
+.content-panel {
+  flex: 1;
+  max-width: 900px;
+  min-width: 0;
+}
+
+.panel-header {
+  margin-bottom: 20px;
+}
+
+.header-with-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.page-title {
+  font-size: clamp(20px, 2.2vw, 24px);
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.page-subtitle {
+  color: #94a3b8;
+  font-size: 13px;
+}
 
 .info-alert {
-  background-color: #10192e; border: 1px solid #1d2c4d; border-radius: 8px;
-  padding: 12px 16px; display: flex; gap: 10px; color: #60a5fa; font-size: 13px;
-  margin-bottom: 24px; line-height: 1.5;
+  background-color: #10192e;
+  border: 1px solid #1d2c4d;
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  gap: 10px;
+  color: #60a5fa;
+  font-size: 13px;
+  margin-bottom: 24px;
+  line-height: 1.5;
 }
-.alert-icon { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
+
+.alert-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
 
 .card-section {
-  background-color: #111624; border: 1px solid #1e273d; border-radius: 12px;
-  padding: clamp(16px, 2.5vw, 28px); margin-bottom: 24px; box-sizing: border-box;
+  background-color: #111624;
+  border: 1px solid #1e273d;
+  border-radius: 12px;
+  padding: clamp(16px, 2.5vw, 28px);
+  margin-bottom: 24px;
+  box-sizing: border-box;
 }
-.section-title { font-size: 16px; font-weight: 600; color: #f8fafc; margin-bottom: 4px; }
-.section-desc { font-size: 13px; color: #64748b; margin-bottom: 18px; }
 
-.form-row { display: flex; gap: 16px; margin-bottom: 16px; }
-.flex-1 { flex: 1; min-width: 0; }
-.form-group { display: flex; flex-direction: column; margin-bottom: 16px; min-width: 0; }
-.form-group label { font-size: 13px; font-weight: 500; color: #cbd5e1; margin-bottom: 6px; }
-.required { color: #ef4444; }
-.field-hint { font-size: 12px; color: #64748b; margin-top: 4px; }
-
-input[type="text"], input[type="password"], select {
-  height: 42px; background-color: #182030; border: 1px solid #28354f;
-  border-radius: 6px; padding: 0 12px; color: #fff; font-size: 14px; outline: none;
-  width: 100%; box-sizing: border-box;
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f8fafc;
+  margin-bottom: 4px;
 }
-input:focus, select:focus { border-color: #6366f1; }
 
-.radio-group { display: flex; align-items: center; gap: 20px; min-height: 42px; flex-wrap: wrap; }
-.radio-label, .checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; color: #e2e8f0; font-size: 13px; }
-.checkbox-label { line-height: 1.5; }
+.section-desc {
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 18px;
+}
 
-.input-with-action { position: relative; display: flex; align-items: center; width: 100%; }
-.input-with-action input { width: 100%; padding-right: 56px; }
+.form-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.flex-1 {
+  flex: 1;
+  min-width: 0;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+  min-width: 0;
+}
+
+.form-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #cbd5e1;
+  margin-bottom: 6px;
+}
+
+.required {
+  color: #ef4444;
+}
+
+.field-hint {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+input[type="text"],
+input[type="password"],
+select {
+  height: 42px;
+  background-color: #182030;
+  border: 1px solid #28354f;
+  border-radius: 6px;
+  padding: 0 12px;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+input:focus,
+select:focus {
+  border-color: #6366f1;
+}
+
+.radio-group {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-height: 42px;
+  flex-wrap: wrap;
+}
+
+.radio-label,
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #e2e8f0;
+  font-size: 13px;
+}
+
+.checkbox-label {
+  line-height: 1.5;
+}
+
+.input-with-action {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.input-with-action input {
+  width: 100%;
+  padding-right: 56px;
+}
+
 .inline-btn {
-  position: absolute; right: 10px; background: transparent; border: none;
-  color: #94a3b8; font-size: 13px; cursor: pointer; padding: 6px;
+  position: absolute;
+  right: 10px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px;
 }
 
 .test-connection-bar {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-top: 10px; padding-top: 14px; border-top: 1px solid #1e273d; gap: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 14px;
+  border-top: 1px solid #1e273d;
+  gap: 12px;
 }
-.test-status-text { display: flex; align-items: center; gap: 8px; color: #94a3b8; font-size: 13px; }
-.status-dot-icon { color: #38bdf8; }
-.secondary-btn {
-  background-color: #1e273b; color: #fff; border: 1px solid #334155;
-  padding: 8px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; white-space: nowrap;
-}
-.secondary-btn:hover:not(:disabled) { background-color: #2c3852; }
 
-.action-footer { display: flex; justify-content: flex-end; margin-bottom: 30px; }
+.test-status-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.status-dot-icon {
+  color: #38bdf8;
+}
+
+.secondary-btn {
+  background-color: #1e273b;
+  color: #fff;
+  border: 1px solid #334155;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.secondary-btn:hover:not(:disabled) {
+  background-color: #2c3852;
+}
+
+.action-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 30px;
+}
+
 .primary-save-btn {
-  background-color: #6366f1; color: #fff; border: none; padding: 12px 28px;
-  border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;
+  background-color: #6366f1;
+  color: #fff;
+  border: none;
+  padding: 12px 28px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
   box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
 }
-.primary-save-btn:hover:not(:disabled) { background-color: #4f46e5; }
-.primary-save-btn:disabled, .secondary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.primary-save-btn:hover:not(:disabled) {
+  background-color: #4f46e5;
+}
+
+.primary-save-btn:disabled,
+.secondary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .loading-spinner {
-  width: 14px; height: 14px; border: 2px solid #64748b;
-  border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #64748b;
+  border-top-color: #38bdf8;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* ================= 账户信息卡片样式 ================= */
-.profile-card { display: flex; flex-direction: column; gap: 24px; }
-.profile-header {
-  display: flex; align-items: center; gap: 20px;
-  padding-bottom: 20px; border-bottom: 1px solid #1e273d;
+.profile-card {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
-.avatar-box { position: relative; width: 72px; height: 72px; flex-shrink: 0; }
-.user-avatar {
-  width: 100%; height: 100%; border-radius: 50%;
-  background-color: #1e2738; border: 2px solid #6366f1; padding: 3px; box-sizing: border-box;
-}
-.status-badge-dot {
-  position: absolute; bottom: 2px; right: 2px; width: 13px; height: 13px;
-  border-radius: 50%; background-color: #ef4444; border: 2px solid #111624;
-}
-.status-badge-dot.online { background-color: #10b981; }
 
-.profile-meta { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.name-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.user-name { font-size: 20px; font-weight: 700; color: #f8fafc; }
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #1e273d;
+}
+
+.avatar-box {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+}
+
+.user-avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background-color: #1e2738;
+  border: 2px solid #6366f1;
+  padding: 3px;
+  box-sizing: border-box;
+}
+
+.status-badge-dot {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background-color: #ef4444;
+  border: 2px solid #111624;
+}
+
+.status-badge-dot.online {
+  background-color: #10b981;
+}
+
+.profile-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.user-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
 .login-state-tag {
-  font-size: 11px; padding: 2px 7px; border-radius: 4px;
-  background-color: #2b1419; color: #f87171; border: 1px solid #4d1d24;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background-color: #2b1419;
+  color: #f87171;
+  border: 1px solid #4d1d24;
 }
+
 .login-state-tag.active {
-  background-color: #0d281e; color: #34d399; border: 1px solid #065f46;
+  background-color: #0d281e;
+  color: #34d399;
+  border: 1px solid #065f46;
 }
-.user-email { font-size: 13px; color: #94a3b8; word-break: break-all; }
-.uid-tag { font-size: 11px; color: #64748b; font-family: monospace; word-break: break-all; }
+
+.user-email {
+  font-size: 13px;
+  color: #94a3b8;
+  word-break: break-all;
+}
+
+.uid-tag {
+  font-size: 11px;
+  color: #64748b;
+  font-family: monospace;
+  word-break: break-all;
+}
 
 .account-details-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;
-  background-color: #141b2b; border: 1px solid #1d273d; border-radius: 8px; padding: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  background-color: #141b2b;
+  border: 1px solid #1d273d;
+  border-radius: 8px;
+  padding: 18px;
 }
-.detail-item { display: flex; flex-direction: column; gap: 3px; }
-.detail-label { font-size: 11px; color: #64748b; }
-.detail-value { font-size: 13px; color: #cbd5e1; font-weight: 500; word-break: break-word; }
-.text-success { color: #34d399; }
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.detail-label {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.detail-value {
+  font-size: 13px;
+  color: #cbd5e1;
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.text-success {
+  color: #34d399;
+}
 
 .logout-action-box {
-  display: flex; justify-content: space-between; align-items: center;
-  padding-top: 16px; border-top: 1px solid #1e273d; gap: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 16px;
+  border-top: 1px solid #1e273d;
+  gap: 12px;
 }
-.logout-hint { font-size: 12px; color: #64748b; }
+
+.logout-hint {
+  font-size: 12px;
+  color: #64748b;
+}
+
 .logout-action-btn {
-  background-color: #22151b; border: 1px solid #4d1d24; color: #f87171;
-  padding: 8px 18px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
+  background-color: #22151b;
+  border: 1px solid #4d1d24;
+  color: #f87171;
+  padding: 8px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
 }
-.logout-action-btn:hover:not(:disabled) { background-color: #3b1922; border-color: #ef4444; }
+
+.logout-action-btn:hover:not(:disabled) {
+  background-color: #3b1922;
+  border-color: #ef4444;
+}
 
 /* ================= 已有 API 列表卡片样式 ================= */
 .add-new-btn {
@@ -821,9 +1149,13 @@ input:focus, select:focus { border-color: #6366f1; }
   border-color: #435472;
   color: #38bdf8;
 }
-.add-new-btn:hover { background-color: #293952; }
 
-.loading-box, .empty-box {
+.add-new-btn:hover {
+  background-color: #293952;
+}
+
+.loading-box,
+.empty-box {
   background-color: #111624;
   border: 1px dashed #1e283d;
   border-radius: 12px;
@@ -835,23 +1167,40 @@ input:focus, select:focus { border-color: #6366f1; }
   gap: 12px;
   color: #94a3b8;
 }
-.empty-icon { font-size: 40px; margin-bottom: 4px; }
-.empty-title { font-size: 16px; font-weight: 600; color: #f1f5f9; }
-.empty-desc { font-size: 13px; color: #64748b; margin-bottom: 12px; }
+
+.empty-icon {
+  font-size: 40px;
+  margin-bottom: 4px;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.empty-desc {
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 12px;
+}
 
 .configs-list {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
+
 .config-item-card {
   padding: 18px 22px;
   margin-bottom: 0;
   transition: border-color 0.2s;
 }
+
 .config-item-card:hover {
   border-color: rgba(99, 102, 241, 0.4);
 }
+
 .config-item-header {
   display: flex;
   justify-content: space-between;
@@ -860,11 +1209,13 @@ input:focus, select:focus { border-color: #6366f1; }
   border-bottom: 1px solid #1a2235;
   margin-bottom: 12px;
 }
+
 .config-title-group {
   display: flex;
   align-items: center;
   gap: 8px;
 }
+
 .protocol-badge {
   background-color: #1e293b;
   color: #38bdf8;
@@ -873,6 +1224,7 @@ input:focus, select:focus { border-color: #6366f1; }
   padding: 3px 8px;
   border-radius: 4px;
 }
+
 .model-tag {
   background-color: #162033;
   color: #a5b4fc;
@@ -881,11 +1233,13 @@ input:focus, select:focus { border-color: #6366f1; }
   border-radius: 4px;
   font-family: monospace;
 }
+
 .config-actions {
   display: flex;
   align-items: center;
   gap: 12px;
 }
+
 .action-text-btn {
   background: transparent;
   border: none;
@@ -894,41 +1248,85 @@ input:focus, select:focus { border-color: #6366f1; }
   padding: 2px 4px;
   transition: color 0.15s;
 }
-.edit-btn { color: #818cf8; }
-.edit-btn:hover { color: #a5b4fc; }
-.save-edit-btn { color: #34d399; font-weight: 600; }
-.save-edit-btn:hover { color: #6ee7b7; }
-.cancel-btn { color: #94a3b8; }
-.cancel-btn:hover { color: #cbd5e1; }
-.delete-btn { color: #f87171; }
-.delete-btn:hover { color: #ef4444; }
+
+.edit-btn {
+  color: #818cf8;
+}
+
+.edit-btn:hover {
+  color: #a5b4fc;
+}
+
+.save-edit-btn {
+  color: #34d399;
+  font-weight: 600;
+}
+
+.save-edit-btn:hover {
+  color: #6ee7b7;
+}
+
+.cancel-btn {
+  color: #94a3b8;
+}
+
+.cancel-btn:hover {
+  color: #cbd5e1;
+}
+
+.delete-btn {
+  color: #f87171;
+}
+
+.delete-btn:hover {
+  color: #ef4444;
+}
 
 .config-item-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
+
 .config-field-row {
   display: flex;
   align-items: center;
   font-size: 13px;
 }
+
 .field-tag {
   width: 90px;
   flex-shrink: 0;
   color: #64748b;
 }
+
 .field-val-box {
   flex: 1;
   min-width: 0;
 }
+
 .val-text {
   color: #cbd5e1;
 }
-.font-bold { font-weight: 600; color: #f8fafc; font-size: 14px; }
-.font-mono { font-family: monospace; }
-.key-mask { color: #94a3b8; }
-.text-muted { color: #64748b; }
+
+.font-bold {
+  font-weight: 600;
+  color: #f8fafc;
+  font-size: 14px;
+}
+
+.font-mono {
+  font-family: monospace;
+}
+
+.key-mask {
+  color: #94a3b8;
+}
+
+.text-muted {
+  color: #64748b;
+}
+
 .edit-input {
   height: 34px !important;
   font-size: 13px !important;
@@ -937,13 +1335,29 @@ input:focus, select:focus { border-color: #6366f1; }
 
 /* ================= 移动端适配 (<= 768px) ================= */
 @media (max-width: 768px) {
-  .desktop-only { display: none !important; }
-  .mobile-only { display: inline-flex !important; }
+  .desktop-only {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: inline-flex !important;
+  }
 
   /* 导航收紧 */
-  .top-nav { padding: 0 14px; height: 56px; }
-  .brand-name { font-size: 16px; }
-  .brand-avatar { width: 28px; height: 28px; font-size: 14px; }
+  .top-nav {
+    padding: 0 14px;
+    height: 56px;
+  }
+
+  .brand-name {
+    font-size: 16px;
+  }
+
+  .brand-avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
 
   /* 主体纵向堆叠 */
   .main-body {
@@ -957,6 +1371,7 @@ input:focus, select:focus { border-color: #6366f1; }
     width: 100%;
     margin-bottom: 4px;
   }
+
   .sidebar-menu {
     flex-direction: row;
     background-color: #101625;
@@ -966,6 +1381,7 @@ input:focus, select:focus { border-color: #6366f1; }
     gap: 4px;
     overflow-x: auto;
   }
+
   .menu-item {
     flex: 1;
     justify-content: center;
@@ -975,7 +1391,12 @@ input:focus, select:focus { border-color: #6366f1; }
     gap: 4px;
     white-space: nowrap;
   }
-  .menu-item .icon { width: 15px; height: 15px; }
+
+  .menu-item .icon {
+    width: 15px;
+    height: 15px;
+  }
+
   .menu-item.active {
     background-color: #1e293b;
     color: #38bdf8;
@@ -987,26 +1408,36 @@ input:focus, select:focus { border-color: #6366f1; }
     flex-direction: column;
     gap: 0;
   }
+
   .card-section {
     padding: 16px 14px;
     margin-bottom: 16px;
   }
-  .page-title { font-size: 20px; }
-  .page-subtitle { font-size: 12px; }
+
+  .page-title {
+    font-size: 20px;
+  }
+
+  .page-subtitle {
+    font-size: 12px;
+  }
 
   .radio-group {
     gap: 12px;
     margin-top: 2px;
   }
+
   .test-connection-bar {
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
   }
+
   .secondary-btn {
     width: 100%;
     padding: 10px;
   }
+
   .primary-save-btn {
     width: 100%;
     padding: 13px;
@@ -1019,19 +1450,23 @@ input:focus, select:focus { border-color: #6366f1; }
     text-align: center;
     gap: 14px;
   }
+
   .name-row {
     justify-content: center;
   }
+
   .account-details-grid {
     grid-template-columns: 1fr;
     gap: 12px;
     padding: 14px;
   }
+
   .logout-action-box {
     flex-direction: column;
     text-align: center;
     gap: 14px;
   }
+
   .logout-action-btn {
     width: 100%;
     padding: 11px;
@@ -1042,11 +1477,15 @@ input:focus, select:focus { border-color: #6366f1; }
     align-items: flex-start;
     gap: 8px;
   }
+
   .config-field-row {
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
   }
-  .field-tag { width: auto; }
+
+  .field-tag {
+    width: auto;
+  }
 }
 </style>

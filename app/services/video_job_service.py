@@ -524,7 +524,7 @@ class VideoJobService:
             "duration_seconds": spec.duration_seconds,
             "aspect_ratio": spec.aspect_ratio,
             "resolution": command.generation_options.get("resolution"),
-            "generate_audio": command.generation_options.get("generate_audio", False),
+            "generate_audio": command.generation_options.get("generate_audio", True),
             "first_frame_asset_id": spec.first_frame_asset_id,
             "last_frame_asset_id": spec.last_frame_asset_id,
             "reference_asset_ids": spec.reference_asset_ids or [],

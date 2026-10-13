@@ -313,6 +313,30 @@ ARK_PROFILES: tuple[ModelProfile, ...] = (
         provider_direct_url_ttl=86400,
         enabled=True,
     ),
+    # ---- Seedance 2.5 ----
+    ModelProfile(
+        code="doubao-seedance-2-5",
+        display_name="Doubao Seedance 2.5",
+        protocol_code="ark_seedance_v1",
+        template_code=None,
+        remote_model_id="doubao-seedance-2-5-260628",
+        capability_profile_code="text_reference_media",
+        modes=(
+            VideoMode.TEXT_TO_VIDEO.value,
+            VideoMode.FIRST_FRAME_TO_VIDEO.value,
+            VideoMode.FIRST_LAST_FRAME_TO_VIDEO.value,
+            VideoMode.REFERENCE_IMAGE_TO_VIDEO.value,
+        ),
+        durations_seconds=(4, 5, 8, 10, 12, 15),
+        aspect_ratios=("16:9", "9:16", "4:3", "3:4", "1:1", "21:9"),
+        resolutions=("480p", "720p", "1080p"),
+        generation_options={"generate_audio": True},
+        max_reference_images=1,
+        max_source_videos=0,
+        allows_provider_direct_url=True,
+        provider_direct_url_ttl=86400,
+        enabled=True,
+    ),
 )
 
 # ---- 阿里云百炼 DashScope / 通义 Wan 官方原生协议（无模板，Adapter 原生调用） ----

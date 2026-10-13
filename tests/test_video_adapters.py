@@ -248,6 +248,7 @@ def test_ark_preset_and_profiles_registered() -> None:
     assert {p.code for p in profiles} == {
         "doubao-seedance-1-5-pro",
         "doubao-seedance-2-0",
+        "doubao-seedance-2-5",
         "doubao-seedance-1-0-pro-fast",
         "doubao-seedance-2-0-fast",
         "doubao-seedance-1-0-pro",

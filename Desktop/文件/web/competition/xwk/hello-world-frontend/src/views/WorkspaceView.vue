@@ -475,18 +475,25 @@
                     <option v-for="cfg in apiConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.display_name }} ({{
                       cfg.remote_model_id }})</option>
                   </select></div>
-                <button class="create-video-btn" :disabled="!!videoGenerationDisabledReason"
+               <button class="create-video-btn" :disabled="!!videoGenerationDisabledReason || isJobRunning"
                   :aria-describedby="videoGenerationDisabledReason ? 'video-generation-reason' : undefined"
-                  @click="submitVideoJob">{{ isSubmittingJob ? '正在提交生成…' : '2. 确认并生成视频' }}</button>
+                  @click="submitVideoJob">{{ isSubmittingJob ? '正在提交生成…' : isJobRunning ? '视频生成中…' : '2. 确认并生成视频' }}</button>
                 <p v-if="videoGenerationDisabledReason" id="video-generation-reason" class="generation-help"
                   role="status">{{ videoGenerationDisabledReason }}</p>
                 <div v-if="activeJob" class="active-job-strip">
                   <div class="progress-bar-bg">
-                    <div class="progress-bar-inner" :style="{ width: (activeJob.progress || 30) + '%' }"></div>
+                    <div class="progress-bar-inner" :class="{
+                      indeterminate: isJobRunning,
+                      succeeded: activeJob.status === 'succeeded',
+                      failed: activeJob.status === 'failed' || activeJob.status === 'cancelled'
+                    }"></div>
                   </div>
-                  <span class="status-txt">{{ activeJob.status === 'succeeded' ? '生成完成' : activeJob.status === 'failed'
-                    ? '视频生成失败' : activeJob.status === 'cancelled' ? '任务已取消' : '视频生成中…' }} ({{ activeJob.progress || 0
-                    }}%)</span>
+                  <span class="status-txt">{{
+                    activeJob.status === 'succeeded' ? '生成完成' :
+                    activeJob.status === 'failed' ? '视频生成失败' :
+                    activeJob.status === 'cancelled' ? '任务已取消' :
+                    '生成中…（厂商未提供进度）'
+                  }}</span>
                 </div>
               </div>
             </div>
@@ -620,13 +627,21 @@ const videoDurationInput = computed({
 const videoSettingsReason = computed(() => videoSettingsBlockReason(canvas.value));
 const videoSelectionReady = computed(() => generationReady.value && !!project.value
   && generationMatches(canvas.value, project.value.current_spec_version, videoSourceIds.value));
-const videoGenerationDisabledReason = computed(() => videoGenerationBlockReason(
-  canvas.value, project.value?.current_spec_version || 0, videoSourceIds.value, {
-  compiledPrompt: !!project.value?.compiled_prompt, preparing: isPreparingVideo.value,
-  submitting: isSubmittingJob.value, collaborating: isAgentResponding.value,
-  confirming: isConfirming.value, channel: selectedApiConfigId.value, saveStatus: saveState.value.status,
-},
-));
+  // 判断当前是否有正在进行中的视频生成任务
+const isJobRunning = computed(() =>
+  !!activeJob.value && !['succeeded', 'failed', 'cancelled'].includes(activeJob.value.status)
+);
+
+const videoGenerationDisabledReason = computed(() => {
+  if (isJobRunning.value) return '当前视频正在生成中，请等待完成后再提交';
+  return videoGenerationBlockReason(
+    canvas.value, project.value?.current_spec_version || 0, videoSourceIds.value, {
+    compiledPrompt: !!project.value?.compiled_prompt, preparing: isPreparingVideo.value,
+    submitting: isSubmittingJob.value, collaborating: isAgentResponding.value,
+    confirming: isConfirming.value, channel: selectedApiConfigId.value, saveStatus: saveState.value.status,
+  });
+});
+
 const generationModeLabel = computed(() => ({
   text_to_video: '文本生成', first_frame_to_video: '所选或关联图片作为首帧',
   reference_image_to_video: '多张图片作为参考素材',
@@ -2981,6 +2996,7 @@ button:disabled {
 }
 
 .progress-bar-bg {
+  position: relative;
   width: 100%;
   height: 5px;
   background: #1e293b;
@@ -2991,7 +3007,39 @@ button:disabled {
 .progress-bar-inner {
   height: 100%;
   background: #38bdf8;
-  transition: width 0.3s;
+  border-radius: 3px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+/* 生成完成：100% 满格绿色 */
+.progress-bar-inner.succeeded {
+  width: 100%;
+  background: #10b981;
+}
+
+/* 失败或取消：100% 警示色 */
+.progress-bar-inner.failed {
+  width: 100%;
+  background: #ef4444;
+}
+
+/* 生成中：不确定滚动条动画 */
+.progress-bar-inner.indeterminate {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 35%;
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.15), #38bdf8, rgba(56, 189, 248, 0.15));
+  animation: indeterminateSlide 1.4s infinite ease-in-out;
+}
+
+@keyframes indeterminateSlide {
+  0% {
+    left: -35%;
+  }
+  100% {
+    left: 100%;
+  }
 }
 
 .status-txt {

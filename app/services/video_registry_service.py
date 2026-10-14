@@ -12,6 +12,7 @@ from app.core.errors import VIDEO_PROTOCOL_UNSUPPORTED, VIDEO_TEMPLATE_UNSUPPORT
 from app.schemas.video_api_config import (
     DurationRange,
     DynamicFieldView,
+    ModeConstraintView,
     ModelProfileView,
     ProtocolPresetView,
     ProtocolTemplateView,
@@ -92,6 +93,10 @@ def profile_to_view(profile: ModelProfile) -> ModelProfileView:
         supports_audio=bool(profile.generation_options.get("generate_audio", False)),
         supports_negative_prompt=bool(profile.generation_options.get("supports_negative_prompt", False)),
         generation_option_fields=_generation_fields(profile),
+        mode_constraints=[
+            ModeConstraintView(mode=c.mode, ratio=c.ratio, duration=c.duration, note=c.note)
+            for c in profile.mode_constraints
+        ],
     )
 
 

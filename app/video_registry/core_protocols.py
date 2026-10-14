@@ -15,6 +15,7 @@ from app.core.enums import ApiSourceType, VideoMode
 from app.video_registry.models import (
     DynamicField,
     EndpointSpec,
+    ModeConstraint,
     ModelProfile,
     ProtocolPreset,
     ProtocolTemplate,
@@ -335,6 +336,19 @@ ARK_PROFILES: tuple[ModelProfile, ...] = (
         max_source_videos=0,
         allows_provider_direct_url=True,
         provider_direct_url_ttl=86400,
+        # 2.5 的"首帧/首尾帧"模式被厂商锁定为自适应画幅，不能指定具体比例（参考图模式允许）。
+        mode_constraints=(
+            ModeConstraint(
+                mode=VideoMode.FIRST_FRAME_TO_VIDEO.value,
+                ratio="adaptive_only",
+                note="该模式画幅由首帧图自动决定，不能指定具体比例。",
+            ),
+            ModeConstraint(
+                mode=VideoMode.FIRST_LAST_FRAME_TO_VIDEO.value,
+                ratio="adaptive_only",
+                note="该模式画幅由首帧图自动决定，不能指定具体比例（尾帧画幅需与首帧一致）。",
+            ),
+        ),
         enabled=True,
     ),
 )

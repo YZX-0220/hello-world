@@ -71,6 +71,21 @@ class ProtocolTemplate:
 
 
 @dataclass(frozen=True)
+class ModeConstraint:
+    """某模型在特定生成模式下的附加约束（供前端在提交前校验；后端不据此静默改参）。
+
+    ratio:  "model" 沿用模型级 aspect_ratios；"adaptive_only" 该模式不允许指定比例（仅自适应）。
+    duration: "model" 沿用模型级；"fixed:-1" 固定为 -1；"omit" 厂商不接受该字段（不要发送）。
+    note:   面向用户的中文说明（前端提示语直接用）。
+    """
+
+    mode: str
+    ratio: str = "model"
+    duration: str = "model"
+    note: str = ""
+
+
+@dataclass(frozen=True)
 class ModelProfile:
     """一个具体模型的能力（对应接口说明 3.11 ModelProfileView）。
 
@@ -94,11 +109,14 @@ class ModelProfile:
     allows_provider_direct_url: bool = False  # 是否允许结果降级为厂商直链
     provider_direct_url_ttl: int = 3600  # 直链有效期提示（秒）
     enabled: bool = False
+    # 模式级附加约束（每个生成模式可声明 ratio/duration 的特殊限制，供前端提交前校验）
+    mode_constraints: tuple[ModeConstraint, ...] = ()
 
 
 __all__ = [
     "DynamicField",
     "EndpointSpec",
+    "ModeConstraint",
     "ModelProfile",
     "ProtocolPreset",
     "ProtocolTemplate",

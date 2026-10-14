@@ -51,6 +51,15 @@ class DurationRange(BaseModel):
     allowed_values: list[int] = Field(default_factory=list)
 
 
+class ModeConstraintView(BaseModel):
+    """某模型在某生成模式下的附加约束（供前端提交前校验，后端不据此静默改参）。"""
+
+    mode: str
+    ratio: str = "model"  # model=沿用模型级比例列表 / adaptive_only=该模式只能自适应
+    duration: str = "model"  # model / fixed:-1 / omit
+    note: str = ""
+
+
 class ModelProfileView(BaseModel):
     code: str
     label: str
@@ -67,6 +76,8 @@ class ModelProfileView(BaseModel):
     supports_audio: bool = False
     supports_negative_prompt: bool = False
     generation_option_fields: list[DynamicFieldView] = Field(default_factory=list)
+    # 模式级附加约束：前端在"确认并生成"前据此校验真实参数，不满足则提示用户改。
+    mode_constraints: list[ModeConstraintView] = Field(default_factory=list)
 
 
 # ---- 请求对象（检测 / 创建 / 修改）----

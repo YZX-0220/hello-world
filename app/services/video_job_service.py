@@ -460,7 +460,8 @@ class VideoJobService:
     def _provider_request(self, job: VideoJob, assets: list[tuple[str, str, int]]) -> dict[str, Any]:
         request = json.loads(job.request_json or "{}")
         for asset_id, role, _pos in assets:
-            url, _ = sign_provider_asset(asset_id, job.id, role, settings.app_secret, settings.signed_url_ttl_seconds)
+            token, _ = sign_provider_asset(asset_id, job.id, role, settings.app_secret, settings.signed_url_ttl_seconds)
+            url = f"{settings.app_base_url.rstrip('/')}/api/v1/provider-assets/{token}"
             if role == "first_frame":
                 request["first_frame_url"] = url
             elif role == "last_frame":

@@ -9,6 +9,35 @@ import { generationMatches, savedVideoReview, videoSettingsBlockReason } from '.
 
 type Page<T> = { items: T[]; next_cursor: string | null };
 type MessageResult = { user_message: MessageView | null; assistant_message: MessageView | null; project: VideoProjectView; run_status: string };
+
+// 新增：后端返回的模型能力与模式级约束类型定义
+export interface ModeConstraint {
+  mode: string;
+  ratio?: 'model' | 'adaptive_only' | string;
+  duration?: 'model' | 'omit' | string;
+  note?: string;
+}
+
+export interface VideoModelProfile {
+  code: string;
+  label: string;
+  modes: string[];
+  aspect_ratios?: string[];
+  duration?: { allowed_values?: number[] };
+  resolutions?: string[];
+  mode_constraints?: ModeConstraint[];
+}
+
+const MODE_LABELS: Record<string, string> = {
+  text_to_video: '文生视频',
+  first_frame_to_video: '首帧图生视频',
+  first_last_frame_to_video: '首尾帧生视频',
+  reference_image_to_video: '参考图生视频',
+  video_to_video: '视频重绘',
+  video_extend: '视频延长',
+  audio_or_performance_to_video: '音频/表演驱动',
+};
+
 const runningStatuses = ['created', 'submitting', 'queued', 'running'];
 export const newId = () => typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
   : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -24,6 +53,8 @@ export function useWorkspace() {
   const messages = ref<MessageView[]>([]);
   const project = ref<VideoProjectView | null>(null);
   const apiConfigs = ref<VideoApiConfigView[]>([]);
+  const modelProfiles = ref<Record<string, VideoModelProfile>>({});
+  const loadedProtocols = new Set<string>();
   const jobs = ref<VideoJobView[]>([]);
   const loading = ref(false);
   const initialized = ref(false);
@@ -91,6 +122,101 @@ export function useWorkspace() {
       result.push(...page.items); cursor = page.next_cursor;
     } while (cursor);
     return result;
+  }
+
+  // 新增：按协议加载后端的模型约束配置
+  async function loadModelProfilesByProtocol(protocolCode: string) {
+    if (!protocolCode || loadedProtocols.has(protocolCode)) return;
+    try {
+      const res = await request.get<VideoModelProfile[] | { items: VideoModelProfile[] }, any>(
+        '/video-model-profiles',
+        { params: { protocol_code: protocolCode } }
+      );
+      const list: VideoModelProfile[] = Array.isArray(res) ? res : (res?.items || []);
+      const next = { ...modelProfiles.value };
+      for (const profile of list) {
+        if (profile?.code) next[profile.code] = profile;
+      }
+      modelProfiles.value = next;
+      loadedProtocols.add(protocolCode);
+    } catch (err) {
+      console.warn(`加载协议 ${protocolCode} 的模型约束失败:`, err);
+    }
+  }
+
+  async function ensureModelProfiles() {
+    const protocols = new Set<string>(['ark_seedance_v1']);
+    for (const cfg of apiConfigs.value as any[]) {
+      if (cfg?.protocol_code) protocols.add(cfg.protocol_code);
+    }
+    await Promise.all(Array.from(protocols).map(p => loadModelProfilesByProtocol(p)));
+  }
+
+  // 新增：提交前校验真实发送参数与模型约束
+  function validateBeforeSubmit(snapshot: VideoProjectView, doc?: CanvasDocument): string | null {
+    const configId = selectedApiConfigId.value || 'platform';
+    let profileCode = 'doubao-seedance-2-5';
+    let channelDisplayName = 'Doubao Seedance 2.5';
+
+    if (configId !== 'platform') {
+      const cfg = (apiConfigs.value as any[]).find(c => c.id === configId);
+      if (cfg) {
+        profileCode = cfg.capability_profile_code || cfg.model_profile_code || cfg.remote_model_id || '';
+        channelDisplayName = cfg.display_name || cfg.remote_model_id || profileCode;
+      }
+    }
+
+    const profile = modelProfiles.value[profileCode];
+    if (!profile) return null; // 若未找到对应 profile，交由后端兜底校验
+
+    const modelLabel = profile.label || channelDisplayName;
+    const spec: any = snapshot.current_spec || {};
+    const genSettings: any = doc?.generation_settings || {};
+
+    // 1. 提取即将发送的真实参数
+    const mode: string = spec.mode || 'text_to_video';
+    const modeName = MODE_LABELS[mode] || mode;
+    const aspectRatio: string | undefined = spec.aspect_ratio;
+    const resolution: string | undefined = genSettings.resolution ?? doc?.video_resolution ?? spec.resolution;
+    const durationSeconds: number | undefined = genSettings.duration_seconds ?? doc?.video_duration_seconds ?? spec.duration_seconds;
+
+    // 2. 校验模型级支持的生成模式 (modes)
+    if (Array.isArray(profile.modes) && profile.modes.length > 0 && !profile.modes.includes(mode)) {
+      const supportedModes = profile.modes.map(m => `【${MODE_LABELS[m] || m}】`).join('、');
+      return `⚠️ 当前通道【${modelLabel}】不支持「${modeName}」模式。\n你可以：① 改用该模型支持的模式（${supportedModes}）；② 或切换其他支持「${modeName}」的模型通道。`;
+    }
+
+    // 3. 匹配模式级约束 (mode_constraints)
+    const modeConstraint = profile.mode_constraints?.find(c => c.mode === mode);
+
+    // 3.1 核心校验：自适应画幅限制 (ratio == "adaptive_only")
+    if (modeConstraint?.ratio === 'adaptive_only') {
+      if (aspectRatio && aspectRatio !== 'adaptive') {
+        const noteText = modeConstraint.note || `该模式画幅由首帧图片自动决定，不能指定具体比例。`;
+        return `⚠️ 当前通道【${modelLabel}】的「${modeName}」模式：${noteText}（当前指定了 ${aspectRatio}）。\n你可以：① 去掉方案里的画幅指定（改为自适应）；② 或改用【文生视频】模式；③ 或换用支持指定画幅的模型（如 Seedance 2.0）。`;
+      }
+    } else if (aspectRatio && aspectRatio !== 'adaptive') {
+      // 3.2 模型级画幅校验 (aspect_ratios)
+      if (Array.isArray(profile.aspect_ratios) && profile.aspect_ratios.length > 0 && !profile.aspect_ratios.includes(aspectRatio)) {
+        return `⚠️ 当前通道【${modelLabel}】不支持画幅比例「${aspectRatio}」。\n请将画幅修改为模型支持的比例：${profile.aspect_ratios.join('、')}，或切换其他模型。`;
+      }
+    }
+
+    // 4. 模型级清晰度校验 (resolutions)
+    if (resolution && Array.isArray(profile.resolutions) && profile.resolutions.length > 0 && !profile.resolutions.includes(resolution)) {
+      return `⚠️ 当前通道【${modelLabel}】不支持分辨率「${resolution}」。\n请将清晰度修改为：${profile.resolutions.join(' / ')}。`;
+    }
+
+    // 5. 模型级时长校验 (duration.allowed_values)
+    const durationRule = modeConstraint?.duration || 'model';
+    if (durationRule === 'model' && durationSeconds !== undefined && durationSeconds !== null) {
+      const allowedDurations = profile.duration?.allowed_values;
+      if (Array.isArray(allowedDurations) && allowedDurations.length > 0 && !allowedDurations.includes(Number(durationSeconds))) {
+        return `⚠️ 当前通道【${modelLabel}】不支持生成时长「${durationSeconds} 秒」。\n请将时长修改为模型允许的值：${allowedDurations.join('、')} 秒。`;
+      }
+    }
+
+    return null;
   }
 
   async function loadConversations() {
@@ -318,6 +444,18 @@ export function useWorkspace() {
     const sourceId = canvas.value.generation_node_id;
     isSubmittingJob.value = true;
     try {
+      // 确保模型约束已加载，并在提交前校验真实参数
+      await ensureModelProfiles();
+      const sessionDoc = store.sessions.get(id)?.document || canvas.value;
+      const constraintError = validateBeforeSubmit(snapshot, sessionDoc);
+      if (constraintError) {
+        notice.value = constraintError;
+        if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+          window.alert(constraintError);
+        }
+        return;
+      }
+
       if (!await store.flush(id)) { notice.value = '请先同步画布，再生成视频。'; return; }
       const confirmed = await request.post<VideoProjectView, VideoProjectView>(`/conversations/${id}/project/confirm`, {
         spec_version: snapshot.current_spec_version,
@@ -438,7 +576,10 @@ export function useWorkspace() {
           { canvas_data: document, expected_canvas_version: version }, { timeout: 8000 }),
       }, reflect);
       await loadConversations();
-      try { apiConfigs.value = await listAll<VideoApiConfigView>('/video-api-configs'); }
+      try {
+        apiConfigs.value = await listAll<VideoApiConfigView>('/video-api-configs');
+        await ensureModelProfiles();
+      }
       catch (err: any) { notice.value = err.message || 'API 配置加载失败，可以继续编辑画布'; }
       if (disposed) return;
       initialized.value = true;
@@ -456,7 +597,7 @@ export function useWorkspace() {
     document.removeEventListener('visibilitychange', visibilityChanged);
   });
 
-  return { canvas, nodes, connections, pan, zoom, currentConvId, conversations, messages, project, apiConfigs,
+  return { canvas, nodes, connections, pan, zoom, currentConvId, conversations, messages, project, apiConfigs, modelProfiles,
     inputContent, referencedNodeIds, aiTargetNodeId, selectedApiConfigId, isAgentResponding, isCreatingConv, isSubmittingJob,
     isConfirming, isPreparingVideo, videoReview, isAgentDrawerOpen, activeJob, generationReady, initialized, loading, notice, saveState, saveLabel, uploading,
     switchConversation, createNewConversation, backToProjectSpace, deleteConversation, sendMessage, uploadImage,

@@ -775,7 +775,7 @@ function scrollToTop() {
   min-height: 100vh;
   scroll-snap-align: start;
   scroll-snap-stop: always;
-  position: relative;
+  position: relative; /* 确保子元素 absolute 参考此容器 */
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -957,24 +957,27 @@ function scrollToTop() {
   height: 30px;
   background-color: rgba(255, 255, 255, 0.12);
 }
-
 .scroll-down-hint {
   position: absolute;
-  bottom: clamp(12px, 2.5vh, 28px);
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   cursor: pointer;
   color: #64748b;
-  font-size: 14px;
-  transition: color 0.2s;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  transition: color 0.2s ease;
   animation: floatUpDown 2s infinite ease-in-out;
   z-index: 20;
+  text-align: center;
+  width: max-content; /* 避免文字折行造成视觉重心偏移 */
+  user-select: none;
 }
-
 .scroll-down-hint:hover {
   color: #94a3b8;
 }
@@ -982,6 +985,7 @@ function scrollToTop() {
 .scroll-arrow {
   width: 18px;
   height: 18px;
+  display: block;
 }
 
 @keyframes floatUpDown {
@@ -998,14 +1002,15 @@ function scrollToTop() {
 
 /* ================= 第二屏：产品介绍 ================= */
 .about-screen {
-  padding-top: clamp(70px, 8vh, 90px);
-  padding-bottom: clamp(24px, 3vh, 36px);
+  padding-top: clamp(60px, 8vh, 80px);
+  padding-bottom: clamp(60px, 8vh, 80px);
   background: linear-gradient(180deg, rgba(7, 9, 14, 0.4) 0%, rgba(10, 13, 22, 0.95) 100%);
 }
 
 .about-container {
-  width: min(94vw, 1480px);
-  height: 100%;
+  width: min(90vw, 1240px) !important; /* 从 1720px 缩减到 1240px */
+  height: auto !important;
+  min-height: unset !important;       /* 去除过高的 82vh 强制限制 */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1013,7 +1018,7 @@ function scrollToTop() {
 }
 
 .external-header {
-  margin-bottom: clamp(20px, 3.5vh, 38px);
+  margin-bottom: 24px !important;    /* 缩小标题与卡片的间距 */
   text-align: center;
 }
 
@@ -1021,8 +1026,8 @@ function scrollToTop() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  font-size: clamp(28px, 3.4vw, 52px);
+  gap: 14px;
+  font-size: clamp(26px, 2.6vw, 42px); /* 适度缩小标题字号 */
   font-weight: 800;
   color: #ffffff;
   letter-spacing: -0.5px;
@@ -1052,22 +1057,23 @@ function scrollToTop() {
 }
 
 .tapnow-card {
-  width: 100%;
+  width: 100% !important;
+  min-height: unset !important;       /* 移除 64vh 最小高度 */
   background: rgba(12, 16, 26, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 28px;
-  padding: clamp(36px, 4vw, 64px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  padding: clamp(28px, 3.2vw, 48px) !important; /* 缩小内边距 */
   backdrop-filter: blur(24px);
-  box-shadow: 0 30px 70px -15px rgba(0, 0, 0, 0.85);
+  box-shadow: 0 24px 60px -15px rgba(0, 0, 0, 0.85);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: clamp(36px, 4vw, 64px);
+  gap: clamp(32px, 3.5vw, 56px) !important;
   box-sizing: border-box;
 }
 
 .card-left-content {
-  flex: 1.25;
+  flex: 1.1;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1075,52 +1081,54 @@ function scrollToTop() {
 }
 
 .left-big-heading {
-  font-size: clamp(34px, 3.8vw, 54px);
+  font-size: clamp(26px, 2.5vw, 40px); /* 标题字号更加协调 */
   font-weight: 800;
-  line-height: 1.22;
+  line-height: 1.25;
   color: #f8fafc;
-  margin-bottom: clamp(16px, 2.2vh, 26px);
+  margin-bottom: 16px;
   letter-spacing: -0.5px;
 }
 
 .left-desc-text {
-  font-size: clamp(15px, 1.25vw, 19px);
-  line-height: 1.85;
+  font-size: clamp(14px, 1.05vw, 16px);
+  line-height: 1.75;
   color: #94a3b8;
-  margin-bottom: clamp(28px, 4vh, 44px);
-  max-width: 620px;
+  margin-bottom: 28px;
+  max-width: 520px;
 }
 
 .left-action-btn {
   background-color: #ffffff;
   color: #0b0f19;
-  font-size: clamp(15px, 1.2vw, 18px);
+  font-size: 15px;
   font-weight: 700;
-  padding: 16px 44px;
-  border-radius: 14px;
+  padding: 12px 36px;
+  border-radius: 12px;
   border: none;
   cursor: pointer;
   transition: all 0.25s ease;
-  box-shadow: 0 6px 22px rgba(255, 255, 255, 0.18);
+  box-shadow: 0 6px 20px rgba(255, 255, 255, 0.15);
 }
 
-.left-action-btn:hover {
+
+left-action-btn:hover {
   transform: translateY(-2px);
   background-color: #f1f5f9;
-  box-shadow: 0 10px 28px rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 24px rgba(255, 255, 255, 0.25);
 }
 
+/* 右侧预览框同步收敛尺寸 */
 .card-right-preview {
-  flex: 1;
-  width: 100%;
-  max-width: 540px;
+  flex: 1 !important;
+  width: 100% !important;
+  max-width: 480px !important;       /* 将 680px 收拢为 480px，比例更紧实 */
 }
 
 .brief-preview-box {
   background: #0d121f;
   border: 1px solid #1e2638;
   border-radius: 16px;
-  padding: 24px;
+  padding: 20px !important;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
   text-align: left;
 }

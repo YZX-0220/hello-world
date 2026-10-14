@@ -71,11 +71,10 @@ class ProviderAssetUrlService:
         if exp < now_ts:
             return None  # 过期 -> 410
 
-        # 单次访问：nonce 首次 SETNX 占用；已用则视为无效（防重放）
+        # 厂商会对同一素材发起多次读取（首次命中、后续重试 / 多路读取），
+        # 故这里只校验签名、过期与归属，不再做"单次消费"拦截；nonce 仅登记不阻断。
         nonce_key = f"provider-asset-nonce:{payload.get('n', '')}"
-        gained = await self._redis.set(nonce_key, "1", ex=exp - now_ts, nx=True)
-        if not gained:
-            return None
+        await self._redis.set(nonce_key, "1", ex=max(exp - now_ts, 1))
 
         # 素材必须属于该任务且为 ready
         asset = (await self._session.exec(select(Asset).where(Asset.id == payload.get("aid", "")))).first()

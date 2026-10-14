@@ -174,8 +174,11 @@
           </div>
 
           <!-- 画布缩放/平移内容层 -->
-          <div class="canvas-plane" :style="{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }">
-            <!-- 拖动框选矩形框 -->
+         <div 
+  class="canvas-plane" 
+  :class="{ 'is-panning': isPanning }"
+  :style="{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }"
+>
             <div v-if="selectionBox.visible" class="selection-box" :style="{
               left: selectionBox.x + 'px',
               top: selectionBox.y + 'px',
@@ -789,21 +792,100 @@ function resetCanvasView() { pan.value.x = 100; pan.value.y = 100; zoom.value = 
 async function handleDeleteConversation(id: string) {
   if (confirm('确定删除这个创作项目吗？')) await workspace.deleteConversation(id);
 }
-function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') { connectingSource.value = null; contextMenu.visible = false; handleCanvasMouseUp(); }
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); void retrySave(); }
+
+// 记录当前正在按下的方向键集合
+const pressedArrowKeys = new Set<string>();
+let keyPanRafId: number | null = null;
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  return (
+    el.tagName === 'INPUT' ||
+    el.tagName === 'TEXTAREA' ||
+    el.tagName === 'SELECT' ||
+    el.isContentEditable
+  );
 }
+
+// 每一帧执行的画布平滑位移（无停顿、零延迟）
+function updateKeyPanLoop() {
+  if (!currentConvId.value || loading.value || pressedArrowKeys.size === 0) {
+    keyPanRafId = null;
+    return;
+  }
+
+  // 每帧移动像素速度（60Hz下约每秒840px，可根据手感调大或调小，例如 12 ~ 18）
+  const speed = 14;
+
+  if (pressedArrowKeys.has('ArrowLeft')) pan.value.x += speed;
+  if (pressedArrowKeys.has('ArrowRight')) pan.value.x -= speed;
+  if (pressedArrowKeys.has('ArrowUp')) pan.value.y += speed;
+  if (pressedArrowKeys.has('ArrowDown')) pan.value.y -= speed;
+
+  keyPanRafId = requestAnimationFrame(updateKeyPanLoop);
+}
+
+function stopKeyPan() {
+  pressedArrowKeys.clear();
+  if (keyPanRafId !== null) {
+    cancelAnimationFrame(keyPanRafId);
+    keyPanRafId = null;
+  }
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    connectingSource.value = null;
+    contextMenu.visible = false;
+    handleCanvasMouseUp();
+    stopKeyPan();
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+    event.preventDefault();
+    void retrySave();
+    return;
+  }
+
+  if (!currentConvId.value || loading.value) return;
+  if (isEditableTarget(event.target)) return;
+
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+    event.preventDefault();
+    pressedArrowKeys.add(event.key);
+    // 按下瞬间立即启动帧循环，彻底消除系统长按停顿
+    if (keyPanRafId === null) {
+      keyPanRafId = requestAnimationFrame(updateKeyPanLoop);
+    }
+  }
+}
+
+function handleKeyup(event: KeyboardEvent) {
+  if (pressedArrowKeys.has(event.key)) {
+    pressedArrowKeys.delete(event.key);
+    if (pressedArrowKeys.size === 0 && keyPanRafId !== null) {
+      cancelAnimationFrame(keyPanRafId);
+      keyPanRafId = null;
+    }
+  }
+}
+
 onMounted(() => {
   window.addEventListener('mousemove', handleCanvasMouseMove);
   window.addEventListener('mouseup', handleCanvasMouseUp);
   window.addEventListener('keydown', handleKeydown);
+  window.addEventListener('keyup', handleKeyup);
+  window.addEventListener('blur', stopKeyPan); // 切换窗口失焦时自动停止移动
 });
+
 onBeforeUnmount(() => {
   window.removeEventListener('mousemove', handleCanvasMouseMove);
   window.removeEventListener('mouseup', handleCanvasMouseUp);
   window.removeEventListener('keydown', handleKeydown);
+  window.removeEventListener('keyup', handleKeyup);
+  window.removeEventListener('blur', stopKeyPan);
+  stopKeyPan();
 });
-
 // ==================== 5. 画布拖拽、缩放与连线交互 ====================
 // 点击端口：首次点击作为起点拉线，再次点击目标端口完成连接
 // 3. 点击加号端点拉线
@@ -1135,9 +1217,7 @@ function formatFullTime(isoStr?: string | null) {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 onMounted(async () => {
-  window.addEventListener('mousemove', handleCanvasMouseMove);
-  window.addEventListener('mouseup', handleCanvasMouseUp);
-  window.addEventListener('keydown', handleKeydown);
+
 
   // 关键：检查 URL 参数或已有会话，直接进入视图 B
   const queryConvId = route.query.conv_id as string;
@@ -2165,6 +2245,12 @@ button:disabled {
   top: 0;
   left: 0;
   transform-origin: 0 0;
+  will-change: transform; /* 开启硬件加速，确保节点多时依然满帧跟手 */
+}
+
+/* 鼠标拖拽画布时关闭过渡动画，保证实时跟手 */
+.canvas-plane.is-panning {
+  transition: none;
 }
 
 /* 贝塞尔曲线与光点流动动画 */

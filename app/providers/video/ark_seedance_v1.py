@@ -101,7 +101,12 @@ def _build_body(request: dict[str, Any]) -> dict[str, Any]:
         body["duration"] = request["duration_seconds"]
     if request.get("resolution"):
         body["resolution"] = request["resolution"]
-    if request.get("aspect_ratio"):
+    # Seedance 2.5 的首帧/首尾帧/视频编辑/视频延长等"图生类"任务不接受指定宽高比
+    # （传具体比例会被厂商 400，只能省略或传 adaptive，由首帧/素材自动推导）；
+    # 仅文生视频(text_to_video)允许指定比例。2.0 及其他模型不受此限。
+    model = str(request.get("remote_model_id", ""))
+    mode = str(request.get("mode", ""))
+    if request.get("aspect_ratio") and not (model.startswith("doubao-seedance-2-5") and mode != "text_to_video"):
         body["ratio"] = request["aspect_ratio"]
     body["generate_audio"] = request.get("generate_audio", True)
     body["watermark"] = False

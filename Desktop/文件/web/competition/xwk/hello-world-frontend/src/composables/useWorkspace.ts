@@ -21,13 +21,13 @@ export interface ModeConstraint {
 export interface VideoModelProfile {
   code: string;
   label: string;
+  remote_model_id?: string; // 👈 新增：后端返回的远程模型编号（如 doubao-seedance-2-5-260628）
   modes: string[];
   aspect_ratios?: string[];
   duration?: { allowed_values?: number[] };
   resolutions?: string[];
   mode_constraints?: ModeConstraint[];
 }
-
 const MODE_LABELS: Record<string, string> = {
   text_to_video: '文生视频',
   first_frame_to_video: '首帧图生视频',
@@ -155,19 +155,30 @@ export function useWorkspace() {
   // 新增：提交前校验真实发送参数与模型约束
   function validateBeforeSubmit(snapshot: VideoProjectView, doc?: CanvasDocument): string | null {
     const configId = selectedApiConfigId.value || 'platform';
-    let profileCode = 'doubao-seedance-2-5';
+    let targetKey = 'doubao-seedance-2-5';
+    let remoteModelId = '';
     let channelDisplayName = 'Doubao Seedance 2.5';
 
     if (configId !== 'platform') {
       const cfg = (apiConfigs.value as any[]).find(c => c.id === configId);
       if (cfg) {
-        profileCode = cfg.capability_profile_code || cfg.model_profile_code || cfg.remote_model_id || '';
-        channelDisplayName = cfg.display_name || cfg.remote_model_id || profileCode;
+        remoteModelId = cfg.remote_model_id || '';
+        targetKey = cfg.capability_profile_code || cfg.model_profile_code || remoteModelId || '';
+        channelDisplayName = cfg.display_name || remoteModelId || targetKey;
       }
     }
 
-    const profile = modelProfiles.value[profileCode];
-    if (!profile) return null; // 若未找到对应 profile，交由后端兜底校验
+    // 👉 核心修复：不仅按 key (code) 查，还遍历匹配 code、remote_model_id 以及前缀关系
+    const profileList = Object.values(modelProfiles.value);
+    const profile = modelProfiles.value[targetKey]
+      || profileList.find(p =>
+        p.code === targetKey
+        || (p.remote_model_id && p.remote_model_id === targetKey)
+        || (remoteModelId && (p.remote_model_id === remoteModelId || p.code === remoteModelId))
+        || (remoteModelId && p.code && remoteModelId.startsWith(p.code))
+      );
+
+    if (!profile) return null; // 若仍未找到对应 profile，交由后端兜底校验
 
     const modelLabel = profile.label || channelDisplayName;
     const spec: any = snapshot.current_spec || {};

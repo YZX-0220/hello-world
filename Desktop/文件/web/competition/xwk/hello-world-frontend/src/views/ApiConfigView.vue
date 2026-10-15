@@ -516,9 +516,13 @@ async function handleProtocolChange() {
     const res: any = await request.get('/video-model-profiles', {
       params: { protocol_code: form.protocol_code }
     });
-    modelProfiles.value = res.items || [];
+    modelProfiles.value = Array.isArray(res) ? res : (res.items || []);
     if (modelProfiles.value.length > 0) {
-      form.remote_model_id = modelProfiles.value[0].remote_model_id;
+      form.remote_model_id = modelProfiles.value[0].remote_model_id || modelProfiles.value[0].code;
+      // 👇 改动 1：加载出默认模型时，同步绑定它的能力档案 code
+      form.capability_profile_code = modelProfiles.value[0].code || null;
+    } else {
+      form.capability_profile_code = null;
     }
   } catch (e) {
     modelProfiles.value = [];
@@ -532,6 +536,9 @@ async function handleTest() {
   }
   isTesting.value = true;
   testMessage.value = '正在安全检测网络与鉴权状态...';
+
+  // 👇 改动 2：测试前自动匹配并同步 capability_profile_code
+  form.capability_profile_code = resolveCapabilityProfileCode();
 
   try {
     const res: any = await request.post('/video-api-configs/test', {
@@ -552,13 +559,25 @@ async function handleTest() {
     isTesting.value = false;
   }
 }
-
+// 新增辅助函数：根据当前选中的 remote_model_id，自动反查对应的模型档案 code
+function resolveCapabilityProfileCode(): string | null {
+  const matched = modelProfiles.value.find(
+    (m: any) =>
+      m.remote_model_id === form.remote_model_id ||
+      m.code === form.remote_model_id ||
+      (m.code && form.remote_model_id?.startsWith(m.code))
+  );
+  return matched?.code || form.capability_profile_code || null;
+}
 async function handleSave() {
   if (!form.display_name.trim() || !form.auth.api_key.trim()) {
     alert('请补齐配置名称与 API Key');
     return;
   }
   isSaving.value = true;
+
+  // 👇 改动 3：保存前自动匹配并带上 capability_profile_code，确保落盘不再是 null
+  form.capability_profile_code = resolveCapabilityProfileCode();
 
   try {
     await request.post('/video-api-configs', {
@@ -574,9 +593,7 @@ async function handleSave() {
       relay_risk_accepted: form.relay_risk_accepted
     });
     alert('配置已成功加密保存！');
-    // 保存后自动跳至“已有 API”查看
-    activeTab.value = 'existing';
-    await fetchExistingConfigs();
+    router.push('/workspace');
   } catch (err: any) {
     alert(err.message || '保存失败');
   } finally {

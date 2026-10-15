@@ -185,7 +185,12 @@ export function useWorkspace() {
       const supportedModes = profile.modes.map(m => `【${MODE_LABELS[m] || m}】`).join('、');
       return `⚠️ 当前通道【${modelLabel}】不支持「${modeName}」模式。\n你可以：① 改用该模型支持的模式（${supportedModes}）；② 或切换其他支持「${modeName}」的模型通道。`;
     }
-
+    if (mode === 'first_frame_to_video' && !spec.first_frame_asset_id) {
+      return `⚠️ 当前方案为「${modeName}」模式，但尚未绑定首帧图片素材。请先上传/指定首帧图，或改用【文生视频】模式。`;
+    }
+    if (mode === 'first_last_frame_to_video' && (!spec.first_frame_asset_id || !spec.last_frame_asset_id)) {
+      return `⚠️ 当前方案为「${modeName}」模式，需要同时提供首帧和尾帧图片素材。请补全图片，或改用其他生成模式。`;
+    }
     // 3. 匹配模式级约束 (mode_constraints)
     const modeConstraint = profile.mode_constraints?.find(c => c.mode === mode);
 
@@ -464,8 +469,10 @@ export function useWorkspace() {
       const job = await request.post<VideoJobView, VideoJobView>('/video-jobs', {
         conversation_id: id, project_id: snapshot.id, spec_version: snapshot.current_spec_version,
         api_config_id: selectedApiConfigId.value, mode: snapshot.current_spec.mode || 'text_to_video',
-        generation_options: { ...store.sessions.get(id)?.document.generation_settings, generate_audio: true, canvas_source_node_id: sourceId,
-          canvas_source_node_ids: selectedIds }, previous_job_id: null,
+        generation_options: {
+          ...store.sessions.get(id)?.document.generation_settings, generate_audio: true, canvas_source_node_id: sourceId,
+          canvas_source_node_ids: selectedIds
+        }, previous_job_id: null,
       }, { headers: { 'Idempotency-Key': newId() } });
       if (currentConvId.value === id) {
         jobs.value.unshift(job); materializeJob(id, job); schedulePolling();
@@ -483,8 +490,10 @@ export function useWorkspace() {
     let node = session.document.nodes.find(n => n.job_id === job.id || n.id === `video_${job.id}`);
     if (node) { if (node.url !== url) { node.url = url; store?.edit(id, session.document); } return; }
     const source = session.document.nodes.find(n => n.id === job.generation_options.canvas_source_node_id);
-    node = { id: `video_${job.id}`, job_id: job.id, type: 'video', title: '生成视频结果',
-      x: source ? source.x + 360 : 800, y: source?.y || 160, url, asset_id: job.result_asset_id || undefined };
+    node = {
+      id: `video_${job.id}`, job_id: job.id, type: 'video', title: '生成视频结果',
+      x: source ? source.x + 360 : 800, y: source?.y || 160, url, asset_id: job.result_asset_id || undefined
+    };
     session.document.nodes.push(node);
     const sourceIds: string[] = job.generation_options.canvas_source_node_ids || (source ? [source.id] : []);
     for (const sourceId of sourceIds) if (session.document.nodes.some(n => n.id === sourceId))
@@ -548,8 +557,10 @@ export function useWorkspace() {
       if (!session.dirty || session.pending || session.conflicts.length) continue;
       const body = JSON.stringify({ canvas_data: session.document, expected_canvas_version: session.version });
       if (new TextEncoder().encode(body).length > 60000) continue;
-      void fetch(`/api/v1/conversations/${session.id}/canvas`, { method: 'PUT', credentials: 'include', keepalive: true,
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent(token) }, body }).catch(() => {});
+      void fetch(`/api/v1/conversations/${session.id}/canvas`, {
+        method: 'PUT', credentials: 'include', keepalive: true,
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent(token) }, body
+      }).catch(() => { });
     }
   }
   async function reconnect() {
@@ -597,9 +608,11 @@ export function useWorkspace() {
     document.removeEventListener('visibilitychange', visibilityChanged);
   });
 
-  return { canvas, nodes, connections, pan, zoom, currentConvId, conversations, messages, project, apiConfigs, modelProfiles,
+  return {
+    canvas, nodes, connections, pan, zoom, currentConvId, conversations, messages, project, apiConfigs, modelProfiles,
     inputContent, referencedNodeIds, aiTargetNodeId, selectedApiConfigId, isAgentResponding, isCreatingConv, isSubmittingJob,
     isConfirming, isPreparingVideo, videoReview, isAgentDrawerOpen, activeJob, generationReady, initialized, loading, notice, saveState, saveLabel, uploading,
     switchConversation, createNewConversation, backToProjectSpace, deleteConversation, sendMessage, uploadImage,
-    confirmSpec, prepareVideo, submitVideoJob, retrySave, resolveConflict, restoreBeforeAi, handleLogout, loadConversations };
+    confirmSpec, prepareVideo, submitVideoJob, retrySave, resolveConflict, restoreBeforeAi, handleLogout, loadConversations
+  };
 }

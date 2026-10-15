@@ -10,9 +10,12 @@
   base 与下载直链在请求前都做 SSRF 校验（check_base_url）。
 """
 
+import logging
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger("app.providers.video.ark")
 
 from app.core.config import settings
 from app.core.ssrf import UnsafeUrlError, check_base_url
@@ -142,7 +145,12 @@ class ArkSeedanceProvider(VideoProvider):
         except httpx.HTTPError as exc:
             raise VideoProviderError("VIDEO_SUBMISSION_FAILED", "提交厂商请求失败") from exc
         if not (200 <= resp.status_code < 300):
-            raise VideoProviderError("VIDEO_SUBMISSION_FAILED", f"厂商拒绝任务（HTTP {resp.status_code}）", retryable=False)
+            logger.warning("Ark 提交被拒 HTTP %s: %s", resp.status_code, resp.text[:1500])
+            raise VideoProviderError(
+                "VIDEO_SUBMISSION_FAILED",
+                f"厂商拒绝任务（HTTP {resp.status_code}）：{resp.text[:300]}",
+                retryable=False,
+            )
         task_id = (resp.json() or {}).get("id")
         if not task_id:
             raise VideoProviderError("VIDEO_SUBMISSION_FAILED", "厂商响应缺少任务 ID", retryable=False)
@@ -157,6 +165,7 @@ class ArkSeedanceProvider(VideoProvider):
         except httpx.HTTPError as exc:
             raise VideoProviderError("VIDEO_POLL_FAILED", "查询厂商状态失败") from exc
         if resp.status_code >= 400:
+            logger.warning("Ark 查询返回 HTTP %s: %s", resp.status_code, resp.text[:1200])
             raise VideoProviderError("VIDEO_POLL_FAILED", f"厂商查询返回 HTTP {resp.status_code}")
         data = resp.json() or {}
         raw = data.get("status") or ""

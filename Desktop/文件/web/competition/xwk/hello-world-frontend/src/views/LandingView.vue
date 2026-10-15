@@ -83,7 +83,7 @@
     <main class="snap-container" ref="scrollContainerRef">
 
       <!-- ================= 第一屏：主视觉 Hero ================= -->
-      <section class="snap-section hero-screen">
+      <section class="snap-section hero-screen" ref="heroSectionRef">
         <div class="hero-container">
 
 
@@ -137,7 +137,7 @@
         <div class="about-container">
 
           <div class="external-header">
-            <h2 class="platform-main-title">
+            <h2 class="platform-main-title" @click="scrollToTop" title="点击返回上一页">
               <span class="en-title">Hello World</span>
               <span class="logo-symbol">
                 <svg viewBox="0 0 24 24" fill="currentColor">
@@ -234,7 +234,12 @@
       <!-- ================= 第三屏：核心价格与成本优势 ================= -->
       <section class="snap-section pricing-screen" ref="pricingSectionRef">
         <div class="pricing-container">
-
+<div class="scroll-up-hint" @click="scrollToAbout">
+  <svg class="scroll-arrow rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+  </svg>
+  <span>返回产品介绍</span>
+</div>
           <div class="external-header pricing-header">
             <div class="section-badge-pill">COST & PRICING ADVANTAGE</div>
             <h2 class="platform-main-title">
@@ -301,7 +306,7 @@
                     </div>
                     <div class="bar-x-label">
                       <span>行业主流大平台 A</span>
-                      <small>(最高档会员折算)</small>
+                      <small>(最高档会员折算单条)</small>
                     </div>
                   </div>
 
@@ -315,7 +320,7 @@
                     </div>
                     <div class="bar-x-label">
                       <span>行业主流大平台 B</span>
-                      <small>(单条折算成本)</small>
+                      <small>(最高档会员折算单条)</small>
                     </div>
                   </div>
 
@@ -352,7 +357,12 @@
       <!-- ================= 第四屏：紧跟用户需求 · 核心痛点调研 (新增) ================= -->
       <section class="snap-section painpoints-screen" ref="painpointsSectionRef">
         <div class="painpoints-container">
-
+<div class="scroll-up-hint" @click="scrollToPricing">
+  <svg class="scroll-arrow rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+  </svg>
+  <span>返回价格优势</span>
+</div>
           <div class="external-header painpoints-header">
             <div class="section-badge-pill">USER-DRIVEN INNOVATION</div>
             <h2 class="platform-main-title">
@@ -468,7 +478,11 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import request from '@/utils/request';
+const heroSectionRef = ref<HTMLElement | null>(null);
 
+function scrollToHero() {
+  heroSectionRef.value?.scrollIntoView({ behavior: 'smooth' });
+}
 const router = useRouter();
 const scrollContainerRef = ref<HTMLElement | null>(null);
 const aboutSectionRef = ref<HTMLElement | null>(null);
@@ -957,9 +971,10 @@ function scrollToTop() {
   height: 30px;
   background-color: rgba(255, 255, 255, 0.12);
 }
-.scroll-down-hint {
+/* 向下与向上提示通用基础样式 */
+.scroll-down-hint,
+.scroll-up-hint {
   position: absolute;
-  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -972,13 +987,26 @@ function scrollToTop() {
   font-size: 13px;
   letter-spacing: 0.5px;
   transition: color 0.2s ease;
-  animation: floatUpDown 2s infinite ease-in-out;
   z-index: 20;
   text-align: center;
-  width: max-content; /* 避免文字折行造成视觉重心偏移 */
+  width: max-content;
   user-select: none;
 }
-.scroll-down-hint:hover {
+
+/* 底部向下按钮定位与动画 */
+.scroll-down-hint {
+  bottom: 24px;
+  animation: floatUpDown 2s infinite ease-in-out;
+}
+
+/* 顶部向上按钮定位（避开顶部导航栏）与相反动画 */
+.scroll-up-hint {
+  top: clamp(68px, 8.8vh, 92px);
+  animation: floatDownUp 2s infinite ease-in-out;
+}
+
+.scroll-down-hint:hover,
+.scroll-up-hint:hover {
   color: #94a3b8;
 }
 
@@ -988,15 +1016,30 @@ function scrollToTop() {
   display: block;
 }
 
-@keyframes floatUpDown {
+/* 箭头翻转 180 度朝上 */
+.rotate-180 {
+  transform: rotate(180deg);
+}
 
+/* 保留 -50% 水平居中偏移，彻底解决偏右问题 */
+@keyframes floatUpDown {
   0%,
   100% {
-    transform: translateY(0);
+    transform: translate(-50%, 0);
   }
-
   50% {
-    transform: translateY(6px);
+    transform: translate(-50%, 6px);
+  }
+}
+
+/* 相反的向上浮动动画 */
+@keyframes floatDownUp {
+  0%,
+  100% {
+    transform: translate(-50%, 0);
+  }
+  50% {
+    transform: translate(-50%, -6px);
   }
 }
 
@@ -1032,7 +1075,15 @@ function scrollToTop() {
   color: #ffffff;
   letter-spacing: -0.5px;
 }
+.clickable-title {
+  cursor: pointer;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
 
+.clickable-title:hover {
+  transform: translateY(-2px);
+  opacity: 0.88;
+}
 .en-title {
   font-weight: 800;
 }
@@ -2088,8 +2139,10 @@ left-action-btn:hover {
     align-items: center;
   }
 
-  .scroll-down-hint {
-    display: none;
+/* 手机端隐藏所有上下滚动箭头 */
+  .scroll-down-hint,
+  .scroll-up-hint {
+    display: none !important;
   }
 
   /* 第二屏移动端 */
@@ -2203,9 +2256,62 @@ left-action-btn:hover {
     width: 100%;
   }
 
-  /* 手机端彻底隐藏第四屏（用户痛点） */
+/* 手机端显示并适配第四屏（用户痛点） */
   .painpoints-screen {
+    display: flex !important;
+  }
+
+  .v-grid-line,
+  .x-axis-ticks {
     display: none !important;
+  }
+
+  .hbar-rows-container {
+    gap: 18px;
+  }
+
+  .hbar-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .hbar-label {
+    width: 100%;
+    min-width: unset;
+    text-align: left;
+    padding-right: 0;
+    font-size: 14px;
+  }
+
+  .hbar-track {
+    flex: none !important; /* 核心修复：解除桌面端 flex: 1 在纵向上把高度压缩为 0 的问题 */
+    width: 100%;
+    height: 28px !important;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .hbar-fill {
+    height: 100% !important;
+    animation: none !important;
+    transform: none !important;
+    border-radius: 6px;
+  }
+
+  .hbar-value-text {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 13px;
+    margin-left: 0;
+    z-index: 2;
+  }
+
+  .x-axis-bar {
+    margin-left: 0;
   }
 }
 </style>

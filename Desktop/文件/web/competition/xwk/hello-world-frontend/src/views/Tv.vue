@@ -46,14 +46,10 @@
         </svg>
       </button>
 
-      <!-- 中间主视频视窗 -->
+    <!-- 中间主视频视窗 -->
+     <!-- 中间主视频视窗 -->
       <div class="video-wrapper">
-        <div v-if="isVideoLoading" class="loading-placeholder">
-          <div class="spinner"></div>
-          <span>正在加载视频画面...</span>
-        </div>
-
-        <div v-else-if="loading && items.length === 0" class="loading-placeholder">
+        <div v-if="loading && items.length === 0" class="loading-placeholder">
           <div class="spinner"></div>
           <span>正在连接频道素材...</span>
         </div>
@@ -65,12 +61,45 @@
             <line x1="2" y1="20" x2="22" y2="20" stroke-width="1.5" />
           </svg>
           <span class="empty-title">暂无已发布的示例视频</span>
-          <span class="empty-hint">请确保已在管理员后台将素材状态发布为 published，或检查登录状态[cite: 1]</span>
+          <span class="empty-hint">请确保已在管理员后台将素材状态发布为 published，或检查登录状态</span>
         </div>
 
-        <video v-else ref="videoPlayerRef" class="main-video" :key="currentItem?.id"
-          :src="videoBlobUrl || currentItem?.video?.content_url" :poster="currentItem?.cover?.content_url" controls
-          autoplay loop playsinline></video>
+        <template v-else>
+          <!-- 视频缓冲时的半透明浮层（不打断原生边下边播） -->
+          <div v-if="isVideoBuffering" class="loading-placeholder video-buffering-overlay">
+            <div class="spinner"></div>
+            <span>正在缓冲画面...</span>
+          </div>
+
+          <video
+            ref="videoPlayerRef"
+            class="main-video"
+            :key="currentItem?.id"
+            :src="currentItem?.video?.content_url"
+            :poster="currentItem?.cover?.content_url"
+            crossorigin="use-credentials"
+            preload="auto"
+            controls
+            autoplay
+            loop
+            playsinline
+            @waiting="isVideoBuffering = true"
+            @canplay="isVideoBuffering = false"
+            @playing="isVideoBuffering = false"
+            @loadeddata="isVideoBuffering = false"
+            @error="isVideoBuffering = false"
+          ></video>
+
+          <!-- 后台静默预加载下一个视频的元数据 -->
+          <video
+            v-if="nextItemUrl"
+            :src="nextItemUrl"
+            crossorigin="use-credentials"
+            preload="metadata"
+            muted
+            style="display: none;"
+          ></video>
+        </template>
       </div>
 
       <!-- 右侧切换按钮（桌面端可见，移动端自动隐藏） -->
@@ -184,49 +213,28 @@ const isAdmin = ref(false);
 // 控制提示词底栏展开/收起状态
 const isExpanded = ref(false);
 
+// 控制视频原生流缓冲提示状态（不阻塞 <video> 挂载）
+const isVideoBuffering = ref(false);
+
 const videoPlayerRef = ref<HTMLVideoElement | null>(null);
 const containerRef = ref<HTMLElement | null>(null);
 
-// 声明响应式计算属性 currentItem
+// 当前正在播放的素材项
 const currentItem = computed(() => items.value[currentIndex.value] || null);
 
-// 视频 Blob URL 及其加载状态
-const videoBlobUrl = ref<string>('');
-const isVideoLoading = ref(false);
+// 预计算下一个视频的 URL，用于后台静默预热元数据，实现切换秒开
+const nextItemUrl = computed(() => {
+  const next = items.value[currentIndex.value + 1];
+  return next?.video?.content_url || '';
+});
 
-// 切换视频时重置展开状态
-watch(currentItem, async (newItem) => {
+// 切换视频时：收起底栏提示词，并开启首帧缓冲状态指示
+watch(currentItem, (newItem) => {
   isExpanded.value = false;
-
-  if (videoBlobUrl.value) {
-    URL.revokeObjectURL(videoBlobUrl.value);
-    videoBlobUrl.value = '';
-  }
-
-  const targetUrl = newItem?.video?.content_url;
-  if (!targetUrl) return;
-
-  isVideoLoading.value = true;
-  try {
-    const res = await fetch(targetUrl, {
-      method: 'GET',
-      credentials: 'include' // 携带 hw_session Cookie[cite: 1]
-    });
-
-    if (!res.ok) {
-      throw new Error(`获取视频流失败: HTTP ${res.status}`);
-    }
-
-    const blob = await res.blob();
-    videoBlobUrl.value = URL.createObjectURL(blob);
-  } catch (err) {
-    console.warn('通过受控流加载视频异常，将降级尝试直接播放:', err);
-  } finally {
-    isVideoLoading.value = false;
-  }
+  isVideoBuffering.value = !!newItem?.video?.content_url;
 }, { immediate: true });
 
-// 切换展开/收起
+// 切换底栏展开/收起
 function toggleExpand() {
   if (!currentItem.value) return;
   isExpanded.value = !isExpanded.value;
@@ -246,18 +254,14 @@ function goToAdminPanel() {
   router.push('/tv/admin');
 }
 
-// 检查当前用户是否具有素材库管理员权限[cite: 1]
+// 检查当前用户是否具有素材库管理员权限
 async function checkAdminPermission() {
   try {
     const res = await fetch('/api/v1/admin/material-library?limit=1', {
       method: 'GET',
       credentials: 'include'
     });
-    if (res.ok) {
-      isAdmin.value = true;
-    } else {
-      isAdmin.value = false;
-    }
+    isAdmin.value = res.ok;
   } catch {
     isAdmin.value = false;
   }
@@ -271,7 +275,7 @@ const promptText = computed(() => {
     .trim();
 });
 
-// 从素材库接口分页拉取已发布示例[cite: 1]
+// 从素材库接口分页拉取已发布示例
 async function fetchMaterials(cursor?: string) {
   loading.value = true;
   try {
@@ -378,6 +382,13 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.video-buffering-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 5;
+  pointer-events: none;
+}
 .tv-container {
   width: 100vw;
   height: 100vh;

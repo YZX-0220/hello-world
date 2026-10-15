@@ -14,11 +14,12 @@ import json
 import logging
 import re
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
 from app.core.config import settings
-from app.core.ssrf import UnsafeUrlError, check_base_url
+from app.core.ssrf import UnsafeUrlError, check_base_url, validate_public_host
 from app.providers.video.base import (
     AdapterContext,
     VideoProvider,
@@ -183,10 +184,14 @@ class ArkSeedanceProvider(VideoProvider):
         payload = _build_body(request)
         for item in payload["content"]:
             media = item.get(item["type"])
-            if isinstance(media, dict) and str(media.get("url", "")).startswith(("http://", "https://")):
+            media_url = str(media.get("url", "")) if isinstance(media, dict) else ""
+            if media_url.startswith(("http://", "https://")):
+                # 素材是本站受控地址（可为 http，如 http://<APP_BASE_URL 主机>/api/v1/provider-assets/…）。
+                # 只校验其主机名解析为公网可达即可；不能套用 check_base_url（那要求 HTTPS，仅适用于用户自配的厂商 base_url）。
+                host = urlsplit(media_url).hostname or ""
                 try:
-                    await self._require_public(media["url"])
-                except VideoProviderError as exc:
+                    validate_public_host(host)
+                except UnsafeUrlError as exc:
                     raise VideoProviderError(
                         "VIDEO_INPUT_UNREACHABLE",
                         "素材地址不是厂商可访问的公网地址，请检查后端 APP_BASE_URL 和域名解析。",

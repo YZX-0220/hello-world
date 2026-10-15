@@ -452,11 +452,13 @@
                     <option value="auto">按所选素材自动判断</option>
                     <option value="text_to_video">文生视频</option>
                     <option value="first_frame_to_video">首帧图生视频</option>
-                    <option value="first_last_frame_to_video">首尾帧生视频</option>
                     <option value="reference_image_to_video">参考图生视频</option>
+                    <optgroup label="高级选项">
+                      <option value="first_last_frame_to_video">首尾帧生视频</option>
+                    </optgroup>
                   </select>
                 </div>
-                <p class="generation-help">自动模式：无图片使用文生，一张图片作为首帧，多张图片作为参考图。首尾帧需手动选择模式。</p>
+                <p class="generation-help">{{ videoModeHelp }}</p>
                 <div v-if="canvas.video_mode === 'first_last_frame_to_video'" class="video-generation-settings">
                   <div class="spec-field-mini"><label for="video-first-frame">首帧图片</label>
                     <select id="video-first-frame" v-model="canvas.video_input_roles.first_frame_node_id" :disabled="isSubmittingJob">
@@ -466,27 +468,31 @@
                   </div>
                   <div class="spec-field-mini"><label for="video-last-frame">尾帧图片</label>
                     <select id="video-last-frame" v-model="canvas.video_input_roles.last_frame_node_id" :disabled="isSubmittingJob">
-                      <option value="">按画布顺序使用第二张图片</option>
+                      <option value="">按画布顺序使用第二张；仅一张时沿用首帧（模型支持时）</option>
                       <option v-for="image in videoImageNodes" :key="image.id" :value="image.id">{{ image.title }}</option>
                     </select>
                   </div>
                 </div>
                 <div class="video-generation-settings">
                   <div class="spec-field-mini"><label for="video-duration">视频时长（秒，必填）</label>
-                    <input id="video-duration" v-model="videoDurationInput" type="number" min="1" max="15" step="1"
+                    <select v-if="selectedGenerationTarget?.profile?.image_constraints" id="video-duration"
+                      v-model="canvas.video_duration_seconds" required :disabled="isSubmittingJob">
+                      <option disabled :value="null">请选择时长</option>
+                      <option v-for="duration in videoDurationOptions" :key="duration" :value="duration">{{ duration }} 秒</option>
+                    </select>
+                    <input v-else id="video-duration" v-model="videoDurationInput" type="number" min="1" max="15" step="1"
                       required placeholder="填写 1–15 秒" :disabled="isSubmittingJob" />
                   </div>
                   <div class="spec-field-mini"><label for="video-resolution">视频清晰度（必选）</label>
                     <select id="video-resolution" v-model="canvas.video_resolution" required
                       :disabled="isSubmittingJob">
                       <option disabled value="">请选择清晰度</option>
-                      <option value="480p">480p</option>
-                      <option value="720p">720p</option>
-                      <option value="1080p">1080p</option>
+                      <option v-for="resolution in videoResolutionOptions" :key="resolution" :value="resolution">{{ resolution }}</option>
                     </select>
                   </div>
                 </div>
-                <p class="generation-help">AI 会按当前模型与设置审理。必要的参数调整会先展示；点击生成即采用展示值。修改内容、通道、模式或参数后需重新审理。</p>
+                <p v-if="videoSettingsReason" class="generation-help" role="status">{{ videoSettingsReason }}</p>
+                <p class="generation-help">AI 会按当前模型与设置审理，说明必要的参数调整和图片处理。点击生成即采用审理结果，画布原图保留。修改内容、通道、模式或参数后需重新审理。</p>
                 <button class="prepare-video-btn"
                   :disabled="!videoSourceNodes.length || !!videoSettingsReason || targetLoading || isPreparingVideo || isAgentResponding || isSubmittingJob || isConfirming"
                   @click="prepareVideo">{{ isPreparingVideo ? 'AI 正在审理…' : 'AI审理方案' }}</button>
@@ -593,7 +599,7 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } 
 import { useWorkspace, newId } from '@/composables/useWorkspace';
 import type { FlowNode, FlowConnection } from '@/types/canvas';
 import { renderMd } from '@/utils/markdown';
-import { generationContextMatches, generationMatches, generationSources, videoGenerationBlockReason, videoSettingsBlockReason } from '@/services/generationState';
+import { generationContextMatches, generationMatches, generationSources, videoDurationChoices, videoGenerationBlockReason, videoSettingsBlockReason } from '@/services/generationState';
 
 
 import { useRouter, useRoute } from 'vue-router'; // 确保引入了 useRoute
@@ -655,7 +661,22 @@ const videoDurationInput = computed({
   get: () => canvas.value.video_duration_seconds ?? '',
   set: (value: string | number) => { canvas.value.video_duration_seconds = value === '' ? null : Number(value); },
 });
-const videoSettingsReason = computed(() => videoSettingsBlockReason(canvas.value));
+const videoDurationOptions = computed(() => videoDurationChoices(selectedGenerationTarget.value));
+const videoResolutionOptions = computed(() => {
+  const resolutions = selectedGenerationTarget.value?.profile?.resolutions;
+  return resolutions?.length ? resolutions.filter(value => ['480p', '720p', '1080p'].includes(value)) : ['480p', '720p', '1080p'];
+});
+const videoModeHelp = computed(() => {
+  const adaptive = selectedGenerationTarget.value?.profile?.image_constraints;
+  return ({
+    auto: '无图片使用文生，一张图片作为首帧，多张图片作为参考图。',
+    text_to_video: '根据文字创作视频，不使用图片。',
+    first_frame_to_video: '图片作为视频起始画面。' + (adaptive ? '画幅跟随处理后的首帧图片。' : ''),
+    reference_image_to_video: '参考图片中的主体或风格，不要求视频从该图片开始。',
+    first_last_frame_to_video: '指定起始和结束画面。' + (selectedGenerationTarget.value?.profile?.allows_identical_frames ? '可以使用同一张图片作为首尾帧。' : ''),
+  }[canvas.value.video_mode] || '请选择生成模式。');
+});
+const videoSettingsReason = computed(() => videoSettingsBlockReason(canvas.value, selectedGenerationTarget.value));
 const videoSelectionReady = computed(() => generationReady.value && !!project.value
   && generationMatches(canvas.value, project.value.current_spec_version, videoSourceIds.value, selectedGenerationTarget.value?.fingerprint));
 const videoReviewFresh = computed(() => !!project.value && !!selectedGenerationTarget.value && !targetLoading.value
@@ -674,6 +695,7 @@ const videoGenerationDisabledReason = computed(() => {
     confirming: isConfirming.value, channel: selectedApiConfigId.value, saveStatus: saveState.value.status,
     targetFingerprint: selectedGenerationTarget.value?.fingerprint, targetLoading: targetLoading.value, targetError: targetError.value,
     reviewError: videoReview.value?.kind === 'error',
+    target: selectedGenerationTarget.value,
   });
 });
 

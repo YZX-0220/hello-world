@@ -317,7 +317,7 @@ export function useWorkspace() {
     isPreparingVideo.value = true;
     videoReviews.value[id] = { kind: 'loading', content: 'AI 正在整理最终方案，并补全必要的创作细节…' };
     try {
-      const settingsReason = videoSettingsBlockReason(canvas.value);
+      const settingsReason = videoSettingsBlockReason(canvas.value, selectedGenerationTarget.value);
       if (settingsReason) { videoReviews.value[id] = { kind: 'error', content: settingsReason }; return; }
       if (!await store.flush(id)) { videoReviews.value[id] = { kind: 'error', content: '画布尚未同步，请先保存，再审理方案。' }; return; }
       const documentToPrepare = store.sessions.get(id)?.document;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { copy, createCanvas, mergeCanvas } from '../src/services/canvasState.ts';
-import { generationMatches, generationSources, savedVideoReview, videoGenerationBlockReason } from '../src/services/generationState.ts';
+import { generationMatches, generationSources, savedVideoReview, videoDurationChoices, videoGenerationBlockReason, videoSettingsBlockReason } from '../src/services/generationState.ts';
 
 function prepared() {
   const document = createCanvas('one', '手动脚本');
@@ -17,6 +17,28 @@ function prepared() {
   document.generation_snapshot = generationSources(document, document.generation_source_ids);
   return document;
 }
+
+test('audited model duration choices intersect the platform limit and require a manual valid choice', () => {
+  const document = prepared();
+  const target = {
+    ...document.generation_target!,
+    profile: {
+      modes: ['text_to_video'], label: 'Seedance 2.5', resolutions: ['480p', '720p', '1080p'],
+      duration: { allowed_values: Array.from({ length: 27 }, (_, index) => index + 4) },
+      image_constraints: { min_width: 300 },
+    },
+  };
+  assert.deepEqual(videoDurationChoices(target), Array.from({ length: 12 }, (_, index) => index + 4));
+  for (const duration of [1, 2, 3]) {
+    document.video_duration_seconds = duration;
+    assert.match(videoSettingsBlockReason(document, target), /手动选择/);
+  }
+  for (const duration of [4, 7, 15]) {
+    document.video_duration_seconds = duration;
+    assert.equal(videoSettingsBlockReason(document, target), '');
+    assert.equal(document.video_duration_seconds, duration);
+  }
+});
 
 test('a prepared multi-box plan matches regardless of click order, but rejects changed selection and content', () => {
   const document = prepared();

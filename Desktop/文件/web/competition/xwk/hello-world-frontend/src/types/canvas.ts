@@ -54,7 +54,12 @@ export interface GenerationTarget {
   remote_model_id: string;
   label: string;
   error?: string;
-  profile?: { modes: string[]; label: string; resolutions: string[] } | null;
+  profile?: {
+    modes: string[]; label: string; resolutions: string[];
+    duration?: { allowed_values: number[] };
+    allows_identical_frames?: boolean;
+    image_constraints?: Record<string, unknown> | null;
+  } | null;
 }
 
 export interface GenerationSource {

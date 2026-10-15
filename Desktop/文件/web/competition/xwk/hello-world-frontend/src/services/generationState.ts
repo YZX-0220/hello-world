@@ -1,4 +1,4 @@
-import type { CanvasDocument, GenerationSource } from '../types/canvas.ts';
+import type { CanvasDocument, GenerationSource, GenerationTarget } from '../types/canvas.ts';
 import { same } from './canvasState.ts';
 
 export function generationSources(document: CanvasDocument, nodeIds: string[]): GenerationSource[] {
@@ -49,6 +49,7 @@ export function videoGenerationBlockReason(document: CanvasDocument, version: nu
   confirming: boolean; channel: string; saveStatus: string;
   targetFingerprint?: string; targetLoading?: boolean; targetError?: string;
   reviewError?: boolean;
+  target?: GenerationTarget | null;
 }) {
   if (state.submitting) return '视频任务正在提交，请稍候。';
   if (state.preparing) return 'AI 正在整理最终方案，完成后即可生成。';
@@ -57,7 +58,7 @@ export function videoGenerationBlockReason(document: CanvasDocument, version: nu
   if (state.targetLoading) return '正在核对当前通道的模型能力…';
   if (state.targetError) return state.targetError;
   if (!selectedIds.length) return '请先选择需要生成视频的文本小框。';
-  const settingsReason = videoSettingsBlockReason(document);
+  const settingsReason = videoSettingsBlockReason(document, state.target);
   if (settingsReason) return settingsReason;
   if (document.generation_review?.status === 'blocked') return '当前方案需要调整，请查看审理区的具体操作说明，调整后重新审理。';
   if (!state.compiledPrompt || !document.generation_source_ids.length) return '请先点击“AI审理方案”，得到可直接生成的最终方案。';
@@ -67,9 +68,18 @@ export function videoGenerationBlockReason(document: CanvasDocument, version: nu
   return '';
 }
 
-export function videoSettingsBlockReason(document: CanvasDocument) {
+export function videoSettingsBlockReason(document: CanvasDocument, target?: GenerationTarget | null) {
   if (!Number.isInteger(document.video_duration_seconds) || !document.video_duration_seconds
     || document.video_duration_seconds < 1 || document.video_duration_seconds > 15) return '请填写视频时长（1–15 秒的整数）。';
   if (!['480p', '720p', '1080p'].includes(document.video_resolution)) return '请选择视频清晰度。';
+  if (target?.profile?.image_constraints) {
+    const durations = videoDurationChoices(target);
+    if (!durations.includes(document.video_duration_seconds)) return '请手动选择当前模型支持的视频时长（4–15 秒的整数）。';
+    if (!target.profile.resolutions.includes(document.video_resolution)) return '请选择当前模型支持的视频清晰度。';
+  }
   return '';
+}
+
+export function videoDurationChoices(target?: GenerationTarget | null): number[] {
+  return (target?.profile?.duration?.allowed_values || []).filter(value => value >= 1 && value <= 15);
 }

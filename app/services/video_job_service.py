@@ -10,7 +10,8 @@ from contextlib import suppress
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlmodel import select
+from sqlalchemy import update
+from sqlmodel import col, select
 
 from app.core.config import settings
 from app.core.cursor import encode_cursor
@@ -34,8 +35,8 @@ from app.core.errors import (
 from app.core.ids import new_id
 from app.core.security import decrypt_secret
 from app.core.time import now
-from app.db.models.project import VideoProject, VideoProjectVersion
-from app.db.models.video_api_config import VideoApiConfigRevision
+from app.db.models.project import VideoProject
+from app.db.models.video_api_config import VideoApiConfig, VideoApiConfigRevision
 from app.db.models.video_job import VideoJob, VideoJobAsset, VideoJobEvent
 from app.providers.video import get_video_provider
 from app.providers.video.base import AdapterContext, VideoProviderError
@@ -51,10 +52,9 @@ from app.repositories.video_jobs import (
 )
 from app.schemas.agent import VideoBrief
 from app.schemas.video_job import CreateVideoCommand, ErrorInfo, VideoJobEventView, VideoJobView
-from app.services.canvas_video_service import validate_generation_sources
+from app.services.canvas_video_service import reviewed_version
 from app.services.provider_asset_url import sign_provider_asset
 from app.services.video_download_service import VideoDownloadService
-from app.services.video_prompt import compile_video_prompt
 from app.video_registry import get_template
 from app.video_registry.models import EndpointSpec, ProtocolTemplate
 
@@ -149,65 +149,73 @@ class VideoJobService:
         self._assets = AssetRepository(session)
         self._configs = VideoApiConfigRepository(session)
         self._revisions = VideoApiConfigRevisionRepository(session)
-        self._provider = get_video_provider()
         self._downloader: VideoDownloadService | None = None
 
     async def create(self, user_id: str, command: CreateVideoCommand, idempotency_key: str) -> tuple[VideoJob, bool]:
+        existing = await self._repo.get_by_idempotency(user_id, idempotency_key)
+        if existing is not None:
+            saved = json.loads(existing.request_json or "{}")
+            config_id = existing.api_config_id or PLATFORM_CONFIG_ID
+            if (existing.project_id != command.project_id or existing.conversation_id != command.conversation_id
+                or existing.project_version != command.spec_version or config_id != command.api_config_id
+                or existing.mode != command.mode or existing.previous_job_id != command.previous_job_id
+                or saved.get("generation_options") != command.generation_options):
+                raise AppError(IDEMPOTENCY_KEY_REUSED)
+            return existing, True
         project = await self._load_project(user_id, command)
         self._validate_confirmed(project, command.spec_version)
-        validate_generation_sources(
-            project, command.spec_version, command.generation_options.get("canvas_source_node_ids"),
-            command.generation_options,
+        version_row, record, target = await reviewed_version(
+            self._session, project, command.spec_version, config_id=command.api_config_id,
+            requested_ids=command.generation_options.get("canvas_source_node_ids"),
+            options=command.generation_options,
         )
-
-        # 平台自有通道（api_config_id="platform"）不走用户自配 config/revision；
-        # 其余通道完全沿用原来的 _active_config → revision 流程，行为不变。
         is_platform = command.api_config_id == PLATFORM_CONFIG_ID
-        if is_platform:
-            api_config_id = None  # 平台通道不引用用户配置（外键允许 NULL）
-            revision_identifier: int | str = PLATFORM_CONFIG_ID
-            revision = None
-            remote_model_id = settings.video_platform_model
-            api_config_revision_id: str | None = None
-            protocol_code = PLATFORM_PROTOCOL_CODE
-            template_code: str | None = None
-        else:
-            config, revision = await self._active_config(user_id, command.api_config_id)
-            api_config_id = config.id
-            revision_identifier = config.current_revision
-            remote_model_id = revision.remote_model_id
-            api_config_revision_id = revision.id
-            protocol_code = revision.protocol_code
-            template_code = revision.template_code
-
-        spec = VideoBrief.model_validate(json.loads(project.current_spec_json or "{}"))
+        revision = target.revision
+        api_config_id = None if is_platform else command.api_config_id
+        api_config_revision_id = revision.id if revision else None
+        revision_identifier = target.fingerprint
+        remote_model_id = target.identity["remote_model_id"]
+        protocol_code = target.identity["protocol_code"]
+        template_code = revision.template_code if revision else None
+        spec = VideoBrief.model_validate(json.loads(version_row.spec_json))
         self._validate_mode(command, spec)
         assets = await self._require_assets(user_id, spec)
-
-        version_row = (
-            await self._session.exec(select(VideoProjectVersion).where(
-                VideoProjectVersion.project_id == project.id,
-                VideoProjectVersion.version == command.spec_version,
-            ))
-        ).first()
-        request_json = self._build_request_json(
-            command, spec, remote_model_id, version_row.suggested_prompt if version_row else None
-        )
+        allowed = set(record["settings"]) | {"canvas_source_node_id", "canvas_source_node_ids", "review_fingerprint"}
+        if set(command.generation_options) - allowed:
+            raise AppError(VIDEO_OPTION_UNSUPPORTED, "提交中包含未经审理的生成选项，请重新审理。")
+        request_json = {
+            **record["wire"], "remote_model_id": remote_model_id, "mode": command.mode,
+            "prompt": record["compiled_prompt"], "generation_target": record["target"],
+            "review_fingerprint": record["fingerprint"],
+            "first_frame_asset_id": spec.first_frame_asset_id, "last_frame_asset_id": spec.last_frame_asset_id,
+            "reference_asset_ids": spec.reference_asset_ids, "source_video_asset_id": spec.source_video_asset_id,
+            "audio_asset_id": spec.audio_asset_id, "generation_options": command.generation_options,
+        }
         if not str(request_json.get("prompt") or "").strip():
             raise AppError(VIDEO_INPUT_INVALID, "当前方案内容为空，无法生成视频，请先在对话中完善方案")
         fingerprint = _fingerprint(
             {"project_version": command.spec_version, "api_config_revision": revision_identifier, "mode": command.mode, "request": request_json}
         )
 
-        existing = await self._repo.get_by_idempotency(user_id, idempotency_key)
-        if existing is not None:
-            if existing.request_fingerprint != fingerprint:
-                raise AppError(IDEMPOTENCY_KEY_REUSED)
-            return existing, True
-
         # 平台通道：提交厂商前先检查每日配额（放在幂等命中之后，重复请求不误触发限流）。
         if is_platform:
             await self._check_platform_quota(user_id)
+
+        # Linearize acceptance against canvas/model edits before the immutable job is inserted.
+        locked = await self._session.execute(update(VideoProject).where(
+            col(VideoProject.id) == project.id, col(VideoProject.canvas_version) == project.canvas_version,
+            col(VideoProject.current_spec_version) == command.spec_version,
+            col(VideoProject.confirmed_spec_version) == command.spec_version,
+        ).values(updated_at=now()).returning(col(VideoProject.id)))
+        if locked.first() is None:
+            raise AppError(PROJECT_NOT_CONFIRMED, "提交期间画布已变化，请重新审理。")
+        if revision is not None:
+            locked_config = await self._session.execute(update(VideoApiConfig).where(
+                col(VideoApiConfig.id) == api_config_id, col(VideoApiConfig.status) == "active",
+                col(VideoApiConfig.current_revision) == target.identity["revision"],
+            ).values(updated_at=col(VideoApiConfig.updated_at)).returning(col(VideoApiConfig.id)))
+            if locked_config.first() is None:
+                raise AppError(PROJECT_NOT_CONFIRMED, "提交期间通道配置已变化，请重新审理。")
 
         job = VideoJob(
             id=new_id(),
@@ -222,7 +230,11 @@ class VideoJobService:
             idempotency_key=idempotency_key,
             request_fingerprint=fingerprint,
             protocol_code=protocol_code,
+            model_profile_code=target.identity["profile_code"],
+            model_profile_version=target.identity["rules_hash"],
+            adapter_version=str(target.identity["adapter_version"]),
             template_code=template_code,
+            template_version=str(target.identity["template_version"]) if target.identity["template_version"] else None,
             remote_model_id=remote_model_id,
             mode=command.mode,
             status=VideoJobStatus.CREATED.value,
@@ -240,9 +252,9 @@ class VideoJobService:
         await self._session.commit()
         await self._session.refresh(job)
 
-        ctx = self._platform_ctx() if is_platform else self._ctx(revision)
+        ctx = self._platform_ctx(job) if is_platform else self._ctx(revision)
         try:
-            result = await self._provider.submit(self._provider_request(job, assets), ctx)
+            result = await get_video_provider(job.protocol_code).submit(self._provider_request(job, assets), ctx)
             job.provider_task_id = result.provider_task_id
             job.provider_context_id = result.provider_context_id
             job.status = VideoJobStatus.QUEUED.value
@@ -301,13 +313,13 @@ class VideoJobService:
             return job  # 幂等返回终态
         is_platform = job.api_config_id is None
         if is_platform:
-            ctx = self._platform_ctx()
+            ctx = self._platform_ctx(job)
         else:
             revision = (
                 await self._session.exec(select(VideoApiConfigRevision).where(VideoApiConfigRevision.id == job.api_config_revision_id))
             ).first()
             ctx = self._ctx(revision)
-        supported = await self._provider.cancel(job.provider_task_id or "", ctx)
+        supported = await get_video_provider(job.protocol_code).cancel(job.provider_task_id or "", ctx)
         if not supported:
             raise AppError(VIDEO_CANCEL_UNSUPPORTED)
         old = job.status
@@ -378,7 +390,7 @@ class VideoJobService:
         is_platform = job.api_config_id is None
         if is_platform:
             # 平台通道无 revision：用平台 ctx + 无模板（ark 原生协议自带远端状态映射）。
-            ctx = self._platform_ctx()
+            ctx = self._platform_ctx(job)
             template: ProtocolTemplate | None = None
         else:
             revision = (
@@ -389,7 +401,7 @@ class VideoJobService:
                 "generic_async_json_v1", "v1_videos_json_v1"
             )
         try:
-            status = await self._provider.poll(job.provider_task_id, ctx)
+            status = await get_video_provider(job.protocol_code).poll(job.provider_task_id, ctx)
             mapped = self._map_status(status.raw_status, template)
         except VideoProviderError as exc:
             job.error_code = exc.code
@@ -434,13 +446,14 @@ class VideoJobService:
             template=_build_custom_template(revision.custom_template_json),
         )
 
-    def _platform_ctx(self) -> AdapterContext:
+    def _platform_ctx(self, job: VideoJob | None = None) -> AdapterContext:
         """平台自有通道的厂商上下文：直接读 settings.video_platform_*，无 revision/模板。"""
+        snapshot = json.loads(job.request_json or "{}").get("generation_target", {}) if job else {}
         return AdapterContext(
-            base_url=settings.video_platform_base_url,
+            base_url=snapshot.get("base_url") or settings.video_platform_base_url,
             auth={"api_key": settings.video_platform_api_key},
             options={},
-            remote_model_id=settings.video_platform_model,
+            remote_model_id=job.remote_model_id if job else settings.video_platform_model,
             template=None,
         )
 
@@ -513,26 +526,12 @@ class VideoJobService:
         rows = _asset_ids(spec)
         for asset_id, _role, _pos in rows:
             asset = await self._assets.get_for_user(asset_id, user_id)
-            if asset is None:
+            if asset is None or asset.status != "ready":
                 raise AppError(ASSET_NOT_FOUND, "任务引用的素材不存在或无权访问")
+            expected_kind = "image" if _role in ("first_frame", "last_frame", "reference") else "video" if _role == "source_video" else "audio"
+            if asset.kind != expected_kind:
+                raise AppError(VIDEO_INPUT_INVALID, "素材类型与审理角色不一致。")
         return rows
-
-    def _build_request_json(self, command: CreateVideoCommand, spec: VideoBrief, remote_model_id: str, suggested_prompt: str | None = None) -> dict[str, Any]:
-        return {
-            "remote_model_id": remote_model_id,
-            "mode": command.mode,
-            "prompt": compile_video_prompt(spec, suggested_prompt),
-            "duration_seconds": spec.duration_seconds,
-            "aspect_ratio": spec.aspect_ratio,
-            "resolution": command.generation_options.get("resolution"),
-            "generate_audio": command.generation_options.get("generate_audio", True),
-            "first_frame_asset_id": spec.first_frame_asset_id,
-            "last_frame_asset_id": spec.last_frame_asset_id,
-            "reference_asset_ids": spec.reference_asset_ids or [],
-            "source_video_asset_id": spec.source_video_asset_id,
-            "audio_asset_id": spec.audio_asset_id,
-            "generation_options": command.generation_options,
-        }
 
     async def to_view(self, job: VideoJob) -> VideoJobView:
         request = json.loads(job.request_json or "{}")

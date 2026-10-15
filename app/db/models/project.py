@@ -47,6 +47,7 @@ class VideoProjectVersion(SQLModel, table=True):
     version: int = Field()  # 初始空方案为 0，后续单调递增
     spec_json: str = Field(default="{}")  # 不可变完整快照
     suggested_prompt: str | None = Field(default=None, max_length=20000)
+    generation_review_json: str | None = Field(default=None)  # immutable model-bound review/request
     source_type: str = Field(default=VersionSource.SYSTEM.value, max_length=20)
     source_message_id: str | None = Field(default=None, foreign_key="messages.id")
     created_at: datetime = Field(default_factory=now)

@@ -447,6 +447,8 @@ class VideoApiConfigService:
             base_url=revision.base_url,
             remote_model_id=revision.remote_model_id,
             key_hint_json=json.loads(revision.key_hint_json) if revision.key_hint_json else {},
+            capability_profile_code=revision.capability_profile_code,
+            capabilities=json.loads(revision.capabilities_json or "[]"),
             verification_status=revision.verification_status,
             capability_source=revision.capability_source,
             relay_risk_accepted_at=revision.relay_risk_accepted_at,

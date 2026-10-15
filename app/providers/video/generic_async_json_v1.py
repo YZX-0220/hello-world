@@ -49,15 +49,24 @@ def _fill(template: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
     （提交 request dict 里远端模型 id 的实际字段是 remote_model_id）。
     """
 
+    omitted = object()
+
     def _sub(v: Any) -> Any:
         if isinstance(v, str):
-            key = v.strip("{}")
-            key = {"model": "remote_model_id"}.get(key, key)
-            return request.get(key, v)
+            if v.startswith("{") and v.endswith("}") and v.count("{") == 1:
+                key = {"model": "remote_model_id"}.get(v[1:-1], v[1:-1])
+                value = request.get(key)
+                return omitted if value is None else value
+            return v
         if isinstance(v, list):
-            return [_sub(x) for x in v]
+            if len(v) == 1 and isinstance(v[0], str) and v[0].startswith("{"):
+                value = _sub(v[0])
+                if isinstance(value, list):
+                    return value
+                return omitted if value is omitted else [value]
+            return [value for x in v if (value := _sub(x)) is not omitted]
         if isinstance(v, dict):
-            return {k: _sub(x) for k, x in v.items()}
+            return {k: value for k, x in v.items() if (value := _sub(x)) is not omitted}
         return v
 
     return _sub(template)

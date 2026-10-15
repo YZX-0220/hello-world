@@ -58,6 +58,8 @@ class ModeConstraintView(BaseModel):
     ratio: str = "model"  # model=沿用模型级比例列表 / adaptive_only=该模式只能自适应
     duration: str = "model"  # model / fixed:-1 / omit
     note: str = ""
+    rules: list[dict[str, Any]] = Field(default_factory=list)
+    ratio_transport: str = "omit"
 
 
 class ModelProfileView(BaseModel):
@@ -78,6 +80,7 @@ class ModelProfileView(BaseModel):
     generation_option_fields: list[DynamicFieldView] = Field(default_factory=list)
     # 模式级附加约束：前端在"确认并生成"前据此校验真实参数，不满足则提示用户改。
     mode_constraints: list[ModeConstraintView] = Field(default_factory=list)
+    rules: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # ---- 请求对象（检测 / 创建 / 修改）----
@@ -171,6 +174,8 @@ class VideoApiConfigView(BaseModel):
     template_code: str | None = None
     base_url: str | None = None
     remote_model_id: str
+    capability_profile_code: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
     key_hint_json: dict[str, Any] = Field(default_factory=dict)
     verification_status: str
     capability_source: str

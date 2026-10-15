@@ -95,6 +95,7 @@ class ProjectRepository:
     async def commit_canvas_spec(
         self, project: VideoProject, canvas_json: str, canvas_version: int,
         spec_version: int, spec_json: str, suggested_prompt: str | None,
+        generation_review_json: str | None = None,
     ) -> VideoProject:
         """Publish the prepared brief and its sources atomically; reject edits during AI work."""
         stmt = (
@@ -118,6 +119,7 @@ class ProjectRepository:
         self._session.add(VideoProjectVersion(
             project_id=project.id, version=spec_version + 1, spec_json=spec_json,
             source_type=VersionSource.AGENT.value, suggested_prompt=suggested_prompt,
+            generation_review_json=generation_review_json,
         ))
         await self._session.commit()
         await self._session.refresh(project)

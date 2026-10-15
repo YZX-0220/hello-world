@@ -20,7 +20,7 @@ class VideoApiConfigRepository:
         stmt = select(VideoApiConfig).where(
             VideoApiConfig.id == config_id,
             VideoApiConfig.user_id == user_id,
-        )
+        ).execution_options(populate_existing=True)
         result = await self._session.exec(stmt)
         return result.first()
 

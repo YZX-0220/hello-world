@@ -21,6 +21,29 @@ def _csrf(client: httpx.AsyncClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies.get("hw_csrf", ""), "Origin": ORIGIN}
 
 
+async def _review_project(client, cid, config_id):
+    project = (await client.get(f"/api/v1/conversations/{cid}/project")).json()
+    canvas = {"nodes": [{"id": "script", "type": "text", "title": "脚本", "content": "一辆穿越草原的越野车"}],
+              "connections": [], "selected_api_config_id": config_id}
+    saved = await client.put(f"/api/v1/conversations/{cid}/canvas",
+                            json={"canvas_data": canvas, "expected_canvas_version": project["canvas_version"]}, headers=_csrf(client))
+    assert saved.status_code == 200, saved.text
+    reviewed = await client.post(f"/api/v1/conversations/{cid}/canvas/prepare-video",
+                                 json={"node_ids": ["script"], "expected_canvas_version": saved.json()["canvas_version"],
+                                       "duration_seconds": 8, "resolution": "720p", "api_config_id": config_id},
+                                 headers=_csrf(client))
+    assert reviewed.status_code == 200, reviewed.text
+    project = reviewed.json()
+    assert project["canvas_data"]["generation_review"]["status"] == "ready", project
+    confirmed = await client.post(f"/api/v1/conversations/{cid}/project/confirm",
+                                  json={"spec_version": project["current_spec_version"]}, headers=_csrf(client))
+    assert confirmed.status_code == 200, confirmed.text
+    data = project["canvas_data"]
+    return {"conversation_id": cid, "project_id": project["id"], "spec_version": project["current_spec_version"],
+            "api_config_id": config_id, "generation_options": {**data["generation_settings"],
+            "review_fingerprint": data["generation_review"]["fingerprint"], "canvas_source_node_ids": ["script"]}}
+
+
 async def _make_deliverable(client: httpx.AsyncClient) -> tuple[str, dict]:
     """注册 → 建对话 → 发消息（Fake 生成方案）→ 确认版本 → 建视频接口配置。"""
     await _register(client)
@@ -60,8 +83,7 @@ async def _make_deliverable(client: httpx.AsyncClient) -> tuple[str, dict]:
     )
     assert cfg.status_code == 201, cfg.text
 
-    project_info = {"conversation_id": cid, "project_id": project["id"], "spec_version": version, "api_config_id": cfg.json()["id"]}
-    return cid, project_info
+    return cid, await _review_project(client, cid, cfg.json()["id"])
 
 
 async def _make_confirmed_project(client: httpx.AsyncClient) -> dict:
@@ -87,7 +109,7 @@ async def _make_confirmed_project(client: httpx.AsyncClient) -> dict:
         headers=headers,
     )
     assert confirmed.json()["is_current_version_confirmed"] is True
-    return {"conversation_id": cid, "project_id": project["id"], "spec_version": version}
+    return await _review_project(client, cid, "platform")
 
 
 def _platform_cmd(info: dict, **overrides) -> dict:
@@ -98,7 +120,7 @@ def _platform_cmd(info: dict, **overrides) -> dict:
         "spec_version": info["spec_version"],
         "api_config_id": "platform",
         "mode": "text_to_video",
-        "generation_options": {},
+        "generation_options": info["generation_options"],
     }
     cmd.update(overrides)
     return cmd
@@ -123,9 +145,8 @@ async def test_older_project_cannot_submit_a_video_longer_than_fifteen_seconds(c
         "/api/v1/video-jobs", json=_platform_cmd(info),
         headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
-    assert rejected.status_code == 422, rejected.text
-    assert rejected.json()["error"]["code"] == "VIDEO_OPTION_UNSUPPORTED"
-    assert "1–15" in rejected.json()["error"]["message"]
+    assert rejected.status_code == 409, rejected.text
+    assert rejected.json()["error"]["code"] == "PROJECT_NOT_CONFIRMED"
 
 
 async def test_create_video_job_and_poll(client: httpx.AsyncClient) -> None:
@@ -137,7 +158,7 @@ async def test_create_video_job_and_poll(client: httpx.AsyncClient) -> None:
         "spec_version": info["spec_version"],
         "api_config_id": info["api_config_id"],
         "mode": "text_to_video",
-        "generation_options": {},
+        "generation_options": info["generation_options"],
     }
     idem = str(uuid.uuid4())
     resp = await client.post(
@@ -178,7 +199,7 @@ async def test_video_job_idempotency(client: httpx.AsyncClient) -> None:
         "spec_version": info["spec_version"],
         "api_config_id": info["api_config_id"],
         "mode": "text_to_video",
-        "generation_options": {},
+        "generation_options": info["generation_options"],
     }
     r1 = await client.post("/api/v1/video-jobs", json=base, headers={**headers, "Idempotency-Key": idem})
     assert r1.status_code == 202
@@ -207,7 +228,7 @@ async def test_video_job_list(client: httpx.AsyncClient) -> None:
             "spec_version": info["spec_version"],
             "api_config_id": info["api_config_id"],
             "mode": "text_to_video",
-            "generation_options": {},
+            "generation_options": info["generation_options"],
         },
         headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
@@ -242,7 +263,7 @@ async def test_video_job_submission_failed(client: httpx.AsyncClient, monkeypatc
 
     import app.services.video_job_service as vjs
 
-    monkeypatch.setattr(vjs, "get_video_provider", lambda: RejectProvider())
+    monkeypatch.setattr(vjs, "get_video_provider", lambda *args: RejectProvider())
 
     r = await client.post(
         "/api/v1/video-jobs",
@@ -252,7 +273,7 @@ async def test_video_job_submission_failed(client: httpx.AsyncClient, monkeypatc
             "spec_version": info["spec_version"],
             "api_config_id": info["api_config_id"],
             "mode": "text_to_video",
-            "generation_options": {},
+            "generation_options": info["generation_options"],
         },
         headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
@@ -269,7 +290,7 @@ def _cmd(info: dict, **overrides) -> dict:
         "spec_version": info["spec_version"],
         "api_config_id": info["api_config_id"],
         "mode": "text_to_video",
-        "generation_options": {},
+        "generation_options": info["generation_options"],
     }
     cmd.update(overrides)
     return cmd
@@ -323,7 +344,7 @@ async def test_direct_fallback(client: httpx.AsyncClient, monkeypatch) -> None:
         async def cancel(self, task_id, ctx):
             return False
 
-    monkeypatch.setattr(vds, "get_video_provider", lambda: DirectOnlyProvider())
+    monkeypatch.setattr(vds, "get_video_provider", lambda *args: DirectOnlyProvider())
 
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
@@ -402,12 +423,14 @@ async def test_platform_quota_does_not_affect_user_config(client: httpx.AsyncCli
     headers = _csrf(client)
 
     # 先消费掉平台当日额度
+    platform_info = await _review_project(client, info["conversation_id"], "platform")
     pr = await client.post(
-        "/api/v1/video-jobs", json=_platform_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+        "/api/v1/video-jobs", json=_platform_cmd(platform_info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
     )
     assert pr.status_code == 202, pr.text
 
-    # 用户自配 API 创建不受平台配额影响
+    # 用户自配 API 创建不受平台配额影响（切换通道后重新审理）。
+    info = await _review_project(client, info["conversation_id"], info["api_config_id"])
     cr = await client.post(
         "/api/v1/video-jobs", json=_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
     )

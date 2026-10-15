@@ -22,6 +22,11 @@ class FakeTextProvider(TextProvider):
         if structured:
             # 演示结构输出：把用户消息作为主体写入方案
             structured_payload = {"subject": last_user or None}
+            if any("本轮是一次性 AI 审理" in m.get("content", "") for m in messages):
+                structured_payload = {"state_patch": {
+                    "subject": "示例主体", "scene": "简洁的演示场景", "camera": "固定机位",
+                    "motion": "主体缓慢移动", "lighting": "柔和自然光", "visual_style": "写实",
+                }, "assumptions": ["当前使用开发测试模型，创作内容仅为示例。"]}
         return TextResult(reply=reply, structured=structured_payload, model="fake-model", finish_reason="stop")
 
 

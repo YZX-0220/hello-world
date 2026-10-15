@@ -28,7 +28,12 @@ from app.schemas.conversation import (
     VideoProjectView,
 )
 from app.services.canvas_service import CanvasService
-from app.services.canvas_video_service import CanvasVideoService, validate_generation_sources
+from app.services.canvas_video_service import (
+    CanvasVideoService,
+    restore_review_metadata,
+    reviewed_version,
+    validate_generation_sources,
+)
 from app.services.conversation_service import ConversationService
 from app.services.project_service import ProjectService
 from app.services.video_prompt import compile_video_prompt
@@ -211,7 +216,11 @@ async def confirm_project(
     if project is None:
         raise AppError(CONVERSATION_NOT_FOUND)
     await ConversationService(session).get_or_404(user.id, conversation_id)
-    validate_generation_sources(project, payload.spec_version)
+    data = json.loads(project.canvas_data_json or "{}")
+    if data.get("generation_spec_version") == payload.spec_version:
+        await reviewed_version(session, project, payload.spec_version)
+    else:
+        validate_generation_sources(project, payload.spec_version)
     project = await repo.confirm(project, payload.spec_version)
     sp = await repo.get_latest_suggested_prompt(project.id)
     return _project_view(project, sp)
@@ -241,6 +250,7 @@ async def prepare_canvas_video(
     project = await CanvasVideoService(session).prepare(
         user.id, conversation_id, payload.node_ids, payload.expected_canvas_version,
         payload.duration_seconds, payload.resolution,
+        payload.api_config_id, payload.mode, payload.input_roles,
     )
     sp = await ProjectRepository(session).get_latest_suggested_prompt(project.id)
     return _project_view(project, sp)
@@ -294,7 +304,7 @@ async def save_canvas(
         raise AppError(CONVERSATION_NOT_FOUND)
     await ConversationService(session).get_or_404(user.id, conversation_id)
     project = await repo.save_canvas(
-        project, json.dumps(payload.canvas_data.to_data(), ensure_ascii=False), payload.expected_canvas_version
+        project, json.dumps(await restore_review_metadata(session, project, payload.canvas_data.to_data()), ensure_ascii=False), payload.expected_canvas_version
     )
     sp = await repo.get_latest_suggested_prompt(project.id)
     return _project_view(project, sp)

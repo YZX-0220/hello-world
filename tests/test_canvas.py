@@ -84,6 +84,12 @@ def preparation(node_ids, version=1, duration=8, resolution="1080p"):
             "duration_seconds": duration, "resolution": resolution}
 
 
+def reviewed_options(project, ids=None):
+    data = project["canvas_data"]
+    return {**data["generation_settings"], "review_fingerprint": data["generation_review"]["fingerprint"],
+            "canvas_source_node_ids": ids or data["generation_source_ids"]}
+
+
 class ControlledProvider(FakeTextProvider):
     def __init__(self, blocked=False, failing=False):
         self.started = asyncio.Event()
@@ -414,7 +420,7 @@ async def test_multiple_manual_boxes_use_structured_agent_and_preview_matches_vi
     assert project["current_spec"]["aspect_ratio"] == "16:9"
     assert "原有脚本" in provider.calls[0][-1]["content"] and "参考素材" in provider.calls[0][-1]["content"]
     assert "承上启下" in provider.calls[0][0]["content"]
-    for phrase in ["镜头运动", "镜头缓慢推进", "主体动作", "暖色侧光", "小船经过古镇石桥"]:
+    for phrase in ["镜头运动", "镜头缓慢推进", "主体动作", "暖色侧光", "古镇石桥"]:
         assert phrase in project["compiled_prompt"]
 
     class CapturingVideoProvider(FakeVideoProvider):
@@ -425,7 +431,7 @@ async def test_multiple_manual_boxes_use_structured_agent_and_preview_matches_vi
             return await super().submit(request, ctx)
 
     video = CapturingVideoProvider()
-    monkeypatch.setattr("app.services.video_job_service.get_video_provider", lambda: video)
+    monkeypatch.setattr("app.services.video_job_service.get_video_provider", lambda *args: video)
     confirmed = await client.post(
         f"/api/v1/conversations/{cid}/project/confirm",
         json={"spec_version": project["current_spec_version"]}, headers=headers,
@@ -435,7 +441,7 @@ async def test_multiple_manual_boxes_use_structured_agent_and_preview_matches_vi
         "/api/v1/video-jobs", headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
         json={"conversation_id": cid, "project_id": project["id"], "spec_version": project["current_spec_version"],
               "api_config_id": "platform", "mode": "text_to_video",
-              "generation_options": {"canvas_source_node_ids": ["target", "other"], "duration_seconds": 8, "resolution": "1080p"}},
+              "generation_options": reviewed_options(project)},
     )
     assert created.status_code == 202, created.text
     assert video.request["prompt"] == project["compiled_prompt"]
@@ -483,7 +489,7 @@ async def test_review_delivers_a_persisted_plan_and_optional_gaps_do_not_block_g
         "/api/v1/video-jobs", headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
         json={"conversation_id": cid, "project_id": project["id"], "spec_version": project["current_spec_version"],
               "api_config_id": "platform", "mode": "text_to_video",
-              "generation_options": {"canvas_source_node_ids": ["target"], "duration_seconds": 8, "resolution": "1080p"}},
+              "generation_options": reviewed_options(project)},
     )
     assert created.status_code == 202, created.text
 
@@ -578,7 +584,12 @@ async def test_video_submission_rejects_changed_sources(client, monkeypatch, cha
 
 @pytest.mark.parametrize("duration", [1, 12, 15])
 async def test_video_parameters_are_required_and_the_confirmed_values_reach_the_provider(client, monkeypatch, duration):
+    from dataclasses import replace
+
     from app.providers.video.fake import FakeVideoProvider
+    from app.video_registry import registry
+    profile_key = ("ark_seedance_v1", "doubao-seedance-2-5")
+    monkeypatch.setitem(registry._PROFILES, profile_key, replace(registry._PROFILES[profile_key], durations_seconds=tuple(range(1, 16))))
 
     cid, headers, _ = await create_project(client)
     provider = ControlledProvider()
@@ -603,7 +614,8 @@ async def test_video_parameters_are_required_and_the_confirmed_values_reach_the_
     assert response.status_code == 200, response.text
     project = response.json()
     assert project["current_spec"]["duration_seconds"] == duration
-    assert project["canvas_data"]["generation_settings"] == {"duration_seconds": duration, "resolution": "720p"}
+    assert project["canvas_data"]["generation_requested_settings"] == {"duration_seconds": duration, "resolution": "720p"}
+    assert project["canvas_data"]["generation_settings"]["duration_seconds"] == duration
     assert f"{duration} 秒" in project["canvas_data"]["generation_review"]["content"]
     assert "720p" in project["canvas_data"]["generation_review"]["content"]
     assert f"视频总时长必须为 {duration} 秒" in provider.calls[0][-1]["content"]
@@ -620,7 +632,7 @@ async def test_video_parameters_are_required_and_the_confirmed_values_reach_the_
             return await super().submit(request, ctx)
 
     video = CapturingVideoProvider()
-    monkeypatch.setattr("app.services.video_job_service.get_video_provider", lambda: video)
+    monkeypatch.setattr("app.services.video_job_service.get_video_provider", lambda *args: video)
     command = {"conversation_id": cid, "project_id": project["id"], "spec_version": project["current_spec_version"],
                "api_config_id": "platform", "mode": "text_to_video"}
     for options in [{"canvas_source_node_ids": ["target"]},
@@ -633,7 +645,7 @@ async def test_video_parameters_are_required_and_the_confirmed_values_reach_the_
         assert rejected.status_code == 422, rejected.text
     accepted = await client.post(
         "/api/v1/video-jobs", headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
-        json={**command, "generation_options": {"canvas_source_node_ids": ["target"], "duration_seconds": duration, "resolution": "720p"}},
+        json={**command, "generation_options": reviewed_options(project)},
     )
     assert accepted.status_code == 202, accepted.text
     assert video.request["duration_seconds"] == duration and video.request["resolution"] == "720p"

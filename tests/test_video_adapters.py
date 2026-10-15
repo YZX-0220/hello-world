@@ -136,9 +136,9 @@ async def test_submit_builds_correct_body_and_resolves_task_id() -> None:
     assert body["resolution"] == "720p"
     assert body["ratio"] == "16:9"
     assert body["generate_audio"] is True
-    assert body["watermark"] is False
-    assert body["return_last_frame"] is True
-    assert body["camera_fixed"] is False
+    assert "watermark" not in body
+    assert "return_last_frame" not in body
+    assert "camera_fixed" not in body
 
 
 @respx.mock

@@ -20,6 +20,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 # ---- 顶层强制测试环境，绝不触碰真实外部凭据 ----
 settings.email_provider = "fake"
 settings.video_provider = "fake"
+settings.video_platform_model = "doubao-seedance-2-5-260628"
+settings.video_platform_profile_code = "doubao-seedance-2-5"
 settings.text_provider = "fake"  # 测试用假文本模型，绝不真调外部文本 API
 settings.search_provider = "fake"  # 测试用假搜索，绝不真调外部搜索 API
 settings.credential_encryption_keys = generate_fernet_key()

@@ -8,7 +8,8 @@ ProtocolTemplate（通用引擎的路径/方法/字段/状态映射）、ModelPr
 Profile 核验、Contract Test 通过共同决定（见 registry）。
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any
 
 
@@ -50,7 +51,7 @@ class EndpointSpec:
     id_json_path: str = ""  # 提取远端任务 ID 的字段路径（如 data.task_id）
     status_json_path: str = ""  # 轮询时读取远端状态的字段路径（如 data.status）
     result_url_json_path: str = ""  # 结果下载地址的字段路径
-    request_template_json: dict[str, Any] = field(default_factory=dict)  # 提交请求体模板
+    request_template_json: dict[str, Any] = dataclass_field(default_factory=dict)  # 提交请求体模板
 
 
 @dataclass(frozen=True)
@@ -65,9 +66,21 @@ class ProtocolTemplate:
     poll: EndpointSpec | None = None
     result: EndpointSpec | None = None
     # 远端状态 -> 本站统一状态 的映射（远端未识别时保留原状态，不盲目置失败）
-    remote_status_map: dict[str, str] = field(default_factory=dict)
+    remote_status_map: dict[str, str] = dataclass_field(default_factory=dict)
     # 模板固定白名单字段名，禁止任意 Jinja / 绝对 URL / JSONPath
     allowed_http_methods: tuple[str, ...] = ("GET", "POST")
+
+
+@dataclass(frozen=True)
+class ParameterRule:
+    """Declarative parameter restriction, optionally conditional on other parameters."""
+
+    field: str
+    allowed_values: tuple[Any, ...] | None = None
+    minimum: int | None = None
+    maximum: int | None = None
+    when: dict[str, Any] = dataclass_field(default_factory=dict)
+    note: str = ""
 
 
 @dataclass(frozen=True)
@@ -83,6 +96,9 @@ class ModeConstraint:
     ratio: str = "model"
     duration: str = "model"
     note: str = ""
+    rules: tuple[ParameterRule, ...] = ()
+    # Wire representation is explicit; adaptive display does not imply sending "adaptive".
+    ratio_transport: str = "omit"  # omit / adaptive
 
 
 @dataclass(frozen=True)
@@ -103,7 +119,7 @@ class ModelProfile:
     durations_seconds: tuple[int, ...] = ()
     aspect_ratios: tuple[str, ...] = ()
     resolutions: tuple[str, ...] = ()
-    generation_options: dict[str, Any] = field(default_factory=dict)  # 公开生成选项白名单
+    generation_options: dict[str, Any] = dataclass_field(default_factory=dict)  # 公开生成选项白名单
     max_reference_images: int = 0
     max_source_videos: int = 0
     allows_provider_direct_url: bool = False  # 是否允许结果降级为厂商直链
@@ -111,6 +127,8 @@ class ModelProfile:
     enabled: bool = False
     # 模式级附加约束（每个生成模式可声明 ratio/duration 的特殊限制，供前端提交前校验）
     mode_constraints: tuple[ModeConstraint, ...] = ()
+    version: int = 1
+    rules: tuple[ParameterRule, ...] = ()
 
 
 __all__ = [

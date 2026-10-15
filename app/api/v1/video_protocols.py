@@ -4,8 +4,9 @@
 """
 
 from fastapi import APIRouter, Depends, Query
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import db_session, get_current_user
 from app.db.models.user import User
 from app.services.video_registry_service import (
     list_enabled_preset_views,
@@ -14,6 +15,16 @@ from app.services.video_registry_service import (
 )
 
 router = APIRouter()
+
+
+@router.get("/video-generation-target")
+async def get_generation_target(
+    api_config_id: str = Query(default="platform", min_length=1, max_length=128),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(db_session),
+):
+    from app.services.video_generation_policy import resolve_target
+    return (await resolve_target(session, user.id, api_config_id)).view()
 
 
 @router.get("/video-api-presets")

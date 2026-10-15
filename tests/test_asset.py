@@ -149,5 +149,8 @@ async def test_provider_asset_token_flow(client: httpx.AsyncClient, db_session) 
     # 篡改 signature -> 404
     bad = token[:-6] + "xxxxxx"
     assert (await client.get(f"/api/v1/provider-assets/{bad}")).status_code == 404
-    # 单次访问，重放 -> 404
-    assert (await client.get(f"/api/v1/provider-assets/{token}")).status_code == 404
+    # 厂商可能先 HEAD 再 GET/Range；有效期内允许重复读取，仍须校验签名、任务与角色。
+    assert (await client.head(f"/api/v1/provider-assets/{token}")).status_code == 200
+    assert (await client.get(f"/api/v1/provider-assets/{token}")).status_code == 200
+    wrong_role, _ = sign_provider_asset(aid, job_id, "last_frame", settings.app_secret, 600)
+    assert (await client.get(f"/api/v1/provider-assets/{wrong_role}")).status_code == 404

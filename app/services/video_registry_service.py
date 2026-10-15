@@ -8,6 +8,8 @@
 """
 
 
+from dataclasses import asdict
+
 from app.core.errors import VIDEO_PROTOCOL_UNSUPPORTED, VIDEO_TEMPLATE_UNSUPPORTED, AppError
 from app.schemas.video_api_config import (
     DurationRange,
@@ -80,7 +82,7 @@ def profile_to_view(profile: ModelProfile) -> ModelProfileView:
     return ModelProfileView(
         code=profile.code,
         label=profile.display_name,
-        version=1,
+        version=profile.version,
         protocol_code=profile.protocol_code,
         remote_model_id=profile.remote_model_id,
         modes=list(profile.modes),
@@ -94,9 +96,10 @@ def profile_to_view(profile: ModelProfile) -> ModelProfileView:
         supports_negative_prompt=bool(profile.generation_options.get("supports_negative_prompt", False)),
         generation_option_fields=_generation_fields(profile),
         mode_constraints=[
-            ModeConstraintView(mode=c.mode, ratio=c.ratio, duration=c.duration, note=c.note)
+            ModeConstraintView(**asdict(c))
             for c in profile.mode_constraints
         ],
+        rules=[asdict(r) for r in profile.rules],
     )
 
 

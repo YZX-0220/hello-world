@@ -28,10 +28,15 @@ from app.storage import LocalStorage
 from app.video_registry import get_profile
 
 
+def _custom_template(value):
+    # Local import avoids the job/download service cycle.
+    from app.services.video_job_service import _build_custom_template
+    return _build_custom_template(value)
+
+
 class VideoDownloadService:
     def __init__(self, session: Any, storage: LocalStorage | None = None) -> None:
         self._session = session
-        self._provider = get_video_provider()
         self._storage = storage or LocalStorage(settings.storage_root)
 
     async def fetch_result_asset(self, job: VideoJob) -> str:
@@ -41,13 +46,13 @@ class VideoDownloadService:
         if job.api_config_id is None:
             # 平台自有通道：无用户 revision，改用平台 ctx（base_url/auth/model）。
             revision = None
-            ctx = self._platform_ctx()
+            ctx = self._platform_ctx(job)
         else:
             revision = (
                 await self._session.exec(select(VideoApiConfigRevision).where(VideoApiConfigRevision.id == job.api_config_revision_id))
             ).first()
             ctx = self._ctx(revision)
-        data = await self._provider.download_result(job.provider_task_id or "", ctx)
+        data = await get_video_provider(job.protocol_code).download_result(job.provider_task_id or "", ctx)
         if data:
             return await self._store_result(job, data)
         return await self._fallback_direct(job, revision, ctx)
@@ -79,10 +84,8 @@ class VideoDownloadService:
         return DownloadStatus.STORED.value
 
     async def _fallback_direct(self, job: VideoJob, revision: VideoApiConfigRevision | None, ctx: AdapterContext) -> str:
-        url = await self._provider.fetch_result_url(job.provider_task_id or "", ctx)
-        profile = None
-        if revision is not None and revision.capability_profile_code:
-            profile = get_profile(revision.protocol_code, revision.capability_profile_code)
+        url = await get_video_provider(job.protocol_code).fetch_result_url(job.provider_task_id or "", ctx)
+        profile = get_profile(job.protocol_code, job.model_profile_code or (revision.capability_profile_code if revision else "") or "")
         if profile is not None and url and profile.allows_provider_direct_url:
             expires = now() + timedelta(seconds=profile.provider_direct_url_ttl)
             job.encrypted_result_ref_json = encrypt_secret(
@@ -105,16 +108,17 @@ class VideoDownloadService:
             auth=json.loads(decrypt_secret(revision.encrypted_auth_json, settings.credential_encryption_keys)),
             options=json.loads(revision.public_options_json or "{}"),
             remote_model_id=revision.remote_model_id,
-            template=None,
+            template=_custom_template(revision.custom_template_json),
         )
 
     @staticmethod
-    def _platform_ctx() -> AdapterContext:
+    def _platform_ctx(job: VideoJob) -> AdapterContext:
         """平台自有通道的厂商上下文：直接读 settings.video_platform_*，无 revision。"""
+        snapshot = json.loads(job.request_json or "{}").get("generation_target", {})
         return AdapterContext(
-            base_url=settings.video_platform_base_url,
+            base_url=snapshot.get("base_url") or settings.video_platform_base_url,
             auth={"api_key": settings.video_platform_api_key},
             options={},
-            remote_model_id=settings.video_platform_model,
+            remote_model_id=job.remote_model_id,
             template=None,
         )

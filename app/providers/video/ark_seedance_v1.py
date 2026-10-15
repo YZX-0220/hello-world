@@ -103,10 +103,8 @@ def _build_body(request: dict[str, Any]) -> dict[str, Any]:
         body["resolution"] = request["resolution"]
     if request.get("aspect_ratio"):
         body["ratio"] = request["aspect_ratio"]
-    body["generate_audio"] = request.get("generate_audio", True)
-    body["watermark"] = False
-    body["return_last_frame"] = True
-    body["camera_fixed"] = False
+    if "generate_audio" in request:
+        body["generate_audio"] = request["generate_audio"]
     return body
 
 

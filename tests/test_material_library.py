@@ -293,7 +293,9 @@ async def test_published_file_loss_returns_controlled_error(admin):
 
 async def test_admin_permissions_and_csrf(client, monkeypatch):
     monkeypatch.setattr(settings, "material_library_admin_emails", "")
-    assert (await client.get(LIBRARY)).status_code == 401
+    # 已发布示例允许公开浏览；管理入口仍需登录和管理员权限。
+    assert (await client.get(LIBRARY)).status_code == 200
+    assert (await client.get(ADMIN)).status_code == 401
     await _register(client)
     assert (await client.get(LIBRARY)).status_code == 200
     assert (await client.get(ADMIN)).status_code == 403

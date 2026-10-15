@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     video_platform_api_key: str = ""  # 平台级密钥（如火山方舟 ARK key）
     video_platform_base_url: str = "https://ark.cn-beijing.volces.com"
     video_platform_model: str = ""  # 平台通道使用的模型/接入点（如 ep-…）
+    video_platform_protocol: str = "ark_seedance_v1"
+    video_platform_profile_code: str = ""  # ep-* 等接入点必须显式绑定已登记能力
 
     # ---- 存储与限制 ----
     storage_root: str = "./data"

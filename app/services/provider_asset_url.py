@@ -2,7 +2,7 @@
 
   - Token 绑定 asset_id、job_id、用途、过期时间与随机 nonce；
   - 默认有效期 settings.signed_url_ttl_seconds（10 分钟）；
-  - Redis 用 nonce 做单次访问控制（默认 single-use）；
+  - 有效期内允许厂商重复 GET/HEAD/Range，nonce 只登记；
   - 只返回被当前任务引用且 status=ready 的文件；日志不记录完整签名。
 """
 
@@ -50,7 +50,7 @@ class ProviderAssetUrlService:
         self._secret = secret
 
     async def verify_subject(self, token: str) -> dict | None:
-        """校验签名、过期与一次性 nonce；再确认素材属于该任务且 ready。
+        """校验签名、过期、任务与用途；再确认素材 ready。
 
         校验通过返回 payload（含 aid/jid/purpose），否则返回 None（调用方 404/410）。
         """
@@ -85,6 +85,7 @@ class ProviderAssetUrlService:
                 select(VideoJobAsset).where(
                     VideoJobAsset.asset_id == payload.get("aid", ""),
                     VideoJobAsset.video_job_id == payload.get("jid", ""),
+                    VideoJobAsset.role == payload.get("purpose", ""),
                 )
             )
         ).first()

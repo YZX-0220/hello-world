@@ -35,11 +35,26 @@ export interface CanvasDocument {
   generation_source_ids: string[];
   generation_snapshot: GenerationSource[];
   generation_spec_version: number;
-  generation_review: { spec_version: number; content: string } | null;
+  generation_review: { spec_version: number; content: string; status?: 'ready' | 'blocked'; fingerprint?: string; issues?: string[] } | null;
   video_duration_seconds: number | null;
   video_resolution: string;
-  generation_settings: { duration_seconds: number; resolution: string } | null;
+  generation_settings: { duration_seconds: number; resolution: string; aspect_ratio?: string; generate_audio?: boolean } | null;
+  generation_requested_settings: { duration_seconds: number; resolution: string } | null;
+  generation_target: GenerationTarget | null;
+  generation_input: { mode: string; input_roles: Record<string, string> } | null;
+  video_mode: string;
+  video_input_roles: Record<string, string>;
   dismissed_job_ids: string[];
+}
+
+export interface GenerationTarget {
+  api_config_id: string;
+  fingerprint: string;
+  revision: number;
+  remote_model_id: string;
+  label: string;
+  error?: string;
+  profile?: { modes: string[]; label: string; resolutions: string[] } | null;
 }
 
 export interface GenerationSource {

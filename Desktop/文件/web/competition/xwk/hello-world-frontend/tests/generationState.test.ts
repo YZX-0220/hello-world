@@ -10,6 +10,10 @@ function prepared() {
   document.generation_spec_version = 3;
   document.video_duration_seconds = 8; document.video_resolution = '1080p';
   document.generation_settings = { duration_seconds: 8, resolution: '1080p' };
+  document.generation_requested_settings = { duration_seconds: 8, resolution: '1080p' };
+  document.generation_target = { api_config_id: 'platform', fingerprint: 'model-rules-v1', revision: 0, remote_model_id: 'registered', label: '模型' };
+  document.generation_input = { mode: 'auto', input_roles: {} };
+  document.generation_review = { spec_version: 3, content: '完整方案', status: 'ready', fingerprint: 'review-v1' };
   document.generation_snapshot = generationSources(document, document.generation_source_ids);
   return document;
 }
@@ -74,7 +78,7 @@ test('typing during explicit confirmation retains the accepted prompt for a late
 
 test('a persisted review restores with the matching plan and optional suggestions do not block generation', () => {
   const document = prepared();
-  document.generation_review = { spec_version: 3, content: '### 最终方案\n用途未填写。\n### 可选建议\n可增加旁白。' };
+  document.generation_review = { ...document.generation_review!, content: '### 最终方案\n用途未填写。\n### 可选建议\n可增加旁白。' };
   const restored = JSON.parse(JSON.stringify(document));
   assert.equal(savedVideoReview(restored, 3)?.content, document.generation_review.content);
   assert.equal(savedVideoReview(restored, 4), undefined);
@@ -94,6 +98,7 @@ test('an unavailable generation action explains whether it needs a review, a cha
   assert.match(videoGenerationBlockReason(document, 3, ids, { ...state, preparing: true }), /正在整理/);
   assert.match(videoGenerationBlockReason(document, 3, ids, { ...state, channel: '' }), /生成通道/);
   assert.match(videoGenerationBlockReason(document, 3, ids, { ...state, saveStatus: 'conflict' }), /保存提示/);
+  assert.match(videoGenerationBlockReason(document, 3, ids, { ...state, reviewError: true }), /本次审理未完成/);
 });
 
 test('duration and resolution require a manual choice and changing either invalidates the reviewed plan', () => {
@@ -112,13 +117,42 @@ test('duration and resolution require a manual choice and changing either invali
   for (const duration of [1, 15]) {
     document.video_duration_seconds = duration;
     document.generation_settings = { duration_seconds: duration, resolution: '1080p' };
+    document.generation_requested_settings = { duration_seconds: duration, resolution: '1080p' };
     assert.equal(videoGenerationBlockReason(document, 3, ids, state), '');
   }
   document.generation_settings = { duration_seconds: 8, resolution: '1080p' };
+  document.generation_requested_settings = { duration_seconds: 8, resolution: '1080p' };
   document.video_duration_seconds = 8; document.video_resolution = '';
   assert.match(videoGenerationBlockReason(document, 3, ids, state), /请选择视频清晰度/);
   document.video_resolution = '720p';
   assert.equal(generationMatches(document, 3), false);
   document.video_resolution = '1080p'; document.video_duration_seconds = 12;
   assert.equal(generationMatches(document, 3), false);
+});
+
+test('changing channel, rule revision, mode or material roles invalidates the reviewed plan', () => {
+  const document = prepared();
+  assert.equal(generationMatches(document, 3, undefined, 'model-rules-v2'), false);
+  document.selected_api_config_id = 'different-channel';
+  assert.equal(generationMatches(document, 3), false);
+  document.selected_api_config_id = 'platform';
+  document.video_mode = 'first_last_frame_to_video';
+  assert.equal(generationMatches(document, 3), false);
+  document.video_mode = 'auto';
+  document.video_input_roles = { first_frame_node_id: 'different' };
+  assert.equal(generationMatches(document, 3), false);
+});
+
+test('a disclosed parameter candidate preserves manual input and remains ready after reopening', () => {
+  const document = prepared();
+  document.video_duration_seconds = 7;
+  document.generation_requested_settings = { duration_seconds: 7, resolution: '1080p' };
+  document.generation_settings = { duration_seconds: 8, resolution: '1080p', aspect_ratio: 'adaptive', generate_audio: true };
+  const restored = JSON.parse(JSON.stringify(document));
+  assert.equal(generationMatches(restored, 3, undefined, 'model-rules-v1'), true);
+  assert.equal(restored.video_duration_seconds, 7);
+  assert.equal(restored.generation_settings.duration_seconds, 8);
+  restored.generation_review.status = 'blocked';
+  assert.equal(generationMatches(restored, 3), false);
+  assert.equal(savedVideoReview(restored, 3)?.kind, 'blocked');
 });

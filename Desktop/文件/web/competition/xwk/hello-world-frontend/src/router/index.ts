@@ -14,7 +14,7 @@ const routes = [
   {
   path: '/tv',
   name: 'TV',
-  component: () => import('@/views/TV.vue'),
+    component: () => import('@/views/Tv.vue'),
 },
 {
   path: '/tv/admin',

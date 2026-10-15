@@ -439,6 +439,38 @@
                 <small class="generation-help">Ctrl 点击或拖动画布框选可选择多个小框。</small>
                 <p v-if="videoSourceNodes.some(n => n.pending_ai)" class="generation-help">部分小框有尚未采用的 AI
                   正文。视频只使用小框当前文字；需要采用时，请先回到“AI 协作”写入。</p>
+                <div class="spec-field-mini"><label for="video-api">视频生成通道</label>
+                  <select id="video-api" v-model="selectedApiConfigId" :disabled="isSubmittingJob">
+                    <option value="platform">平台体验通道（每日限 1 次）</option>
+                    <option v-for="cfg in apiConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.display_name }} ({{ cfg.remote_model_id }})</option>
+                  </select>
+                </div>
+                <p v-if="targetLoading" class="generation-help" role="status">正在读取模型能力…</p>
+                <p v-else-if="targetError" class="generation-help" role="status">{{ targetError }}</p>
+                <div class="spec-field-mini"><label for="video-mode">生成模式</label>
+                  <select id="video-mode" v-model="canvas.video_mode" :disabled="isSubmittingJob">
+                    <option value="auto">按所选素材自动判断</option>
+                    <option value="text_to_video">文生视频</option>
+                    <option value="first_frame_to_video">首帧图生视频</option>
+                    <option value="first_last_frame_to_video">首尾帧生视频</option>
+                    <option value="reference_image_to_video">参考图生视频</option>
+                  </select>
+                </div>
+                <p class="generation-help">自动模式：无图片使用文生，一张图片作为首帧，多张图片作为参考图。首尾帧需手动选择模式。</p>
+                <div v-if="canvas.video_mode === 'first_last_frame_to_video'" class="video-generation-settings">
+                  <div class="spec-field-mini"><label for="video-first-frame">首帧图片</label>
+                    <select id="video-first-frame" v-model="canvas.video_input_roles.first_frame_node_id" :disabled="isSubmittingJob">
+                      <option value="">按画布顺序使用第一张图片</option>
+                      <option v-for="image in videoImageNodes" :key="image.id" :value="image.id">{{ image.title }}</option>
+                    </select>
+                  </div>
+                  <div class="spec-field-mini"><label for="video-last-frame">尾帧图片</label>
+                    <select id="video-last-frame" v-model="canvas.video_input_roles.last_frame_node_id" :disabled="isSubmittingJob">
+                      <option value="">按画布顺序使用第二张图片</option>
+                      <option v-for="image in videoImageNodes" :key="image.id" :value="image.id">{{ image.title }}</option>
+                    </select>
+                  </div>
+                </div>
                 <div class="video-generation-settings">
                   <div class="spec-field-mini"><label for="video-duration">视频时长（秒，必填）</label>
                     <input id="video-duration" v-model="videoDurationInput" type="number" min="1" max="15" step="1"
@@ -454,30 +486,24 @@
                     </select>
                   </div>
                 </div>
-                <p class="generation-help">AI 将按你填写的时长安排分镜。修改时长或清晰度后，请重新审理方案。</p>
+                <p class="generation-help">AI 会按当前模型与设置审理。必要的参数调整会先展示；点击生成即采用展示值。修改内容、通道、模式或参数后需重新审理。</p>
                 <button class="prepare-video-btn"
-                  :disabled="!videoSourceNodes.length || !!videoSettingsReason || isPreparingVideo || isAgentResponding || isSubmittingJob || isConfirming"
+                  :disabled="!videoSourceNodes.length || !!videoSettingsReason || targetLoading || isPreparingVideo || isAgentResponding || isSubmittingJob || isConfirming"
                   @click="prepareVideo">{{ isPreparingVideo ? 'AI 正在审理…' : 'AI审理方案' }}</button>
                 <div v-if="videoReview" class="video-review-feedback" :class="videoReview.kind" role="status"
                   aria-live="polite">
-                  <div class="review-heading">{{ videoReview.kind === 'loading' ? 'AI审理中' : videoReview.kind ===
-                    'success' && !videoSelectionReady ? '上次审理结果（来源或参数已变化）' : 'AI审理结果' }}</div>
+                  <div class="review-heading">{{ videoReview.kind === 'loading' ? 'AI审理中' :
+                    !videoReviewFresh ? '上次审理结果（内容、模型或设置已变化）' : 'AI审理结果' }}</div>
                   <div class="msg-content" v-html="renderMd(videoReview.content)"></div>
                 </div>
-                <div v-if="project?.compiled_prompt && canvas.generation_source_ids.length"
+                <div v-if="project?.compiled_prompt && canvas.generation_source_ids.length && canvas.generation_review?.status === 'ready'"
                   class="video-prompt-preview">
                   <div class="prompt-status">{{ videoSelectionReady ? '方案已准备好，可直接生成' : '生成来源或参数已变化，请重新审理方案' }}</div>
                   <div class="prompt-settings">{{ project.current_spec.duration_seconds }} 秒 · {{
-                    project.current_spec.aspect_ratio }} · {{ canvas.generation_settings?.resolution || '清晰度未确认' }} · {{
+                    project.current_spec.aspect_ratio === 'adaptive' ? '随素材自适应' : project.current_spec.aspect_ratio }} · {{ canvas.generation_settings?.resolution || '清晰度未确认' }} · {{
                     generationModeLabel }}</div>
-                  <small>时长和清晰度按上方设置生成，画幅未指定时默认 16:9。需要调整画面或画幅，请编辑小框后重新审理。</small>
+                  <small>生成使用审理结果中的最终参数。原始小框和上方输入保留；如需修改，请调整后重新审理。</small>
                 </div>
-                <div class="spec-field-mini"><label for="video-api">视频生成通道</label><select id="video-api"
-                    v-model="selectedApiConfigId">
-                    <option value="platform">平台体验通道（每日限 1 次）</option>
-                    <option v-for="cfg in apiConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.display_name }} ({{
-                      cfg.remote_model_id }})</option>
-                  </select></div>
                <button class="create-video-btn" :disabled="!!videoGenerationDisabledReason || isJobRunning"
                   :aria-describedby="videoGenerationDisabledReason ? 'video-generation-reason' : undefined"
                   @click="submitVideoJob">{{ isSubmittingJob ? '正在提交生成…' : isJobRunning ? '视频生成中…' : '2. 确认并生成视频' }}</button>
@@ -567,7 +593,7 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } 
 import { useWorkspace, newId } from '@/composables/useWorkspace';
 import type { FlowNode, FlowConnection } from '@/types/canvas';
 import { renderMd } from '@/utils/markdown';
-import { generationMatches, videoGenerationBlockReason, videoSettingsBlockReason } from '@/services/generationState';
+import { generationContextMatches, generationMatches, generationSources, videoGenerationBlockReason, videoSettingsBlockReason } from '@/services/generationState';
 
 
 import { useRouter, useRoute } from 'vue-router'; // 确保引入了 useRoute
@@ -587,6 +613,7 @@ const workspace = useWorkspace();
 const {
   canvas, nodes, connections, pan, zoom, conversations, currentConvId, messages, inputContent,
   project, apiConfigs, selectedApiConfigId, isSubmittingJob, isConfirming, isAgentResponding,
+  selectedGenerationTarget, targetLoading, targetError,
   isCreatingConv, isAgentDrawerOpen, referencedNodeIds, aiTargetNodeId, activeJob,
   generationReady, isPreparingVideo, videoReview, initialized, loading, notice, saveState, saveLabel, uploading,
   switchConversation, createNewConversation, backToProjectSpace, retrySave, resolveConflict,
@@ -623,13 +650,16 @@ const videoSourceIds = computed(() => {
   return canvas.value.generation_source_ids.filter(id => nodes.value.some(n => n.id === id));
 });
 const videoSourceNodes = computed(() => nodes.value.filter(n => videoSourceIds.value.includes(n.id)));
+const videoImageNodes = computed(() => generationSources(canvas.value, videoSourceIds.value).filter(n => n.type === 'image' && n.asset_id));
 const videoDurationInput = computed({
   get: () => canvas.value.video_duration_seconds ?? '',
   set: (value: string | number) => { canvas.value.video_duration_seconds = value === '' ? null : Number(value); },
 });
 const videoSettingsReason = computed(() => videoSettingsBlockReason(canvas.value));
 const videoSelectionReady = computed(() => generationReady.value && !!project.value
-  && generationMatches(canvas.value, project.value.current_spec_version, videoSourceIds.value));
+  && generationMatches(canvas.value, project.value.current_spec_version, videoSourceIds.value, selectedGenerationTarget.value?.fingerprint));
+const videoReviewFresh = computed(() => !!project.value && !!selectedGenerationTarget.value && !targetLoading.value
+  && generationContextMatches(canvas.value, project.value.current_spec_version, videoSourceIds.value, selectedGenerationTarget.value.fingerprint));
   // 判断当前是否有正在进行中的视频生成任务
 const isJobRunning = computed(() =>
   !!activeJob.value && !['succeeded', 'failed', 'cancelled'].includes(activeJob.value.status)
@@ -642,11 +672,14 @@ const videoGenerationDisabledReason = computed(() => {
     compiledPrompt: !!project.value?.compiled_prompt, preparing: isPreparingVideo.value,
     submitting: isSubmittingJob.value, collaborating: isAgentResponding.value,
     confirming: isConfirming.value, channel: selectedApiConfigId.value, saveStatus: saveState.value.status,
+    targetFingerprint: selectedGenerationTarget.value?.fingerprint, targetLoading: targetLoading.value, targetError: targetError.value,
+    reviewError: videoReview.value?.kind === 'error',
   });
 });
 
 const generationModeLabel = computed(() => ({
   text_to_video: '文本生成', first_frame_to_video: '所选或关联图片作为首帧',
+  first_last_frame_to_video: '首帧与尾帧生成',
   reference_image_to_video: '多张图片作为参考素材',
 }[project.value?.current_spec.mode || 'text_to_video'] || project.value?.current_spec.mode));
 const isSelecting = ref(false);
@@ -1237,6 +1270,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.video-review-feedback.blocked {
+  border-color: rgba(234, 179, 8, .35);
+  background: rgba(234, 179, 8, .06);
+}
 /* TV 频道导航交互按钮 */
 /* 新增：左侧包裹容器，使 Logo 与 TV 按钮紧挨在一起 */
 .nav-left {

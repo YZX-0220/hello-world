@@ -1,42 +1,14 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import request from '../utils/request';
-import type { CanvasDocument, FlowNode } from '../types/canvas';
+import type { CanvasDocument, FlowNode, GenerationTarget } from '../types/canvas';
 import type { ConversationView, MessageView, UserView, VideoApiConfigView, VideoJobView, VideoProjectView } from '../types/api';
 import { CanvasPersistence, type CanvasSession } from '../services/canvasPersistence';
-import { createCanvas } from '../services/canvasState';
+import { copy, createCanvas } from '../services/canvasState';
 import { generationMatches, savedVideoReview, videoSettingsBlockReason } from '../services/generationState';
 
 type Page<T> = { items: T[]; next_cursor: string | null };
 type MessageResult = { user_message: MessageView | null; assistant_message: MessageView | null; project: VideoProjectView; run_status: string };
-
-// 新增：后端返回的模型能力与模式级约束类型定义
-export interface ModeConstraint {
-  mode: string;
-  ratio?: 'model' | 'adaptive_only' | string;
-  duration?: 'model' | 'omit' | string;
-  note?: string;
-}
-
-export interface VideoModelProfile {
-  code: string;
-  label: string;
-  remote_model_id?: string; // 👈 新增：后端返回的远程模型编号（如 doubao-seedance-2-5-260628）
-  modes: string[];
-  aspect_ratios?: string[];
-  duration?: { allowed_values?: number[] };
-  resolutions?: string[];
-  mode_constraints?: ModeConstraint[];
-}
-const MODE_LABELS: Record<string, string> = {
-  text_to_video: '文生视频',
-  first_frame_to_video: '首帧图生视频',
-  first_last_frame_to_video: '首尾帧生视频',
-  reference_image_to_video: '参考图生视频',
-  video_to_video: '视频重绘',
-  video_extend: '视频延长',
-  audio_or_performance_to_video: '音频/表演驱动',
-};
 
 const runningStatuses = ['created', 'submitting', 'queued', 'running'];
 export const newId = () => typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
@@ -53,8 +25,11 @@ export function useWorkspace() {
   const messages = ref<MessageView[]>([]);
   const project = ref<VideoProjectView | null>(null);
   const apiConfigs = ref<VideoApiConfigView[]>([]);
-  const modelProfiles = ref<Record<string, VideoModelProfile>>({});
-  const loadedProtocols = new Set<string>();
+  const selectedGenerationTarget = ref<GenerationTarget | null>(null);
+  const targetLoading = ref(false);
+  const targetError = ref('');
+  let targetSequence = 0;
+  const submissionKeys = new Map<string, string>();
   const jobs = ref<VideoJobView[]>([]);
   const loading = ref(false);
   const initialized = ref(false);
@@ -62,7 +37,7 @@ export function useWorkspace() {
   const isSubmittingJob = ref(false);
   const isConfirming = ref(false);
   const isPreparingVideo = ref(false);
-  const videoReviews = ref<Record<string, { kind: 'loading' | 'success' | 'error'; content: string }>>({});
+  const videoReviews = ref<Record<string, { kind: 'loading' | 'success' | 'blocked' | 'error'; content: string }>>({});
   const videoReview = computed(() => videoReviews.value[currentConvId.value]
     || (project.value ? savedVideoReview(canvas.value, project.value.current_spec_version) : undefined));
   const isAgentDrawerOpen = ref(false);
@@ -103,7 +78,9 @@ export function useWorkspace() {
   const isAgentResponding = computed(() => sending.value.includes(currentConvId.value) || nodes.value.some(n => n.ai_running));
   const activeJob = computed(() => jobs.value.find(job => runningStatuses.includes(job.status)) || jobs.value[0] || null);
   const generationReady = computed(() => {
-    return !!project.value?.compiled_prompt && generationMatches(canvas.value, project.value.current_spec_version);
+    return !!project.value?.compiled_prompt && !videoReviews.value[currentConvId.value]
+      && !!selectedGenerationTarget.value && !targetLoading.value && !targetError.value
+      && generationMatches(canvas.value, project.value.current_spec_version, undefined, selectedGenerationTarget.value.fingerprint);
   });
   const saveLabel = computed(() => {
     if (!saveState.value.localAvailable && saveState.value.dirty) return '本地草稿不可用 · 请等待云端保存';
@@ -124,116 +101,30 @@ export function useWorkspace() {
     return result;
   }
 
-  // 新增：按协议加载后端的模型约束配置
-  async function loadModelProfilesByProtocol(protocolCode: string) {
-    if (!protocolCode || loadedProtocols.has(protocolCode)) return;
+  async function loadGenerationTarget(configId = selectedApiConfigId.value) {
+    const sequence = ++targetSequence;
+    targetLoading.value = true;
+    targetError.value = '';
     try {
-      const res = await request.get<VideoModelProfile[] | { items: VideoModelProfile[] }, any>(
-        '/video-model-profiles',
-        { params: { protocol_code: protocolCode } }
-      );
-      const list: VideoModelProfile[] = Array.isArray(res) ? res : (res?.items || []);
-      const next = { ...modelProfiles.value };
-      for (const profile of list) {
-        if (profile?.code) next[profile.code] = profile;
+      const result = await request.get<GenerationTarget, GenerationTarget>('/video-generation-target',
+        { params: { api_config_id: configId } });
+      if (sequence === targetSequence && configId === selectedApiConfigId.value) {
+        selectedGenerationTarget.value = result;
+        targetError.value = result.error || '';
       }
-      modelProfiles.value = next;
-      loadedProtocols.add(protocolCode);
-    } catch (err) {
-      console.warn(`加载协议 ${protocolCode} 的模型约束失败:`, err);
-    }
+      return result;
+    } catch (err: any) {
+      if (sequence === targetSequence) { selectedGenerationTarget.value = null; targetError.value = err.message || '模型能力加载失败，请重新审理以重试。'; }
+      throw err;
+    } finally { if (sequence === targetSequence) targetLoading.value = false; }
   }
 
-  async function ensureModelProfiles() {
-    const protocols = new Set<string>(['ark_seedance_v1']);
-    for (const cfg of apiConfigs.value as any[]) {
-      if (cfg?.protocol_code) protocols.add(cfg.protocol_code);
+  watch([initialized, currentConvId, selectedApiConfigId], () => {
+    if (initialized.value && currentConvId.value) {
+      selectedGenerationTarget.value = null;
+      void loadGenerationTarget().catch(() => {});
     }
-    await Promise.all(Array.from(protocols).map(p => loadModelProfilesByProtocol(p)));
-  }
-
-  // 新增：提交前校验真实发送参数与模型约束
-  function validateBeforeSubmit(snapshot: VideoProjectView, doc?: CanvasDocument): string | null {
-    const configId = selectedApiConfigId.value || 'platform';
-    let targetKey = 'doubao-seedance-2-5';
-    let remoteModelId = '';
-    let channelDisplayName = 'Doubao Seedance 2.5';
-
-    if (configId !== 'platform') {
-      const cfg = (apiConfigs.value as any[]).find(c => c.id === configId);
-      if (cfg) {
-        remoteModelId = cfg.remote_model_id || '';
-        targetKey = cfg.capability_profile_code || cfg.model_profile_code || remoteModelId || '';
-        channelDisplayName = cfg.display_name || remoteModelId || targetKey;
-      }
-    }
-
-    // 👉 核心修复：不仅按 key (code) 查，还遍历匹配 code、remote_model_id 以及前缀关系
-    const profileList = Object.values(modelProfiles.value);
-    const profile = modelProfiles.value[targetKey]
-      || profileList.find(p =>
-        p.code === targetKey
-        || (p.remote_model_id && p.remote_model_id === targetKey)
-        || (remoteModelId && (p.remote_model_id === remoteModelId || p.code === remoteModelId))
-        || (remoteModelId && p.code && remoteModelId.startsWith(p.code))
-      );
-
-    if (!profile) return null; // 若仍未找到对应 profile，交由后端兜底校验
-
-    const modelLabel = profile.label || channelDisplayName;
-    const spec: any = snapshot.current_spec || {};
-    const genSettings: any = doc?.generation_settings || {};
-
-    // 1. 提取即将发送的真实参数
-    const mode: string = spec.mode || 'text_to_video';
-    const modeName = MODE_LABELS[mode] || mode;
-    const aspectRatio: string | undefined = spec.aspect_ratio;
-    const resolution: string | undefined = genSettings.resolution ?? doc?.video_resolution ?? spec.resolution;
-    const durationSeconds: number | undefined = genSettings.duration_seconds ?? doc?.video_duration_seconds ?? spec.duration_seconds;
-
-    // 2. 校验模型级支持的生成模式 (modes)
-    if (Array.isArray(profile.modes) && profile.modes.length > 0 && !profile.modes.includes(mode)) {
-      const supportedModes = profile.modes.map(m => `【${MODE_LABELS[m] || m}】`).join('、');
-      return `⚠️ 当前通道【${modelLabel}】不支持「${modeName}」模式。\n你可以：① 改用该模型支持的模式（${supportedModes}）；② 或切换其他支持「${modeName}」的模型通道。`;
-    }
-    if (mode === 'first_frame_to_video' && !spec.first_frame_asset_id) {
-      return `⚠️ 当前方案为「${modeName}」模式，但尚未绑定首帧图片素材。请先上传/指定首帧图，或改用【文生视频】模式。`;
-    }
-    if (mode === 'first_last_frame_to_video' && (!spec.first_frame_asset_id || !spec.last_frame_asset_id)) {
-      return `⚠️ 当前方案为「${modeName}」模式，需要同时提供首帧和尾帧图片素材。请补全图片，或改用其他生成模式。`;
-    }
-    // 3. 匹配模式级约束 (mode_constraints)
-    const modeConstraint = profile.mode_constraints?.find(c => c.mode === mode);
-
-    // 3.1 核心校验：自适应画幅限制 (ratio == "adaptive_only")
-    if (modeConstraint?.ratio === 'adaptive_only') {
-      if (aspectRatio && aspectRatio !== 'adaptive') {
-        const noteText = modeConstraint.note || `该模式画幅由首帧图片自动决定，不能指定具体比例。`;
-        return `⚠️ 当前通道【${modelLabel}】的「${modeName}」模式：${noteText}（当前指定了 ${aspectRatio}）。\n你可以：① 去掉方案里的画幅指定（改为自适应）；② 或改用【文生视频】模式；③ 或换用支持指定画幅的模型（如 Seedance 2.0）。`;
-      }
-    } else if (aspectRatio && aspectRatio !== 'adaptive') {
-      // 3.2 模型级画幅校验 (aspect_ratios)
-      if (Array.isArray(profile.aspect_ratios) && profile.aspect_ratios.length > 0 && !profile.aspect_ratios.includes(aspectRatio)) {
-        return `⚠️ 当前通道【${modelLabel}】不支持画幅比例「${aspectRatio}」。\n请将画幅修改为模型支持的比例：${profile.aspect_ratios.join('、')}，或切换其他模型。`;
-      }
-    }
-
-    // 4. 模型级清晰度校验 (resolutions)
-    if (resolution && Array.isArray(profile.resolutions) && profile.resolutions.length > 0 && !profile.resolutions.includes(resolution)) {
-      return `⚠️ 当前通道【${modelLabel}】不支持分辨率「${resolution}」。\n请将清晰度修改为：${profile.resolutions.join(' / ')}。`;
-    }
-
-    // 5. 模型级时长校验 (duration.allowed_values)
-    const durationRule = modeConstraint?.duration || 'model';
-    if (durationRule === 'model' && durationSeconds !== undefined && durationSeconds !== null) {
-      const allowedDurations = profile.duration?.allowed_values;
-      if (Array.isArray(allowedDurations) && allowedDurations.length > 0 && !allowedDurations.includes(Number(durationSeconds))) {
-        return `⚠️ 当前通道【${modelLabel}】不支持生成时长「${durationSeconds} 秒」。\n请将时长修改为模型允许的值：${allowedDurations.join('、')} 秒。`;
-      }
-    }
-
-    return null;
-  }
+  }, { flush: 'sync' });
 
   async function loadConversations() {
     try { conversations.value = await listAll<ConversationView>('/conversations'); }
@@ -433,12 +324,15 @@ export function useWorkspace() {
       const prepared = await request.post<VideoProjectView, VideoProjectView>(`/conversations/${id}/canvas/prepare-video`, {
         node_ids: nodeIds, expected_canvas_version: store.sessions.get(id)?.version,
         duration_seconds: documentToPrepare?.video_duration_seconds, resolution: documentToPrepare?.video_resolution,
+        api_config_id: documentToPrepare?.selected_api_config_id, mode: documentToPrepare?.video_mode || 'auto',
+        input_roles: documentToPrepare?.video_input_roles || {},
       }, { timeout: 240000 });
       store.acceptRemote(id, prepared);
       await store.flush(id);
-      if (currentConvId.value === id) project.value = prepared;
+      if (currentConvId.value === id) { project.value = prepared; await loadGenerationTarget(); }
       const document = store.sessions.get(id)?.document;
-      if (document && !!prepared.compiled_prompt && generationMatches(document, prepared.current_spec_version, nodeIds)) {
+      if (document?.generation_review?.status === 'blocked' || (document && !!prepared.compiled_prompt
+        && generationMatches(document, prepared.current_spec_version, nodeIds, selectedGenerationTarget.value?.fingerprint))) {
         delete videoReviews.value[id];
       } else {
         videoReviews.value[id] = { kind: 'error', content: '审理期间小框已变化，请按当前内容重新审理。' };
@@ -451,46 +345,50 @@ export function useWorkspace() {
   }
 
   async function submitVideoJob(selectedIds: string[]) {
-    if (!generationReady.value || !project.value || !store || isSubmittingJob.value
-      || !generationMatches(canvas.value, project.value.current_spec_version, selectedIds)) {
-      notice.value = '选择或小框内容已变化，请重新整理并查看视频提示词。'; return;
+    if (!generationReady.value || !project.value || !store || isSubmittingJob.value) {
+      notice.value = '请先按当前模型审理方案，再生成视频。'; return;
     }
     const id = currentConvId.value;
-    const snapshot = project.value;
-    const sourceId = canvas.value.generation_node_id;
+    const snapshot = copy(project.value);
+    const document = copy(canvas.value);
+    const configId = document.selected_api_config_id;
+    const ids = [...selectedIds];
+    const fingerprint = document.generation_review?.fingerprint;
+    const stillMatches = () => currentConvId.value === id && !!store
+      && store.sessions.get(id)?.document.generation_review?.fingerprint === fingerprint
+      && generationMatches(store.sessions.get(id)!.document, snapshot.current_spec_version, ids,
+        selectedGenerationTarget.value?.fingerprint);
     isSubmittingJob.value = true;
     try {
-      // 确保模型约束已加载，并在提交前校验真实参数
-      await ensureModelProfiles();
-      const sessionDoc = store.sessions.get(id)?.document || canvas.value;
-      const constraintError = validateBeforeSubmit(snapshot, sessionDoc);
-      if (constraintError) {
-        notice.value = constraintError;
-        if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-          window.alert(constraintError);
-        }
-        return;
+      const target = await loadGenerationTarget(configId);
+      if (target.error || target.fingerprint !== document.generation_target?.fingerprint || !stillMatches()) {
+        notice.value = target.error || '模型、模式或方案已变化，请重新审理。'; return;
       }
-
-      if (!await store.flush(id)) { notice.value = '请先同步画布，再生成视频。'; return; }
+      if (!await store.flush(id) || !stillMatches()) { notice.value = '画布或方案已变化，请保存后重新审理。'; return; }
       const confirmed = await request.post<VideoProjectView, VideoProjectView>(`/conversations/${id}/project/confirm`, {
         spec_version: snapshot.current_spec_version,
       });
       if (currentConvId.value === id) project.value = confirmed;
+      if (!stillMatches()) { notice.value = '确认期间方案已变化，请重新审理。'; return; }
+      const key = submissionKeys.get(fingerprint!) || newId();
+      submissionKeys.set(fingerprint!, key);
       const job = await request.post<VideoJobView, VideoJobView>('/video-jobs', {
         conversation_id: id, project_id: snapshot.id, spec_version: snapshot.current_spec_version,
-        api_config_id: selectedApiConfigId.value, mode: snapshot.current_spec.mode || 'text_to_video',
+        api_config_id: configId, mode: snapshot.current_spec.mode,
         generation_options: {
-          ...store.sessions.get(id)?.document.generation_settings, generate_audio: true, canvas_source_node_id: sourceId,
-          canvas_source_node_ids: selectedIds
+          ...document.generation_settings, review_fingerprint: fingerprint,
+          canvas_source_node_id: document.generation_node_id, canvas_source_node_ids: ids,
         }, previous_job_id: null,
-      }, { headers: { 'Idempotency-Key': newId() } });
+      }, { headers: { 'Idempotency-Key': key } });
+      submissionKeys.delete(fingerprint!);
       if (currentConvId.value === id) {
         jobs.value.unshift(job); materializeJob(id, job); schedulePolling();
-        notice.value = '视频任务已提交，结果将连接到本次选中的来源小框。';
+        notice.value = '已采用审理区展示的方案与参数并提交生成。';
       }
-    } catch (err: any) { notice.value = err.message || '视频任务提交失败'; }
-    finally { isSubmittingJob.value = false; }
+    } catch (err: any) {
+      notice.value = err.message || '视频任务提交失败';
+      if (currentConvId.value === id) { await refreshProject(id, false); await loadGenerationTarget(configId).catch(() => {}); }
+    } finally { isSubmittingJob.value = false; }
   }
 
   function materializeJob(id: string, job: VideoJobView) {
@@ -576,7 +474,7 @@ export function useWorkspace() {
   }
   async function reconnect() {
     for (const session of store?.sessions.values() || []) if (session.dirty) void store?.flush(session.id);
-    if (currentConvId.value) { await refreshProject(currentConvId.value); schedulePolling(); }
+    if (currentConvId.value) { await refreshProject(currentConvId.value); await loadGenerationTarget().catch(() => {}); schedulePolling(); }
   }
   function visibilityChanged() { if (document.visibilityState === 'hidden') { checkpointAll(); void flushCurrent(); } else void reconnect(); }
 
@@ -600,7 +498,7 @@ export function useWorkspace() {
       await loadConversations();
       try {
         apiConfigs.value = await listAll<VideoApiConfigView>('/video-api-configs');
-        await ensureModelProfiles();
+        await loadGenerationTarget();
       }
       catch (err: any) { notice.value = err.message || 'API 配置加载失败，可以继续编辑画布'; }
       if (disposed) return;
@@ -620,10 +518,10 @@ export function useWorkspace() {
   });
 
   return {
-    canvas, nodes, connections, pan, zoom, currentConvId, conversations, messages, project, apiConfigs, modelProfiles,
+    canvas, nodes, connections, pan, zoom, currentConvId, conversations, messages, project, apiConfigs, selectedGenerationTarget, targetLoading, targetError,
     inputContent, referencedNodeIds, aiTargetNodeId, selectedApiConfigId, isAgentResponding, isCreatingConv, isSubmittingJob,
     isConfirming, isPreparingVideo, videoReview, isAgentDrawerOpen, activeJob, generationReady, initialized, loading, notice, saveState, saveLabel, uploading,
     switchConversation, createNewConversation, backToProjectSpace, deleteConversation, sendMessage, uploadImage,
-    confirmSpec, prepareVideo, submitVideoJob, retrySave, resolveConflict, restoreBeforeAi, handleLogout, loadConversations
+    confirmSpec, prepareVideo, submitVideoJob, retrySave, resolveConflict, restoreBeforeAi, handleLogout, loadConversations, loadGenerationTarget
   };
 }

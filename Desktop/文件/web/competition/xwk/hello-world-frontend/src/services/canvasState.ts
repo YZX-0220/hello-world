@@ -12,6 +12,8 @@ export function createCanvas(conversationId: string, content = ''): CanvasDocume
     generation_node_id: '', generation_source_ids: [], generation_snapshot: [],
     generation_spec_version: 0, generation_review: null, dismissed_job_ids: [],
     video_duration_seconds: null, video_resolution: '', generation_settings: null,
+    generation_requested_settings: null, generation_target: null, generation_input: null,
+    video_mode: 'auto', video_input_roles: {},
   };
 }
 

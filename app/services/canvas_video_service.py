@@ -1,6 +1,7 @@
 """Prepare a video brief from a fixed selection without modifying the source boxes."""
 
 import json
+from contextlib import suppress
 from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -137,6 +138,9 @@ async def reviewed_version(
         raise AppError(PROJECT_NOT_CONFIRMED, "模型配置或能力规则已更新，请重新审理。")
     spec = VideoBrief.model_validate(json.loads(row.spec_json))
     validate_settings(target, spec, record["settings"], record["wire"])
+    from app.services.video_image_service import validate_review_images
+
+    await validate_review_images(session, project.user_id, target.profile, spec, record.get("materials", []))
     return row, record, target
 
 
@@ -188,7 +192,7 @@ async def restore_review_metadata(session, project, data):
     return data
 
 
-def _asset_spec(snapshot, mode, roles, duration):
+def _asset_spec(snapshot, mode, roles, duration, allow_identical_frames=False):
     images = [n for n in snapshot if n["type"] == "image" and n["asset_id"]]
     if mode == "auto":
         mode = (
@@ -208,9 +212,12 @@ def _asset_spec(snapshot, mode, roles, duration):
     elif mode == "first_last_frame_to_video":
         by_id = {n["id"]: n["asset_id"] for n in images}
         first = roles.get("first_frame_node_id") or (images[0]["id"] if images else "")
-        last = roles.get("last_frame_node_id") or (images[1]["id"] if len(images) > 1 else "")
-        if len(images) != 2 or first == last or first not in by_id or last not in by_id:
-            issues.append("首尾帧模式需要两张不同的图片，请选择首帧和尾帧。")
+        last = roles.get("last_frame_node_id") or (
+            images[1]["id"] if len(images) > 1 else first if allow_identical_frames else ""
+        )
+        if (len(images) not in ((1, 2) if allow_identical_frames else (2,))
+                or (first == last and not allow_identical_frames) or first not in by_id or last not in by_id):
+            issues.append("请指定首帧和尾帧图片，并取消未使用的图片。")
         else:
             values.update(first_frame_asset_id=by_id[first], last_frame_asset_id=by_id[last])
     elif mode == "reference_image_to_video":
@@ -272,6 +279,27 @@ class CanvasVideoService:
         self._repo = ProjectRepository(session)
 
     async def prepare(
+        self, *args, **kwargs,
+    ):
+        pending_images = []
+        try:
+            return await self._prepare(*args, **kwargs, pending_images=pending_images)
+        except BaseException:
+            # Staged files must not survive a cancelled or stale review. Never delete
+            # an asset that did commit (including an uncertain commit response).
+            from app.core.config import settings
+            from app.repositories.assets import AssetRepository
+            from app.storage import LocalStorage
+
+            with suppress(Exception):
+                await self._session.rollback()
+            for image in pending_images:
+                with suppress(Exception):
+                    if await AssetRepository(self._session).get(image.id) is None:
+                        LocalStorage(settings.storage_root).delete(image.storage_key)
+            raise
+
+    async def _prepare(
         self,
         user_id,
         conversation_id,
@@ -282,6 +310,8 @@ class CanvasVideoService:
         api_config_id="platform",
         mode="auto",
         input_roles=None,
+        *,
+        pending_images,
     ):
         import re
 
@@ -322,7 +352,10 @@ class CanvasVideoService:
                 if asset is None or asset.status != "ready" or asset.kind != "image":
                     issues.append("选中的图片素材不存在、未就绪或无权使用，请重新上传。")
         target = await resolve_target(self._session, user_id, api_config_id)
-        asset_spec, role_issues = _asset_spec(snapshot, mode, roles, duration_seconds)
+        asset_spec, role_issues = _asset_spec(
+            snapshot, mode, roles, duration_seconds,
+            allow_identical_frames=bool(target.profile and target.profile.allows_identical_frames),
+        )
         issues.extend(role_issues)
         inputs = "\n\n".join(
             f"小框【{n['title']}】：\n{n['content'] or '（空白，请自由创作并说明假设）'}"
@@ -346,6 +379,16 @@ class CanvasVideoService:
         issues.extend(proposal["issues"])
         effective = proposal["settings"]
         changes = proposal["changes"]
+        from app.services.video_image_service import apply_image_bindings, prepare_images
+
+        materials, material_notices = [], []
+        if not issues:
+            materials, material_notices, material_issues, _pending = await prepare_images(
+                self._session, user_id, target.profile, asset_spec,
+                {n["asset_id"]: n["title"] for n in snapshot if n.get("asset_id")},
+                pending=pending_images,
+            )
+            issues.extend(material_issues)
         output = AgentOutput()
         spec = asset_spec
         if not issues:
@@ -359,10 +402,13 @@ class CanvasVideoService:
                 f"画幅为 {effective['aspect_ratio']}；声音生成：{effective['generate_audio']}。"
                 "所有动作时间线必须处于最终总时长内。不在创作字段重复技术参数，禁止承诺其他画幅。"
                 "suggestions 仅为可选建议，不作为生成前提。素材 ID、生成模式由系统固定。"
+                "创作字段尽量精炼，中文合计尽量控制在 500 字内；不要输出 --rt、--dur 等 API 参数指令。"
                 "\n【模型及模式规则】"
                 + json.dumps(target.view(), ensure_ascii=False, default=str)
                 + "\n【本次参数调整】"
                 + json.dumps(changes, ensure_ascii=False)
+                + "\n【素材处理说明】"
+                + json.dumps(material_notices, ensure_ascii=False)
                 + "\n\n"
                 + inputs
             )
@@ -417,6 +463,15 @@ class CanvasVideoService:
                 output.assumptions.append(f"尾帧使用小框【{title}】的图片。")
             if not requested_ratio and effective["aspect_ratio"] != "adaptive":
                 output.assumptions.append(f"本次默认画幅为 {effective['aspect_ratio']}。")
+        spec = apply_image_bindings(spec, materials)
+        if target.profile and target.profile.image_constraints and resolution == "1080p":
+            output.assumptions.append("1080p 输出采用 HEVC 编码，部分浏览器可能无法直接播放，可下载后用兼容播放器查看。")
+        if target.profile and target.profile.image_constraints and spec.last_frame_asset_id:
+            frames = {b["role"]: b for b in materials}
+            if "first_frame" in frames and "last_frame" in frames:
+                first, last = frames["first_frame"], frames["last_frame"]
+                if first["width"] * last["height"] != last["width"] * first["height"]:
+                    material_notices.append("首尾帧比例不同：输出画幅跟随首帧，厂商会自动适配尾帧，可能改变尾帧构图。")
         # Detect target revision/rule changes during the LLM call as well as canvas edits.
         current_target = await resolve_target(self._session, user_id, api_config_id)
         if current_target.fingerprint != target.fingerprint:
@@ -429,6 +484,7 @@ class CanvasVideoService:
             target=target.snapshot(),
             changes=changes,
             issues=issues,
+            material_notices=material_notices,
         )
         record = {
             "status": status,
@@ -440,6 +496,8 @@ class CanvasVideoService:
             "wire": proposal["wire"],
             "input": {"mode": mode, "input_roles": roles},
             "changes": changes,
+            "materials": materials,
+            "material_notices": material_notices,
             "issues": issues,
             "content": content,
             "spec_version": base_version + 1,
@@ -468,6 +526,7 @@ class CanvasVideoService:
             video_resolution=resolution,
             selected_api_config_id=api_config_id,
         )
+        self._session.add_all(pending_images)
         return await self._repo.commit_canvas_spec(
             project,
             json.dumps(data, ensure_ascii=False),

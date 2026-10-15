@@ -107,10 +107,10 @@ def test_unresolvable_inputs_block_without_discarding_materials(kind):
     elif kind == "unsupported":
         spec.mode = "video_extend"
     elif kind == "too_many_images":
-        spec = VideoBrief(mode="reference_image_to_video", reference_asset_ids=["a", "b"])
+        spec = VideoBrief(mode="reference_image_to_video", reference_asset_ids=[str(i) for i in range(31)])
     elif kind == "duplicate_roles":
         spec = VideoBrief(
-            mode="first_last_frame_to_video", first_frame_asset_id="a", last_frame_asset_id="a"
+            mode="reference_image_to_video", reference_asset_ids=["a", "a"]
         )
     else:
         selected = target(
@@ -129,6 +129,16 @@ def test_unknown_rule_and_impossible_combination_fail_closed():
     ):
         p = replace(profile, rules=(rule,))
         assert propose_settings(target(p), VideoBrief(mode="text_to_video"), requested())["issues"]
+
+
+def test_seedance_accepts_thirty_references_and_adaptive_ratio():
+    profile = get_profile("ark_seedance_v1", "doubao-seedance-2-5")
+    spec = VideoBrief(mode="reference_image_to_video", reference_asset_ids=[str(i) for i in range(30)])
+    result = propose_settings(target(profile), spec, requested(duration_seconds=7, aspect_ratio="adaptive"))
+    assert not result["issues"]
+    assert result["settings"]["duration_seconds"] == 7
+    assert result["settings"]["aspect_ratio"] == "adaptive"
+    validate_settings(target(profile), spec, result["settings"], result["wire"])
 
 
 @pytest.mark.parametrize("complete", [True, False])

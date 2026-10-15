@@ -15,6 +15,7 @@ from app.core.enums import ApiSourceType, VideoMode
 from app.video_registry.models import (
     DynamicField,
     EndpointSpec,
+    ImageConstraints,
     ModeConstraint,
     ModelProfile,
     ProtocolPreset,
@@ -329,14 +330,25 @@ ARK_PROFILES: tuple[ModelProfile, ...] = (
             VideoMode.FIRST_LAST_FRAME_TO_VIDEO.value,
             VideoMode.REFERENCE_IMAGE_TO_VIDEO.value,
         ),
-        durations_seconds=(4, 5, 8, 10, 12, 15),
-        aspect_ratios=("16:9", "9:16", "4:3", "3:4", "1:1", "21:9"),
+        durations_seconds=tuple(range(4, 31)),
+        aspect_ratios=("16:9", "9:16", "4:3", "3:4", "1:1", "21:9", "adaptive"),
         resolutions=("480p", "720p", "1080p"),
         generation_options={"generate_audio": True},
-        max_reference_images=1,
+        max_reference_images=30,
         max_source_videos=0,
         allows_provider_direct_url=True,
         provider_direct_url_ttl=86400,
+        image_constraints=ImageConstraints(),
+        allows_identical_frames=True,
+        task_timeout_seconds=172800,
+        input_url_ttl_seconds=176400,
+        version=2,
+        verified_on="2026-10-15",
+        source_urls=(
+            "https://docs.volcengine.com/docs/ark/seedance-2-5?lang=zh",
+            "https://docs.volcengine.com/docs/ark/create-video-generation-task-api?lang=zh",
+            "https://docs.volcengine.com/docs/ark/get-video-generation-task-api?lang=zh",
+        ),
         # 2.5 的"首帧/首尾帧"模式被厂商锁定为自适应画幅，不能指定具体比例（参考图模式允许）。
         mode_constraints=(
             ModeConstraint(
@@ -347,7 +359,7 @@ ARK_PROFILES: tuple[ModelProfile, ...] = (
             ModeConstraint(
                 mode=VideoMode.FIRST_LAST_FRAME_TO_VIDEO.value,
                 ratio="adaptive_only",
-                note="该模式画幅由首帧图自动决定，不能指定具体比例（尾帧画幅需与首帧一致）。",
+                note="画幅跟随首帧；尾帧比例不同时由厂商自动适配，可能改变尾帧构图。",
             ),
         ),
         enabled=True,

@@ -10,7 +10,7 @@ import io
 from dataclasses import dataclass
 from typing import Any
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
 from sqlalchemy import or_
 from sqlmodel import col, select
 
@@ -69,6 +69,10 @@ def _detect_kind_mime(data: bytes) -> tuple[str, str | None]:
         return "image", "image/webp"
     if data[:4] == b"GIF8":
         return "image", "image/gif"
+    if data[:2] == b"BM":
+        return "image", "image/bmp"
+    if data[:4] in (b"II\x2a\x00", b"MM\x00\x2a"):
+        return "image", "image/tiff"
     if data[4:8] == b"ftyp":  # MP4 / QuickTime 常见
         return "video", "video/mp4"
     if data[4:8] == b"moov" or data[4:8] == b"mdat":
@@ -91,7 +95,7 @@ def _inspect(data: bytes, suggested_kind: str) -> InspectedFile:
                 im.verify()
             with Image.open(io.BytesIO(data)) as im:
                 width, height = im.size
-        except UnidentifiedImageError as exc:
+        except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as exc:
             raise AppError(ASSET_CONTENT_INVALID, "图片无法解码") from exc
         if width * height > settings.image_max_pixels:
             raise AppError(ASSET_CONTENT_INVALID, "图片分辨率超过上限")

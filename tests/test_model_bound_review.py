@@ -111,11 +111,11 @@ async def test_image_review_persists_adaptive_plan_and_real_ark_body_has_no_rati
     canvas = project["canvas_data"]
     assert canvas["generation_review"]["status"] == "ready"
     assert canvas["video_duration_seconds"] == 7
-    assert canvas["generation_settings"]["duration_seconds"] == 8
+    assert canvas["generation_settings"]["duration_seconds"] == 7
     assert project["current_spec"]["aspect_ratio"] == "adaptive"
     assert "16:9" not in project["compiled_prompt"]
     assert "随素材自适应" in canvas["generation_review"]["content"]
-    assert "7 → 8" in canvas["generation_review"]["content"]
+    assert "等比放大" in canvas["generation_review"]["content"]
     assert canvas["nodes"] == document["nodes"]
     reopened = (await client.get(f"/api/v1/conversations/{cid}/project")).json()
     assert reopened["canvas_data"]["generation_review"] == canvas["generation_review"]
@@ -135,7 +135,7 @@ async def test_image_review_persists_adaptive_plan_and_real_ark_body_has_no_rati
     assert requests[0]["prompt"] == project["compiled_prompt"]
     body = _build_body(requests[0])
     assert "ratio" not in body
-    assert body["duration"] == 8 and body["resolution"] == "1080p"
+    assert body["duration"] == 7 and body["resolution"] == "1080p"
     assert len(body["content"]) == count + 1
 
 
@@ -150,7 +150,7 @@ async def test_changed_binding_cannot_submit_the_old_review(client, monkeypatch,
     assert (await confirm(client, cid, headers, project)).status_code == 200
     if change == "rules":
         key = ("ark_seedance_v1", "doubao-seedance-2-5")
-        monkeypatch.setitem(registry._PROFILES, key, replace(registry._PROFILES[key], version=2))
+        monkeypatch.setitem(registry._PROFILES, key, replace(registry._PROFILES[key], version=registry._PROFILES[key].version + 1))
     elif change == "options":
         options = reviewed_options(project)
         options["aspect_ratio"] = "9:16"

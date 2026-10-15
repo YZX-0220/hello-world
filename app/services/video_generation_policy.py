@@ -161,14 +161,15 @@ def input_issues(profile: ModelProfile, spec: VideoBrief) -> list[str]:
         spec.reference_asset_ids,
     )
     images = ([first] if first else []) + ([last] if last else []) + refs
-    if len(set(images)) != len(images):
+    identical_frames = profile.allows_identical_frames and mode == "first_last_frame_to_video" and not refs
+    if len(set(images)) != len(images) and not identical_frames:
         issues.append("同一张图片不能同时充当多个素材角色，请重新指定首帧、尾帧或参考图。")
     if mode == "text_to_video" and images:
         issues.append("文生视频模式不使用图片，请取消所选或关联的图片，或选择图生视频模式。")
     elif mode == "first_frame_to_video" and (not first or last or refs):
         issues.append("首帧模式需要且只使用一张首帧图片，请调整所选图片。")
     elif mode == "first_last_frame_to_video" and (not first or not last or refs):
-        issues.append("首尾帧模式需要两张不同的图片，请指定首帧和尾帧。")
+        issues.append("首尾帧模式需要指定首帧和尾帧。")
     elif mode == "reference_image_to_video" and (not refs or first or last):
         issues.append("参考图模式需要参考图片，请调整素材角色。")
     elif mode not in (
@@ -239,6 +240,8 @@ def propose_settings(target: GenerationTarget, spec: VideoBrief, requested: dict
             "此模式由输入素材决定时长，无法保证用户确认的 1–15 秒。请选择支持指定时长的模式。"
         )
     durations = [v for v in profile.durations_seconds if 1 <= v <= 15]
+    if profile.image_constraints and requested["duration_seconds"] not in durations:
+        issues.append(f"请手动选择当前模型支持的时长：{'、'.join(map(str, durations))} 秒。")
     if rule.duration == "omit":
         durations = [requested["duration_seconds"]]
     ratios = (
@@ -326,6 +329,8 @@ def propose_settings(target: GenerationTarget, spec: VideoBrief, requested: dict
             }
         )
     wire = dict(effective)
+    if profile.task_timeout_seconds:
+        wire["execution_expires_after"] = profile.task_timeout_seconds
     if rule.ratio in ("adaptive_only", "omit"):
         if rule.ratio == "adaptive_only" and rule.ratio_transport == "adaptive":
             wire["aspect_ratio"] = "adaptive"

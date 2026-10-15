@@ -100,6 +100,10 @@ def profile_to_view(profile: ModelProfile) -> ModelProfileView:
             for c in profile.mode_constraints
         ],
         rules=[asdict(r) for r in profile.rules],
+        image_constraints=asdict(profile.image_constraints) if profile.image_constraints else None,
+        allows_identical_frames=profile.allows_identical_frames,
+        verified_on=profile.verified_on,
+        source_urls=list(profile.source_urls),
     )
 
 

@@ -81,6 +81,10 @@ class ModelProfileView(BaseModel):
     # 模式级附加约束：前端在"确认并生成"前据此校验真实参数，不满足则提示用户改。
     mode_constraints: list[ModeConstraintView] = Field(default_factory=list)
     rules: list[dict[str, Any]] = Field(default_factory=list)
+    image_constraints: dict[str, Any] | None = None
+    allows_identical_frames: bool = False
+    verified_on: str = ""
+    source_urls: list[str] = Field(default_factory=list)
 
 
 # ---- 请求对象（检测 / 创建 / 修改）----

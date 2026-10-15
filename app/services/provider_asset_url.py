@@ -19,7 +19,7 @@ from sqlmodel import select
 
 from app.core.time import now
 from app.db.models.asset import Asset
-from app.db.models.video_job import VideoJobAsset
+from app.db.models.video_job import VideoJob, VideoJobAsset
 
 
 def _b64(data: bytes) -> str:
@@ -70,6 +70,11 @@ class ProviderAssetUrlService:
         exp = int(payload.get("exp", 0))
         if exp < now_ts:
             return None  # 过期 -> 410
+        job = (await self._session.exec(select(VideoJob).where(
+            VideoJob.id == payload.get("jid", "")
+        ))).first()
+        if job is None or job.status not in ("created", "submitting", "queued", "running"):
+            return None
 
         # 厂商会对同一素材发起多次读取（首次命中、后续重试 / 多路读取），
         # 故这里只校验签名、过期与归属，不再做"单次消费"拦截；nonce 仅登记不阻断。
@@ -78,7 +83,7 @@ class ProviderAssetUrlService:
 
         # 素材必须属于该任务且为 ready
         asset = (await self._session.exec(select(Asset).where(Asset.id == payload.get("aid", "")))).first()
-        if asset is None or asset.status != "ready":
+        if asset is None or asset.status != "ready" or asset.user_id != job.user_id:
             return None
         job_ref = (
             await self._session.exec(

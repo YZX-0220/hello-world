@@ -102,6 +102,23 @@ class ModeConstraint:
 
 
 @dataclass(frozen=True)
+class ImageConstraints:
+    """Vendor input requirements; independent of platform upload limits."""
+
+    min_width: int = 300
+    min_height: int = 300
+    max_width: int = 6000
+    max_height: int = 6000
+    min_ratio: float = 0.4
+    max_ratio: float = 2.5
+    max_bytes_exclusive: int = 30_000_000
+    mime_types: tuple[str, ...] = (
+        "image/jpeg", "image/png", "image/webp", "image/bmp", "image/tiff",
+        "image/gif", "image/heic", "image/heif",
+    )
+
+
+@dataclass(frozen=True)
 class ModelProfile:
     """一个具体模型的能力（对应接口说明 3.11 ModelProfileView）。
 
@@ -129,6 +146,12 @@ class ModelProfile:
     mode_constraints: tuple[ModeConstraint, ...] = ()
     version: int = 1
     rules: tuple[ParameterRule, ...] = ()
+    image_constraints: ImageConstraints | None = None
+    allows_identical_frames: bool = False
+    task_timeout_seconds: int = 0
+    input_url_ttl_seconds: int = 0
+    verified_on: str = ""
+    source_urls: tuple[str, ...] = ()
 
 
 __all__ = [

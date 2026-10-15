@@ -187,6 +187,7 @@ class VideoJobService:
             **record["wire"], "remote_model_id": remote_model_id, "mode": command.mode,
             "prompt": record["compiled_prompt"], "generation_target": record["target"],
             "review_fingerprint": record["fingerprint"],
+            "input_url_ttl_seconds": target.profile.input_url_ttl_seconds,
             "first_frame_asset_id": spec.first_frame_asset_id, "last_frame_asset_id": spec.last_frame_asset_id,
             "reference_asset_ids": spec.reference_asset_ids, "source_video_asset_id": spec.source_video_asset_id,
             "audio_asset_id": spec.audio_asset_id, "generation_options": command.generation_options,
@@ -415,12 +416,22 @@ class VideoJobService:
             VideoJobStatus.RUNNING.value,
             VideoJobStatus.SUCCEEDED.value,
             VideoJobStatus.FAILED.value,
+            VideoJobStatus.CANCELLED.value,
         ):
             mapped = old
         job.status = mapped
         job.progress = status.progress
+        if mapped == VideoJobStatus.FAILED.value:
+            job.error_code = (status.error_code or "PROVIDER_TASK_FAILED")[:64]
+            job.error_message = (status.error_message or "厂商未返回具体原因，请稍后重试或切换素材。")[:2000]
+            job.completed_at = now()
+        elif mapped in (VideoJobStatus.RUNNING.value, VideoJobStatus.SUCCEEDED.value):
+            job.error_code = None
+            job.error_message = None
         job.next_poll_at = now() + timedelta(seconds=settings.video_poll_interval_seconds)
         if mapped == VideoJobStatus.SUCCEEDED.value:
+            job.completed_at = now()
+        if mapped == VideoJobStatus.CANCELLED.value:
             job.completed_at = now()
         if mapped != old:
             await self._events.add(
@@ -473,7 +484,8 @@ class VideoJobService:
     def _provider_request(self, job: VideoJob, assets: list[tuple[str, str, int]]) -> dict[str, Any]:
         request = json.loads(job.request_json or "{}")
         for asset_id, role, _pos in assets:
-            token, _ = sign_provider_asset(asset_id, job.id, role, settings.app_secret, settings.signed_url_ttl_seconds)
+            ttl = max(settings.signed_url_ttl_seconds, int(request.get("input_url_ttl_seconds") or 0))
+            token, _ = sign_provider_asset(asset_id, job.id, role, settings.app_secret, ttl)
             url = f"{settings.app_base_url.rstrip('/')}/api/v1/provider-assets/{token}"
             if role == "first_frame":
                 request["first_frame_url"] = url

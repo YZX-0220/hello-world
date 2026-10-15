@@ -14,12 +14,14 @@ def review_markdown(
     target: dict | None = None,
     changes: list | None = None,
     issues: list[str] | None = None,
+    material_notices: list[str] | None = None,
 ) -> str:
     if issues:
         return "\n".join(
             [
                 "### 当前方案需要调整",
                 *[f"- {issue}" for issue in issues],
+                *[f"- 已完成处理：{note}" for note in material_notices or []],
                 "",
                 "请完成上述操作后重新点击“AI审理方案”。本次不会提交视频生成。",
             ]
@@ -42,6 +44,8 @@ def review_markdown(
         lines.append(f"**生成通道**：{target['label']} · {target['remote_model_id']}")
     lines.extend([f"**生成参数**：{spec.duration_seconds} 秒 · {ratio} · {resolution}", ""])
     lines.extend(f"- **{label}**：{getattr(spec, key) or '未填写'}" for key, label in fields)
+    if material_notices:
+        lines.extend(["", "### 图片处理说明", *[f"- {note}" for note in material_notices]])
     if changes:
 
         def label(value):

@@ -10,12 +10,12 @@
   base 与下载直链在请求前都做 SSRF 校验（check_base_url）。
 """
 
+import json
 import logging
+import re
 from typing import Any
 
 import httpx
-
-logger = logging.getLogger("app.providers.video.ark")
 
 from app.core.config import settings
 from app.core.ssrf import UnsafeUrlError, check_base_url
@@ -28,6 +28,7 @@ from app.providers.video.base import (
 )
 
 _SUBMIT_PATH = "/api/v3/contents/generations/tasks"
+logger = logging.getLogger("app.providers.video.ark")
 _TASK_PATH = "/api/v3/contents/generations/tasks/{task_id}"
 
 # 远端状态 -> 本站统一状态（Ark 原生语义；expired 归为 failed）
@@ -39,6 +40,40 @@ _STATUS_MAP = {
     "cancelled": "cancelled",
     "expired": "failed",
 }
+
+
+def _failure(error: Any, fallback="厂商未返回具体原因") -> tuple[str, str]:
+    error = error if isinstance(error, dict) else {}
+    code = str(error.get("code") or "PROVIDER_TASK_FAILED")[:64]
+    detail = str(error.get("message") or fallback)
+    detail = re.sub(r"https?://[^\s\"<>]+", "[素材地址]", detail)
+    detail = re.sub(r"(?i)Bearer\s+\S+", "Bearer [已隐藏]", detail)[:1200]
+    lowered = (code + " " + detail).lower()
+    if any(word in lowered for word in ("real person", "real human", "human face", "portrait", "人脸", "真人")):
+        hint = "该素材涉及真人人像准入要求；当前普通图片入口尚未接入专用人像通道，请更换素材。"
+    elif any(word in lowered for word in ("sensitive", "contentpolicy", "moderation")):
+        hint = "内容未通过厂商审核，请调整描述或素材后重新审理。"
+    elif any(word in lowered for word in ("authentication", "unauthorized", "accessdenied", "apikey")):
+        hint = "请检查视频通道的密钥、模型开通状态和调用权限。"
+    elif any(word in lowered for word in ("quota", "balance", "ratelimit", "overdue")):
+        hint = "请检查厂商余额、额度或并发限制，稍后再试。"
+    elif "tasktype" in lowered:
+        hint = "厂商判定的任务类型与本次模式不一致，请调整描述后重新审理。"
+    else:
+        hint = "请根据厂商原因调整素材或参数后重新审理。"
+    return code, f"{hint}\n厂商原因（{code}）：{detail}"
+
+
+def _response_failure(resp: httpx.Response) -> tuple[str, str]:
+    try:
+        payload = resp.json()
+    except ValueError:
+        payload = {}
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if not isinstance(error, dict):
+        error = {"message": error or f"HTTP {resp.status_code}"}
+    error.setdefault("code", "VIDEO_SUBMISSION_FAILED")
+    return _failure(error, f"HTTP {resp.status_code}")
 
 
 def _build_content(request: dict[str, Any]) -> list[dict[str, Any]]:
@@ -108,6 +143,13 @@ def _build_body(request: dict[str, Any]) -> dict[str, Any]:
         body["ratio"] = request["aspect_ratio"]
     if "generate_audio" in request:
         body["generate_audio"] = request["generate_audio"]
+    if request.get("execution_expires_after"):
+        body["execution_expires_after"] = request["execution_expires_after"]
+    target = request.get("generation_target") or {}
+    if ((request.get("remote_model_id") == "doubao-seedance-2-5-260628"
+         or target.get("profile_code") == "doubao-seedance-2-5")
+            and request.get("mode") == "reference_image_to_video"):
+        body["omni_reference_task_type"] = "reference"
     return body
 
 
@@ -139,6 +181,19 @@ class ArkSeedanceProvider(VideoProvider):
         await self._require_public(ctx.base_url)
         url = ctx.base_url.rstrip("/") + _SUBMIT_PATH
         payload = _build_body(request)
+        for item in payload["content"]:
+            media = item.get(item["type"])
+            if isinstance(media, dict) and str(media.get("url", "")).startswith(("http://", "https://")):
+                try:
+                    await self._require_public(media["url"])
+                except VideoProviderError as exc:
+                    raise VideoProviderError(
+                        "VIDEO_INPUT_UNREACHABLE",
+                        "素材地址不是厂商可访问的公网地址，请检查后端 APP_BASE_URL 和域名解析。",
+                        retryable=False,
+                    ) from exc
+        if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > 64_000_000:
+            raise VideoProviderError("VIDEO_SUBMISSION_FAILED", "生成请求超过厂商 64 MB 上限，请精简方案。", retryable=False)
         try:
             async with self._client() as c:
                 resp = await c.post(url, json=payload, headers=self._headers(ctx))
@@ -146,11 +201,8 @@ class ArkSeedanceProvider(VideoProvider):
             raise VideoProviderError("VIDEO_SUBMISSION_FAILED", "提交厂商请求失败") from exc
         if not (200 <= resp.status_code < 300):
             logger.warning("Ark 提交被拒 HTTP %s: %s", resp.status_code, resp.text[:1500])
-            raise VideoProviderError(
-                "VIDEO_SUBMISSION_FAILED",
-                f"厂商拒绝任务（HTTP {resp.status_code}）：{resp.text[:300]}",
-                retryable=False,
-            )
+            code, message = _response_failure(resp)
+            raise VideoProviderError(code, message, retryable=False)
         task_id = (resp.json() or {}).get("id")
         if not task_id:
             raise VideoProviderError("VIDEO_SUBMISSION_FAILED", "厂商响应缺少任务 ID", retryable=False)
@@ -170,7 +222,13 @@ class ArkSeedanceProvider(VideoProvider):
         data = resp.json() or {}
         raw = data.get("status") or ""
         mapped = _STATUS_MAP.get(raw, raw)
-        return VideoTaskStatus(raw_status=str(mapped), extra={"remote_status": str(raw)})
+        code, message = None, None
+        if raw == "failed":
+            code, message = _failure(data.get("error"))
+        elif raw == "expired":
+            code, message = "PROVIDER_TASK_EXPIRED", "厂商任务排队或执行超时，请稍后重试。"
+        return VideoTaskStatus(raw_status=str(mapped), error_code=code, error_message=message,
+                               extra={"remote_status": str(raw)})
 
     async def fetch_result_url(self, task_id: str, ctx: AdapterContext) -> str | None:
         await self._require_public(ctx.base_url)

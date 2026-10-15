@@ -6,11 +6,13 @@ import uuid
 import httpx
 import pytest_asyncio
 from app.core.config import settings
-from app.db.models.video_job import VideoJobAsset
+from app.db.models.asset import Asset
+from app.db.models.video_job import VideoJob, VideoJobAsset
 from app.providers.email.fake import fake_instance
 from app.services.provider_asset_url import sign_provider_asset
 from PIL import Image
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 ORIGIN = "http://127.0.0.1:5173"
@@ -135,6 +137,14 @@ async def test_provider_asset_token_flow(client: httpx.AsyncClient, db_session) 
     ).json()
     aid = up["id"]
     job_id = "job-fixed-0001"
+    asset = (await db_session.exec(select(Asset).where(Asset.id == aid))).first()
+    job = VideoJob(
+        id=job_id, user_id=asset.user_id, conversation_id="test-conversation",
+        project_id="test-project", project_version_id="test-version", project_version=1,
+        idempotency_key="test-token", request_fingerprint="test", protocol_code="ark_seedance_v1",
+        remote_model_id="test", mode="first_frame_to_video", status="queued",
+    )
+    db_session.add(job)
 
     # 记录任务对该素材的引用（签名只返回被任务引用且 ready 的素材）
     db_session.add(VideoJobAsset(video_job_id=job_id, asset_id=aid, role="first_frame"))
@@ -154,3 +164,6 @@ async def test_provider_asset_token_flow(client: httpx.AsyncClient, db_session) 
     assert (await client.get(f"/api/v1/provider-assets/{token}")).status_code == 200
     wrong_role, _ = sign_provider_asset(aid, job_id, "last_frame", settings.app_secret, 600)
     assert (await client.get(f"/api/v1/provider-assets/{wrong_role}")).status_code == 404
+    job.status = "failed"
+    await db_session.commit()
+    assert (await client.get(f"/api/v1/provider-assets/{token}")).status_code == 404

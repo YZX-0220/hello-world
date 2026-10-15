@@ -237,6 +237,35 @@ async def test_submit_non_2xx_raises() -> None:
     assert exc_info.value.code == "VIDEO_SUBMISSION_FAILED"
 
 
+@respx.mock
+async def test_seedance_async_failure_preserves_code_and_sanitizes_asset_url() -> None:
+    respx.get(TASK_URL).mock(return_value=httpx.Response(200, json={
+        "status": "failed", "error": {
+            "code": "InvalidParameter.TaskTypeConstraint",
+            "message": "invalid image https://example.com/provider-assets/secret-token",
+        },
+    }))
+    status = await ArkSeedanceProvider().poll("cgt-1", _ctx())
+    assert status.raw_status == "failed"
+    assert status.error_code == "InvalidParameter.TaskTypeConstraint"
+    assert "invalid image" in status.error_message
+    assert "secret-token" not in status.error_message
+
+
+@respx.mock
+async def test_seedance_reference_request_explicitly_selects_reference_task() -> None:
+    route = respx.post(SUBMIT_URL).mock(return_value=httpx.Response(200, json={"id": "cgt-1"}))
+    await ArkSeedanceProvider().submit(_request(
+        remote_model_id="doubao-seedance-2-5-260628", mode="reference_image_to_video",
+        first_frame_url=None, last_frame_url=None, reference_image_urls=["https://cdn.example.com/image.jpg"],
+        execution_expires_after=172800,
+    ), _ctx())
+    body = json.loads(route.calls.last.request.content)
+    assert body["omni_reference_task_type"] == "reference"
+    assert body["execution_expires_after"] == 172800
+    assert body["content"][1]["role"] == "reference_image"
+
+
 def test_ark_preset_and_profiles_registered() -> None:
     preset = get_preset("ark_seedance_v1")
     assert preset is not None

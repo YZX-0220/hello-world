@@ -122,6 +122,15 @@
               <span class="metric-desc">提供专业海外受众指导</span>
             </div>
           </div>
+          <div class="site-traffic" role="status" aria-live="polite"
+            title="统计启用以来的累计访问次数；同一浏览器连续访问合并计数，超过30分钟无页面访问后再次进入计为新访问。">
+            <span class="traffic-dot" aria-hidden="true"></span>
+            <span>网站已有累计访问</span>
+            <template v-if="formattedVisits !== null">
+              <strong data-testid="site-traffic-count">{{ formattedVisits }}</strong><span>次.</span>
+            </template>
+            <span v-else class="traffic-placeholder">{{ trafficUnavailable ? '暂不可用' : '统计加载中…' }}</span>
+          </div>
         </div>
 
         <div class="scroll-down-hint" @click="scrollToAbout">
@@ -478,6 +487,8 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import request from '@/utils/request';
+import { useSiteTraffic } from '@/composables/useSiteTraffic';
+const { formattedVisits, unavailable: trafficUnavailable } = useSiteTraffic();
 const heroSectionRef = ref<HTMLElement | null>(null);
 
 function scrollToHero() {
@@ -530,6 +541,32 @@ function scrollToTop() {
 </script>
 
 <style scoped>
+.site-traffic {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: clamp(16px, 3vh, 28px);
+  padding: 9px 17px;
+  border: 1px solid rgba(148, 163, 184, .16);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, .52);
+  color: #94a3b8;
+  font-size: 13px;
+}
+.site-traffic strong {
+  color: #e2e8f0;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.traffic-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #818cf8;
+}
+.traffic-placeholder { color: #94a3b8; }
 /* TV 频道导航交互按钮 */
 /* 新增：左侧包裹层，控制 Logo 与 TV 按钮紧挨着 */
 .nav-left {

@@ -8,6 +8,7 @@ from app.api.v1 import (
     conversations,
     material_library,
     provider_assets,
+    site_traffic,
     users,
     video_api_configs,
     video_jobs,
@@ -27,5 +28,6 @@ def register_v1_routes(app: FastAPI) -> None:
     api_router.include_router(material_library.router)
     api_router.include_router(material_library.admin_router)
     api_router.include_router(provider_assets.router)
+    api_router.include_router(site_traffic.router)
     api_router.include_router(video_jobs.router)
     app.include_router(api_router, prefix="/api/v1")

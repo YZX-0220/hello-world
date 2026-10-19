@@ -6,6 +6,7 @@ from app.db.models.audit import AuditEvent
 from app.db.models.conversation import Conversation, ConversationContext, Message
 from app.db.models.material_library import MaterialLibraryItem
 from app.db.models.project import VideoProject, VideoProjectVersion
+from app.db.models.site_traffic import SiteTrafficTotal, SiteVisit, SiteVisitEvent
 from app.db.models.user import User, UserSession
 from app.db.models.video_api_config import VideoApiConfig, VideoApiConfigRevision
 from app.db.models.video_job import VideoJob, VideoJobAsset, VideoJobEvent
@@ -19,6 +20,9 @@ __all__ = [
     "MaterialLibraryItem",
     "Message",
     "MessageCitation",
+    "SiteTrafficTotal",
+    "SiteVisit",
+    "SiteVisitEvent",
     "ToolExecution",
     "User",
     "UserSession",

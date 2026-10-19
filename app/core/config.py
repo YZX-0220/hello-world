@@ -4,8 +4,10 @@
 字段名自动对应 .env 中的大写环境变量（不区分大小写、忽略额外变量）。
 """
 
+from ipaddress import ip_network
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 生产环境判定：APP_ENV 非 dev 时视为生产。
@@ -23,6 +25,18 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://127.0.0.1:5173"
     log_level: str = "INFO"
     request_id_header: str = "X-Request-ID"
+    # 留空时使用 ASGI/Uvicorn 已提供的客户端地址；仅显式信任的代理可传递 XFF。
+    traffic_trusted_proxy_cidrs: str = ""
+
+    @field_validator("traffic_trusted_proxy_cidrs")
+    @classmethod
+    def validate_traffic_proxies(cls, value: str) -> str:
+        for entry in value.split(","):
+            if entry.strip():
+                network = ip_network(entry.strip(), strict=False)
+                if network.prefixlen == 0:
+                    raise ValueError("访问统计不允许信任全部代理，请填写具体代理 IP/CIDR")
+        return value
 
     # ---- 数据库与 Redis ----
     # 时间语义为【服务器本地时间】，不使用 UTC。

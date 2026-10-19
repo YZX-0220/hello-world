@@ -25,7 +25,7 @@ backend/
 │  ├─ core/              # 配置、常量、枚举、错误、时间、ID、安全、日志
 │  ├─ db/
 │  │  ├─ session.py      # 异步引擎 + AsyncSession + SQLite PRAGMA
-│  │  └─ models/         # 17 张表（SQLModel）
+│  │  └─ models/         # 关系表模型（SQLModel）
 │  ├─ schemas/           # Pydantic 输入/输出
 │  ├─ repositories/      # 查询持久化
 │  ├─ services/          # 用例编排
@@ -169,3 +169,122 @@ uv run pytest
 验证命令：`uv run pytest`；新增 `tests/test_video_images.py` 覆盖真实图片解码处理、
 边界组合、不可变素材绑定、失效素材拒绝、编辑并发和异步错误回传。协议测试使用模拟厂商响应，
 不产生收费生成；这些测试验证已编码合同，不替代厂商实际生成验证。
+
+## 网站累计访问统计（2026-10-19）
+
+首页只展示累计访问次数，不展示今日数、访客数或在线人数。统计对象是整站的访问会话：
+首页、登录页、工作台、TV、API 配置页均参与；管理页、静态资源、媒体、接口轮询不计入。
+同一匿名浏览器距上次有效页面事件 **不超过 30 分钟** 时沿用同一访问，超过后新建；
+跨午夜不重置。路由成功进入和页面重新可见会报告事件，没有鼠标/键盘行为或视频心跳采集。
+该指标不是 PV 或准确的自然人数；跨设备、无痕模式、清除 Cookie、禁用 Cookie/脚本均会影响统计。
+从本功能上线后开始累计，不根据注册用户或视频任务虚构历史访问。
+
+### 部署与接口
+
+后端发布前先执行 `uv run alembic upgrade head`。统计基础迁移为 `a2b3c4d5e6f7`，父版本
+`f1a2b3c4d5e6`；原始 IP 补充迁移为 `b3c4d5e6f7a8`，在基础迁移上继续升级。
+基础迁移新增三张表，补充迁移仅给访问/事件表新增可为空的 IP 字段和索引，
+不修改已有用户、项目、素材或累计数字。完成迁移并重启后端，再部署新前端。
+需要备份数据库；降级此迁移会删除统计表，不能用降级后重新建表来保留累计数。
+
+- `GET /api/v1/site-traffic/summary`：公开汇总，返回 `total_visits`、`started_at`
+  （首次计数前为 null）、`session_timeout_minutes=30`；不增加访问数。
+  缺少有效访问 Cookie 时建立服务端签名的 `hw_visitor`，HttpOnly / SameSite=Lax /
+  一年有效，路径限定 `/api/v1/site-traffic`，Secure 跟随 `COOKIE_SECURE`。
+- `POST /api/v1/site-traffic/visits`：先读取 summary 初始化 Cookie，再以 JSON 上报
+  `event_id`（UUID）、`path`（上述有效路由）、可选 `referrer_origin`。
+  返回汇总及 `counted`。不要求登录或登录 CSRF Token，但校验 Origin / 同源 Fetch；
+  `APP_BASE_URL` 和 `FRONTEND_ORIGIN` 必须准确配置。响应均为 `Cache-Control: no-store`。
+- `site_visits`：每次被接纳的访问一条，含匿名身份摘要、开始/最近事件时间、入口、
+  原始 IP、IP 的带密钥摘要、地址版本/公网标记/获取来源、设备/浏览器/系统大类、
+  来源域名，及可为空的用户 ID。
+  登录后可关联当前访问，不增加次数。设备分类只是依据请求头的粗略提示，不采集设备硬件标识。
+- `site_visit_events`：页面事件的持久幂等回执；同一 event_id 重试不延长访问，
+  即使跨过 30 分钟也不再次计数，换身份或页面复用该编号返回 409。
+  新事件还保存当时实际观察到的 IP；同一次访问切换网络会保留各次事件的地址，
+  不改变入口时的 IP，也不因换 IP 就增加访问次数。重试不新增事件或改写原事件 IP。
+- `site_traffic_totals`：单行累计及起始时间。新访问、事件回执、累计加一同一 SQL 事务提交。
+  SQLite 在读取去重状态前先取得写锁，避免并发标签页双计；公开接口不返回访问明细。
+
+Redis 仅作每 IP 摘要/匿名身份的分钟限流，不保存统计真值。短超时或 Redis 断开时，
+仍由数据库去重计数；这不是完整抗刷系统。常见爬虫 UA 不计数，UA 可伪造，不能保证只计真人。
+IP 由 `app/core/client_ip.py` 统一解析，支持 IPv4、IPv6 和 IPv4-mapped IPv6，
+默认读取 ASGI/Uvicorn 提供的地址，仅在显式配置可信代理时解析转发头，见下方部署模式。
+来源由前端从 document.referrer 提取 origin，后端只存外部 hostname；不存完整 URL、
+查询参数、Hash 或原始 User-Agent。原始 IP 仅保存在数据库明细，不会经公开接口返回。
+没有来源记录表示直接进入或来源未知。
+Cookie 依赖 APP_SECRET，轮换该密钥会使旧匿名标识失效。新表按现有服务器本地时间约定存储。
+
+目前没有公开/管理访问明细 UI，也未增加自动清理任务；数据库备份应包含这三张表。
+后续如清理事件回执，必须明确幂等有效期；清理 visit 明细时不能重算/清零已累计的总数。
+
+### 验证
+
+`uv run pytest tests/test_site_traffic.py`：覆盖匿名计数、滑动时间窗、跨午夜、登录关联、
+重试、并发、来源/设备摘要、Cookie/Origin、Redis 降级/限流和既有库迁移保留。
+2026-10-19 统计基础 18 项与 IP 补充 31 项共 49 项相关测试通过；
+后端全量 259 通过、3 失败，失败均为原有
+`tests/test_video_adapters.py` 素材 DNS 校验 mock 缺失，与 2026-10-17 基线一致。
+
+### 原始 IP 与海外来源的事后查询
+
+本次补齐的是“查库能够取得原始 IP，用 IP 归属查询判断国家/地区”的前提，
+不自动向外部地理服务传送访客 IP，不新增国家/地区归属库，也不将公网误标为海外。
+
+`site_visits` 和 `site_visit_events` 新增：
+- `ip_address`：规范化原始地址；无有效地址时为 null。
+- `ip_version`：规范化地址的版本 4/6。
+- `ip_is_public`：是否可作为公网归属查询候选；公网本身不代表海外。
+- `ip_source`：`asgi`（ASGI 提供，可能已由 Uvicorn 解析）、
+  `forwarded` / `real_ip`（本模块从可信代理头取得）、
+  `proxy_unresolved`（已知代理未提供可用客户端信息）、`unavailable`。
+
+可在受控数据库连接中执行：
+
+```sql
+SELECT e.created_at, e.ip_address, e.ip_version, e.ip_source,
+       v.entry_path, v.device_type, v.browser, v.operating_system
+FROM site_visit_events AS e
+JOIN site_visits AS v ON v.id = e.visit_id
+WHERE e.ip_is_public = 1 AND e.ip_address IS NOT NULL
+ORDER BY e.created_at DESC
+LIMIT 100;
+```
+
+这些原始 IP 可随后手动查询归属地。IP 归属是网络出口的地区，不证明访客本人实际所在地。
+历史摘要记录无法直接还原地址，新字段保持 null；不伪造回填，也不因升级重置统计。
+对于旧访问中新收到的页面事件，只有新事件记录当前 IP，旧入口记录不会被冒充回填。
+
+### 可信代理部署模式（二选一，先核验实际网络）
+
+**模式一：由 Uvicorn 处理（默认配合方式）。**
+`TRAFFIC_TRUSTED_PROXY_CIDRS=` 留空，本模块使用 ASGI 地址。
+同机 Nginx 的 Uvicorn 启动示例：
+
+```bash
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips '127.0.0.1,::1'
+```
+
+只信任真实代理，不能把 forwarded-allow-ips 配为 `*`。单层边缘 Nginx
+可在已有代理 location 中覆盖设置以下头，不原样透传访客自行填写的值：
+
+```nginx
+proxy_set_header X-Forwarded-For $remote_addr;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+**模式二：由本模块处理。** 启动 Uvicorn 时使用 `--no-proxy-headers`，
+并在环境中显式配置 `TRAFFIC_TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128`（同机示例）。
+仅当直接连接地址在该列表中时读取 X-Forwarded-For，从右向左越过可信代理，
+停在第一个非可信节点；仅在没有 XFF 时接受可信代理的 X-Real-IP。
+非法头、过长链路、或缺失客户端地址记录为未知，不阻断计数，也不拿代理地址冒充访客。
+通配符、/0 和非法 CIDR 会在启动配置校验时被拒绝。
+此配置仅用于访问统计，不改变其他业务路由的 Request.client。
+
+有 CDN、容器或多级代理时，必须按实际拓扑配置具体代理 IP/CIDR，不套用同机示例。
+部署后应以已知出口地址实测数据库明细：不是只确认接口 200 或拿到了某个 IP。
+
+补充测试：`uv run pytest tests/test_site_traffic.py tests/test_traffic_client_ip.py`，
+覆盖 IPv4/IPv6、公网/内网、伪造转发头、两种可信代理模式、网络切换不重复计数、
+明细不泄露到公开接口，以及升级/降级保留已有访问和累计数。

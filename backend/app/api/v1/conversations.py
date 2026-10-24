@@ -1,0 +1,310 @@
+"""对话、消息与视频项目路由（/api/v1/conversations...）。
+
+写接口要求登录 + CSRF；读接口要求登录。
+"""
+
+import json
+
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from app.api.deps import db_session, get_current_user, require_csrf
+from app.core.errors import CONVERSATION_NOT_FOUND, AppError
+from app.db.models.project import VideoProject
+from app.db.models.user import User
+from app.repositories.projects import ProjectRepository
+from app.schemas.agent import VideoBrief
+from app.schemas.canvas import ConfirmCanvasPlanRequest, PrepareCanvasVideoRequest
+from app.schemas.conversation import (
+    ConfirmProjectRequest,
+    ConversationView,
+    CreateConversationRequest,
+    Page,
+    PatchProjectRequest,
+    ProjectSummary,
+    SaveCanvasRequest,
+    SendMessageRequest,
+    VideoProjectView,
+)
+from app.services.canvas_service import CanvasService
+from app.services.canvas_video_service import (
+    CanvasVideoService,
+    restore_review_metadata,
+    reviewed_version,
+    validate_generation_sources,
+)
+from app.services.conversation_service import ConversationService
+from app.services.project_service import ProjectService
+from app.services.video_prompt import compile_video_prompt
+
+router = APIRouter()
+
+_LIMIT_DEFAULT = 20
+_LIMIT_MAX = 100
+
+
+def _project_view(project: VideoProject, suggested_prompt: str | None = None) -> VideoProjectView:
+    spec = json.loads(project.current_spec_json or "{}")
+    canvas = json.loads(project.canvas_data_json) if project.canvas_data_json else None
+    confirmed = project.confirmed_spec_version
+    return VideoProjectView(
+        id=project.id,
+        conversation_id=project.conversation_id,
+        current_spec=VideoBrief.model_validate(spec) if spec else VideoBrief(),
+        current_spec_version=project.current_spec_version,
+        suggested_prompt=suggested_prompt,
+        compiled_prompt=compile_video_prompt(VideoBrief.model_validate(spec), suggested_prompt),
+        canvas_data=canvas,
+        canvas_version=project.canvas_version,
+        confirmed_spec_version=confirmed,
+        confirmed_at=project.confirmed_at,
+        is_current_version_confirmed=(confirmed is not None and confirmed == project.current_spec_version),
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+    )
+
+
+@router.post("/conversations", status_code=201)
+async def create_conversation(
+    payload: CreateConversationRequest,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+):
+    svc = ConversationService(session)
+    conversation = await svc.create_conversation(user.id, payload.title)
+    project = await ProjectRepository(session).get_by_conversation(user.id, conversation.id)
+    sp = await ProjectRepository(session).get_latest_suggested_prompt(project.id) if project else None
+    return {
+        "conversation": ConversationView.model_validate(conversation),
+        "project": _project_view(project, sp) if project else None,
+    }
+
+
+@router.get("/conversations", response_model=Page)
+async def list_conversations(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(db_session),
+    limit: int = Query(default=_LIMIT_DEFAULT, ge=1, le=_LIMIT_MAX),
+    status: str | None = Query(default=None),
+    cursor: str | None = Query(default=None),
+):
+    svc = ConversationService(session)
+    rows, next_cursor = await svc.list_conversations(user.id, status, limit, cursor)
+    return Page(items=[ConversationView.model_validate(r) for r in rows], next_cursor=next_cursor)
+
+
+@router.get("/conversations/{conversation_id}")
+async def get_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(db_session),
+):
+    svc = ConversationService(session)
+    conversation = await svc.get_or_404(user.id, conversation_id)
+    project = await ProjectRepository(session).get_by_conversation(user.id, conversation_id)
+    summary = None
+    if project is not None:
+        confirmed = project.confirmed_spec_version
+        summary = ProjectSummary(
+            project_id=project.id,
+            current_spec_version=project.current_spec_version,
+            confirmed_spec_version=confirmed,
+            is_current_version_confirmed=(confirmed is not None and confirmed == project.current_spec_version),
+        )
+    return {"conversation": ConversationView.model_validate(conversation), "project_summary": summary}
+
+
+@router.get("/conversations/{conversation_id}/messages", response_model=Page)
+async def list_messages(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(db_session),
+    limit: int = Query(default=_LIMIT_DEFAULT, ge=1, le=_LIMIT_MAX),
+    cursor: str | None = Query(default=None),
+):
+    svc = ConversationService(session)
+    rows, next_cursor = await svc.list_messages(user.id, conversation_id, limit, cursor)
+    return Page(items=[await svc.message_view(r) for r in rows], next_cursor=next_cursor)
+
+
+@router.post("/conversations/{conversation_id}/messages", status_code=201)
+async def send_message(
+    conversation_id: str,
+    payload: SendMessageRequest,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+):
+    svc = ConversationService(session)
+    user_message, assistant_message, _ = await svc.send_message(
+        user.id, conversation_id, payload.content, payload.client_request_id, payload.web_search_enabled,
+        payload.canvas_collaboration,
+    )
+    project = await ProjectRepository(session).get_by_conversation(user.id, conversation_id)
+    sp = await ProjectRepository(session).get_latest_suggested_prompt(project.id) if project else None
+    return {
+        "run_id": user_message.id,
+        "run_status": "succeeded" if assistant_message is not None else "pending",
+        "user_message": await svc.message_view(user_message) if user_message else None,
+        "assistant_message": await svc.message_view(assistant_message) if assistant_message else None,
+        "project": _project_view(project, sp) if project else None,
+    }
+
+
+def _sse_event(event: str, data: dict) -> str:
+    """SSE 编码：`event:` 一行 + `data:` 一行（JSON）+ 空行分隔，便于前端逐帧解析。"""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@router.post("/conversations/{conversation_id}/messages/stream")
+async def send_message_stream(
+    conversation_id: str,
+    payload: SendMessageRequest,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+):
+    """SSE 事件流式发送消息：逐步推送 run_started / text_delta / patch_applied / searched / run_completed。
+
+    落库与同步 POST /messages 完全一致（复用同一流水线，含幂等）。出错推 event: error，
+    返回流式响应 media_type=text/event-stream。
+    """
+    svc = ConversationService(session)
+
+    async def event_stream():
+        async for event_type, data in svc.stream_message_events(
+            user.id, conversation_id, payload.content, payload.client_request_id, payload.web_search_enabled,
+            payload.canvas_collaboration,
+        ):
+            yield _sse_event(event_type, data)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/conversations/{conversation_id}/project")
+async def get_project(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(db_session),
+) -> VideoProjectView:
+    await ConversationService(session).get_or_404(user.id, conversation_id)
+    await CanvasService(session).recover_expired(user.id, conversation_id)
+    project = await ProjectRepository(session).get_by_conversation(user.id, conversation_id)
+    if project is None:
+        raise AppError(CONVERSATION_NOT_FOUND)
+    sp = await ProjectRepository(session).get_latest_suggested_prompt(project.id)
+    return _project_view(project, sp)
+
+
+@router.post("/conversations/{conversation_id}/project/confirm")
+async def confirm_project(
+    conversation_id: str,
+    payload: ConfirmProjectRequest,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+) -> VideoProjectView:
+    """确认某个方案版本。非当前版本则 409（方案已变化，需重新确认）。"""
+    repo = ProjectRepository(session)
+    project = await repo.get_by_conversation(user.id, conversation_id)
+    if project is None:
+        raise AppError(CONVERSATION_NOT_FOUND)
+    await ConversationService(session).get_or_404(user.id, conversation_id)
+    data = json.loads(project.canvas_data_json or "{}")
+    if data.get("generation_spec_version") == payload.spec_version:
+        await reviewed_version(session, project, payload.spec_version)
+    else:
+        validate_generation_sources(project, payload.spec_version)
+    project = await repo.confirm(project, payload.spec_version)
+    sp = await repo.get_latest_suggested_prompt(project.id)
+    return _project_view(project, sp)
+
+
+@router.post("/conversations/{conversation_id}/canvas/confirm")
+async def confirm_canvas_plan(
+    conversation_id: str, payload: ConfirmCanvasPlanRequest,
+    user: User = Depends(get_current_user), _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+) -> VideoProjectView:
+    await ConversationService(session).get_or_404(user.id, conversation_id)
+    await CanvasService(session).confirm(
+        user.id, conversation_id, payload.target_node_id, payload.message_id,
+        payload.expected_canvas_version,
+    )
+    return await get_project(conversation_id, user, session)
+
+
+@router.post("/conversations/{conversation_id}/canvas/prepare-video")
+async def prepare_canvas_video(
+    conversation_id: str, payload: PrepareCanvasVideoRequest,
+    user: User = Depends(get_current_user), _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+) -> VideoProjectView:
+    await ConversationService(session).get_or_404(user.id, conversation_id)
+    project = await CanvasVideoService(session).prepare(
+        user.id, conversation_id, payload.node_ids, payload.expected_canvas_version,
+        payload.duration_seconds, payload.resolution,
+        payload.api_config_id, payload.mode, payload.input_roles,
+    )
+    sp = await ProjectRepository(session).get_latest_suggested_prompt(project.id)
+    return _project_view(project, sp)
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204)
+async def delete_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+):
+    """软删除对话（接口说明 5.5）。需要登录 + CSRF。"""
+    await ConversationService(session).delete_conversation(user.id, conversation_id)
+    return None
+
+
+@router.patch("/conversations/{conversation_id}/project")
+async def patch_project(
+    conversation_id: str,
+    payload: PatchProjectRequest,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+) -> VideoProjectView:
+    """用户手动修改方案字段（带期望版本乐观锁；版本不符 409）。"""
+    repo = ProjectRepository(session)
+    if await repo.get_by_conversation(user.id, conversation_id) is None:
+        raise AppError(CONVERSATION_NOT_FOUND)
+    svc = ProjectService(session)
+    await svc.patch_manual(user.id, conversation_id, payload.expected_spec_version, payload.patch.model_dump(exclude_unset=True))
+    project = await repo.get_by_conversation(user.id, conversation_id)
+    if project is None:
+        raise AppError(CONVERSATION_NOT_FOUND)
+    sp = await repo.get_latest_suggested_prompt(project.id)
+    return _project_view(project, sp)
+
+
+@router.put("/conversations/{conversation_id}/canvas")
+async def save_canvas(
+    conversation_id: str,
+    payload: SaveCanvasRequest,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+) -> VideoProjectView:
+    """保存对话的节点画布（前端在拖拽/连线/删除后静默调用）。"""
+    repo = ProjectRepository(session)
+    project = await repo.get_by_conversation(user.id, conversation_id)
+    if project is None:
+        raise AppError(CONVERSATION_NOT_FOUND)
+    await ConversationService(session).get_or_404(user.id, conversation_id)
+    project = await repo.save_canvas(
+        project, json.dumps(await restore_review_metadata(session, project, payload.canvas_data.to_data()), ensure_ascii=False), payload.expected_canvas_version
+    )
+    sp = await repo.get_latest_suggested_prompt(project.id)
+    return _project_view(project, sp)

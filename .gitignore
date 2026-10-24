@@ -7,16 +7,48 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Frontend
 node_modules
 dist
 dist-ssr
 *.local
 
-# Editor directories and files
+# Python / Backend 虚拟环境与缓存
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 环境与密钥
+.env
+.env.local
+
+# 数据库与 WAL 文件
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+
+# 上传与生成的数据实体（目录在 git 中用 .gitkeep 占位）
+data/uploads/*
+data/videos/*
+data/tmp/*
+!data/uploads/.gitkeep
+!data/videos/.gitkeep
+!data/tmp/.gitkeep
+
+# 编辑器与系统文件
+.idea/
 .vscode/*
 !.vscode/extensions.json
-.idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj

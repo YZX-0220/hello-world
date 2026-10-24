@@ -43,5 +43,296 @@
 5.	项目实践数据总结，可以根据要求制作统一的调查框架，做好项目实践数据的总结收集。
 6.	实践数据人员，辅助项目主体继续实践数据调研，比如市场调研，每人在一个同样的调查框架下自行发放问卷，每人收集数不得少于100份。
 
+---
 
+# 后端开发说明（Backend Docs）
+
+Hello World AI 视频平台后端（比赛演示版 / MVP）。定位是**有状态的 AI 编排与权限控制系统**，不是模型运行服务。它负责保存用户、对话、结构化视频方案（VideoBrief）、素材与视频任务，为文本模型重建上下文、校验结构化输出、提供受控联网搜索、管理用户自己的视频 API 凭据（加密存储），并在用户确认后把方案交给外部视频厂商生成、统一不同厂商能力与状态、把成片下载到本站受控提供。
+
+## 技术栈
+
+- Python 3.12+，FastAPI
+- SQLModel（数据层，表使用 `class X(SQLModel, table=True)` + `Field(...)`）
+- SQLite + Alembic 迁移 + aiosqlite（业务运行使用异步 AsyncSession；Alembic 迁移使用同步引擎，两者读同一套模型）
+- Redis（验证码、限流、短缓存、轮询锁）
+- HTTPX（外部文本 / 搜索 / 视频厂商调用）
+- pydantic-settings（配置）、ruff（静态检查）、mypy（类型检查）、pytest（测试）
+- uv（依赖管理与虚拟环境）
+
+时间约定：所有时间字段一律采用**服务器本地时间**（naive），不做 UTC 转换。
+
+## 目录结构
+
+```
+backend/
+├─ app/
+│  ├─ main.py            # 应用入口、/healthz、/readyz
+│  ├─ api/               # 路由、中间件、依赖
+│  │  └─ v1/             # /api/v1 业务路由（后继批次加入）
+│  ├─ core/              # 配置、常量、枚举、错误、时间、ID、安全、日志
+│  ├─ db/
+│  │  ├─ session.py      # 异步引擎 + AsyncSession + SQLite PRAGMA
+│  │  └─ models/         # 关系表模型（SQLModel）
+│  ├─ schemas/           # Pydantic 输入/输出
+│  ├─ repositories/      # 查询持久化
+│  ├─ services/          # 用例编排
+│  ├─ providers/         # 外部厂商（text/search/email/video）
+│  ├─ storage/           # 文件存储
+│  └─ workers/           # 轮询/下载/清理任务
+├─ alembic/              # 迁移脚本
+├─ tests/                # 单元/集成/契约/E2E/假实现
+├─ data/                 # 上传、视频、临时文件（gitignore 排除实体）
+├─ scripts/              # 运维脚本（备份、密钥轮换等）
+└─ alembic.ini, pyproject.toml, .env.example
+```
+
+## 快速开始
+
+前置：安装 [uv](https://docs.astral.sh/uv/)，准备 Redis（可选，未启动时服务仍能运行，`/readyz` 会返回 `degraded`）。
+
+```bash
+# 1. 安装依赖（自动创建 .venv 并生成 uv.lock）
+uv sync
+
+# 2. 配置环境（可选，未配置时使用默认值）
+cp .env.example .env
+
+# 3. 建库（单条迁移命令即可创建全部表）
+uv run alembic upgrade head
+
+# 4. 启动开发服务器
+uv run python -m uvicorn app.main:app --reload
+```
+
+访问：
+- 存活检查 `http://127.0.0.1:8000/healthz`
+- 就绪检查 `http://127.0.0.1:8000/readyz`
+- 接口文档 `http://127.0.0.1:8000/docs`
+
+## 运行检查与测试
+
+```bash
+uv run ruff check .
+uv run mypy app
+uv run pytest
+```
+
+## 关键约定
+
+- 主键统一使用 UUID4 字符串。
+- 时间采用服务器本地时间（见上文），不使用 UTC。
+- 迁移使用 Alembic，不用 `create_all()` 替代。
+- 枚举字段存字符串值（`enum.value`），枚举类继承 `str, Enum`。
+- 生产环境（`APP_ENV=prod`）启动时会校验 `APP_SECRET` 与 `CREDENTIAL_ENCRYPTION_KEYS`，缺失或仍为示例值将拒绝启动。
+- 错误响应统一为 `{ "error": { "code", "message", "request_id", "details" } }`。
+
+## 模型适配审理（2026-10-15）
+
+上线前执行 `uv run alembic upgrade head`，新增迁移 `f1a2b3c4d5e6` 为方案版本保存不可变的
+`generation_review_json`。旧审理不包含模型绑定，必须重新审理；原有小框与聊天记录保留。
+前后端需要一起部署。
+
+- 用户流程保持“AI审理方案 → 查看最终方案、必要调整和可选建议 → 生成视频”。
+  审理为独立的一次性处理，不发起追问；点击生成即采用本次展示的方案，无额外接受按钮。
+- `GET /api/v1/video-generation-target?api_config_id=platform` 返回实际模型、配置修订和规则摘要，
+  不返回凭据。平台通道从 `VIDEO_PLATFORM_PROTOCOL/MODEL/PROFILE_CODE` 解析，前端不猜模型。
+  使用 `ep-*` 接入点时必须显式指定能力档案。未知模型、未实现模式和不合法素材组合会阻止生成。
+- `POST /conversations/{id}/canvas/prepare-video` 除原字段外接收 `api_config_id`、
+  `mode`（auto/text_to_video/first_frame_to_video/first_last_frame_to_video/reference_image_to_video）
+  和 `input_roles`（first_frame_node_id/last_frame_node_id）。自动模式不把两张图默认为首尾帧。
+- 原始输入保存在 `video_duration_seconds/video_resolution`，审理采用的候选参数在
+  `generation_settings`，两者可以不同；差异和原因在审理结果中展示。每次生成仍限 1–15 秒。
+  原始小框不被审理覆盖。无法适配时保存 blocked 结果，给出操作要求，不显示可以生成的结语。
+- 后端 `video_generation_policy.py` 是审理和提交共同使用的规则入口；模型登记在
+  `video_registry/core_protocols.py`。可用 `ParameterRule` 声明参数枚举、上下界和
+  `when` 条件组合，放在模型或模式的 `rules` 中。规则更改会更新内容摘要，使旧审理失效。
+  规则用于构造合法候选并传给文本 AI；AI 只创作，不决定参数是否合法。
+- 提交 `POST /video-jobs` 必须携带审理的四个 `generation_settings` 值和
+  `generation_options.review_fingerprint`，以及原来的来源小框列表。提交、确认都核对不可变版本；
+  切换通道、配置修订、规则、模式、素材、正文或原始参数后需要重新审理。
+  直接修改画布中的审理内容和参数会被后端恢复，不能绕过校验。
+- 新审理从展示的结构化字段统一编译提示词，不拼接可能残留旧参数的自由提示词。
+  提示词保存在版本/任务中，前端不展示。自适应画幅的 API 省略策略在审理时确定，
+  提交阶段只验证，不临时删改参数。
+- 提交、轮询、取消、下载按任务固化的协议选择适配器，用户通道绑定不可变 revision；
+  平台任务也固化模型和地址。只有 `VIDEO_PROVIDER=fake` 会统一使用模拟视频适配器。
+
+回归测试：`uv run pytest tests/test_generation_policy.py tests/test_model_bound_review.py tests/test_canvas.py tests/test_video_job.py tests/test_video_adapters.py tests/test_video_api_config.py`。
+
+## Seedance 2.5 图片适配与限制核查（2026-10-15）
+
+核查对象为本地登记的 `doubao-seedance-2-5-260628`，覆盖当前开放的文生、首帧、首尾帧、
+普通参考图四种模式。这里的“已核查”表示对照当前公开文档并编码可确定校验的要求，
+不表示厂商今后不会更新规则，也不保证通过内容审核、账户检查或实际生成。
+
+官方来源：[模型说明](https://docs.volcengine.com/docs/ark/seedance-2-5?lang=zh)、
+[创建任务 API](https://docs.volcengine.com/docs/ark/create-video-generation-task-api?lang=zh)、
+[查询任务 API](https://docs.volcengine.com/docs/ark/get-video-generation-task-api?lang=zh)。
+
+| 类别 | 已核查要求与本平台处理 |
+| --- | --- |
+| 单张图片 | 宽、高分别为 300–6000，宽/高为 0.4–2.5；不能只校验总像素不少于 90000 |
+| 格式与文件 | 厂商接受 JPEG/PNG/WEBP/BMP/TIFF/GIF/HEIC/HEIF，单张小于 30 MB；本平台上传支持前六种，HEIC/HEIF 暂需先转换 |
+| 请求大小 | 厂商请求体不超过 64 MB；使用签名 URL 传图片，提交适配器另检查请求体大小 |
+| 素材角色 | 首帧 1 张；首尾帧分别设置角色，允许同图；普通参考图最多 30 张；三种场景不混用 |
+| 首尾帧比例 | 可以不同，输出跟随首帧。API 写尾帧会裁剪，提示词指南写拉伸，按“厂商自动适配、可能改变构图”提示，不承诺具体算法 |
+| 时长 | 厂商普通生成支持 4–30 整数秒或自动；平台保留每次最多 15 秒并要求手动确认，因此此模型提供 4–15 秒，合法的 7 秒不会改成 8 秒 |
+| 分辨率 | 480p/720p/1080p；不开放此模型不支持的 4K |
+| 输出比例 | 文生和普通参考图可指定比例或 adaptive；首帧/首尾帧只能 adaptive，省略时使用厂商默认值 |
+| 声音与可选参数 | generate_audio 支持布尔值；不向此模型发送旧版本专用的 frames/seed/camera_fixed；输出格式使用默认 mp4 |
+| 任务类型 | 普通参考图显式发送 omni_reference_task_type=reference，减少自动任务分类造成的歧义；厂商仍可能在实际处理时返回类型不一致错误 |
+| 排队与取图 | 显式任务超时 48 小时，素材签名至少覆盖 49 小时；终态撤销素材读取，签名仍绑定任务、素材、角色和归属；真实适配器提交前检查公网地址 |
+| 结果保存与播放 | 厂商视频链接 24 小时有效且最多下载 100 次，沿用本站下载保存；1080p HEVC 可能存在浏览器兼容问题，审理中提示下载查看 |
+
+平台原有上传资源限制仍为 10 MiB、1200 万像素，和厂商边界是两件事；超过平台上传上限
+会在上传时明确拒绝。转换处理只针对已被平台接受的图片。BMP/TIFF 已补充实际文件类型检测。
+厂商建议提示词精炼（中文约 500 字、英文约 1000 词以内），这是质量建议，不作为硬拒绝条件。
+
+### 保存、审理和提交约定
+
+- 原图与画布节点不变；`video_image_service.py` 按已登记规则处理方向、静态帧、格式、等比缩放、
+  透明背景和必要补边。补边保留完整画面，不裁剪主体；放大不会恢复原图细节。
+- 审理文本只说明实际处理，不增加图片预览和额外接受步骤。点击生成采用本次审理记录。
+- 适配图作为用户自己的 `generation_input` 素材保存，处理后的真实宽高、MIME、字节大小、
+  SHA256、原图来源、角色及处理记录写入方案版本 `generation_review_json.materials`。
+  同用户相同适配文件可复用，复用前检查文件；不跨用户复用。
+- 审理时不持有数据库写锁等待文本 AI；发布版本时再原子保存。取消或过期审理的未发布文件清理。
+  确认及提交均重新检查原图、适配图、归属、状态、实际文件摘要与模型尺寸要求；提交不再次变换图片。
+- HTTP 拒绝和 HTTP 200 中的异步失败均保留厂商错误码及原因，向用户附中文处理建议；
+  素材签名地址在用户错误文本中隐藏。运行时失败记录完成时间。
+- 该档案提升版本，旧审理失效后需要重新审理；正文、原图和聊天保留。
+  本次不增加数据库列或迁移，前后端需一起部署。
+
+### 尚不能通过本地规则消除的失败
+
+真人参考素材需要厂商认可的人像/授权素材通道；当前普通上传入口尚未接入该通道，
+不能用缩放、换格式或提示词绕过。厂商内容审核、实际任务意图判定、账户开通/余额/限流、
+公网取图中断、服务故障、文档未公布的条件及后续规则变更仍可能失败，具体原因必须回传。
+不将“得到任务 ID”或“本地测试通过”描述为厂商已保证生成成功。
+
+视频/音频参考、编辑、延长、Draft 均未在本平台开放，保持阻止提交；这些模式有另外的
+素材、时长、编码和组合要求，启用前需独立接入核验。不能把普通图生规则直接套用到它们。
+
+验证命令：`uv run pytest`；新增 `tests/test_video_images.py` 覆盖真实图片解码处理、
+边界组合、不可变素材绑定、失效素材拒绝、编辑并发和异步错误回传。协议测试使用模拟厂商响应，
+不产生收费生成；这些测试验证已编码合同，不替代厂商实际生成验证。
+
+## 网站累计访问统计（2026-10-19）
+
+首页只展示累计访问次数，不展示今日数、访客数或在线人数。统计对象是整站的访问会话：
+首页、登录页、工作台、TV、API 配置页均参与；管理页、静态资源、媒体、接口轮询不计入。
+同一匿名浏览器距上次有效页面事件 **不超过 30 分钟** 时沿用同一访问，超过后新建；
+跨午夜不重置。路由成功进入和页面重新可见会报告事件，没有鼠标/键盘行为或视频心跳采集。
+该指标不是 PV 或准确的自然人数；跨设备、无痕模式、清除 Cookie、禁用 Cookie/脚本均会影响统计。
+从本功能上线后开始累计，不根据注册用户或视频任务虚构历史访问。
+
+### 部署与接口
+
+后端发布前先执行 `uv run alembic upgrade head`。统计基础迁移为 `a2b3c4d5e6f7`，父版本
+`f1a2b3c4d5e6`；原始 IP 补充迁移为 `b3c4d5e6f7a8`，在基础迁移上继续升级。
+基础迁移新增三张表，补充迁移仅给访问/事件表新增可为空的 IP 字段和索引，
+不修改已有用户、项目、素材或累计数字。完成迁移并重启后端，再部署新前端。
+需要备份数据库；降级此迁移会删除统计表，不能用降级后重新建表来保留累计数。
+
+- `GET /api/v1/site-traffic/summary`：公开汇总，返回 `total_visits`、`started_at`
+  （首次计数前为 null）、`session_timeout_minutes=30`；不增加访问数。
+  缺少有效访问 Cookie 时建立服务端签名的 `hw_visitor`，HttpOnly / SameSite=Lax /
+  一年有效，路径限定 `/api/v1/site-traffic`，Secure 跟随 `COOKIE_SECURE`。
+- `POST /api/v1/site-traffic/visits`：先读取 summary 初始化 Cookie，再以 JSON 上报
+  `event_id`（UUID）、`path`（上述有效路由）、可选 `referrer_origin`。
+  返回汇总及 `counted`。不要求登录或登录 CSRF Token，但校验 Origin / 同源 Fetch；
+  `APP_BASE_URL` 和 `FRONTEND_ORIGIN` 必须准确配置。响应均为 `Cache-Control: no-store`。
+- `site_visits`：每次被接纳的访问一条，含匿名身份摘要、开始/最近事件时间、入口、
+  原始 IP、IP 的带密钥摘要、地址版本/公网标记/获取来源、设备/浏览器/系统大类、
+  来源域名，及可为空的用户 ID。
+  登录后可关联当前访问，不增加次数。设备分类只是依据请求头的粗略提示，不采集设备硬件标识。
+- `site_visit_events`：页面事件的持久幂等回执；同一 event_id 重试不延长访问，
+  即使跨过 30 分钟也不再次计数，换身份或页面复用该编号返回 409。
+  新事件还保存当时实际观察到的 IP；同一次访问切换网络会保留各次事件的地址，
+  不改变入口时的 IP，也不因换 IP 就增加访问次数。重试不新增事件或改写原事件 IP。
+- `site_traffic_totals`：单行累计及起始时间。新访问、事件回执、累计加一同一 SQL 事务提交。
+  SQLite 在读取去重状态前先取得写锁，避免并发标签页双计；公开接口不返回访问明细。
+
+Redis 仅作每 IP 摘要/匿名身份的分钟限流，不保存统计真值。短超时或 Redis 断开时，
+仍由数据库去重计数；这不是完整抗刷系统。常见爬虫 UA 不计数，UA 可伪造，不能保证只计真人。
+IP 由 `app/core/client_ip.py` 统一解析，支持 IPv4、IPv6 和 IPv4-mapped IPv6，
+默认读取 ASGI/Uvicorn 提供的地址，仅在显式配置可信代理时解析转发头，见下方部署模式。
+来源由前端从 document.referrer 提取 origin，后端只存外部 hostname；不存完整 URL、
+查询参数、Hash 或原始 User-Agent。原始 IP 仅保存在数据库明细，不会经公开接口返回。
+没有来源记录表示直接进入或来源未知。
+Cookie 依赖 APP_SECRET，轮换该密钥会使旧匿名标识失效。新表按现有服务器本地时间约定存储。
+
+目前没有公开/管理访问明细 UI，也未增加自动清理任务；数据库备份应包含这三张表。
+后续如清理事件回执，必须明确幂等有效期；清理 visit 明细时不能重算/清零已累计的总数。
+
+### 验证
+
+`uv run pytest tests/test_site_traffic.py`：覆盖匿名计数、滑动时间窗、跨午夜、登录关联、
+重试、并发、来源/设备摘要、Cookie/Origin、Redis 降级/限流和既有库迁移保留。
+2026-10-19 统计基础 18 项与 IP 补充 31 项共 49 项相关测试通过；
+后端全量 259 通过、3 失败，失败均为原有
+`tests/test_video_adapters.py` 素材 DNS 校验 mock 缺失，与 2026-10-17 基线一致。
+
+### 原始 IP 与海外来源的事后查询
+
+本次补齐的是“查库能够取得原始 IP，用 IP 归属查询判断国家/地区”的前提，
+不自动向外部地理服务传送访客 IP，不新增国家/地区归属库，也不将公网误标为海外。
+
+`site_visits` 和 `site_visit_events` 新增：
+- `ip_address`：规范化原始地址；无有效地址时为 null。
+- `ip_version`：规范化地址的版本 4/6。
+- `ip_is_public`：是否可作为公网归属查询候选；公网本身不代表海外。
+- `ip_source`：`asgi`（ASGI 提供，可能已由 Uvicorn 解析）、
+  `forwarded` / `real_ip`（本模块从可信代理头取得）、
+  `proxy_unresolved`（已知代理未提供可用客户端信息）、`unavailable`。
+
+可在受控数据库连接中执行：
+
+```sql
+SELECT e.created_at, e.ip_address, e.ip_version, e.ip_source,
+       v.entry_path, v.device_type, v.browser, v.operating_system
+FROM site_visit_events AS e
+JOIN site_visits AS v ON v.id = e.visit_id
+WHERE e.ip_is_public = 1 AND e.ip_address IS NOT NULL
+ORDER BY e.created_at DESC
+LIMIT 100;
+```
+
+这些原始 IP 可随后手动查询归属地。IP 归属是网络出口的地区，不证明访客本人实际所在地。
+历史摘要记录无法直接还原地址，新字段保持 null；不伪造回填，也不因升级重置统计。
+对于旧访问中新收到的页面事件，只有新事件记录当前 IP，旧入口记录不会被冒充回填。
+
+### 可信代理部署模式（二选一，先核验实际网络）
+
+**模式一：由 Uvicorn 处理（默认配合方式）。**
+`TRAFFIC_TRUSTED_PROXY_CIDRS=` 留空，本模块使用 ASGI 地址。
+同机 Nginx 的 Uvicorn 启动示例：
+
+```bash
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips '127.0.0.1,::1'
+```
+
+只信任真实代理，不能把 forwarded-allow-ips 配为 `*`。单层边缘 Nginx
+可在已有代理 location 中覆盖设置以下头，不原样透传访客自行填写的值：
+
+```nginx
+proxy_set_header X-Forwarded-For $remote_addr;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+**模式二：由本模块处理。** 启动 Uvicorn 时使用 `--no-proxy-headers`，
+并在环境中显式配置 `TRAFFIC_TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128`（同机示例）。
+仅当直接连接地址在该列表中时读取 X-Forwarded-For，从右向左越过可信代理，
+停在第一个非可信节点；仅在没有 XFF 时接受可信代理的 X-Real-IP。
+非法头、过长链路、或缺失客户端地址记录为未知，不阻断计数，也不拿代理地址冒充访客。
+通配符、/0 和非法 CIDR 会在启动配置校验时被拒绝。
+此配置仅用于访问统计，不改变其他业务路由的 Request.client。
+
+有 CDN、容器或多级代理时，必须按实际拓扑配置具体代理 IP/CIDR，不套用同机示例。
+部署后应以已知出口地址实测数据库明细：不是只确认接口 200 或拿到了某个 IP。
+
+补充测试：`uv run pytest tests/test_site_traffic.py tests/test_traffic_client_ip.py`，
+覆盖 IPv4/IPv6、公网/内网、伪造转发头、两种可信代理模式、网络切换不重复计数、
+明细不泄露到公开接口，以及升级/降级保留已有访问和累计数。
 

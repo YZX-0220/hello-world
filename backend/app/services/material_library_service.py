@@ -32,7 +32,7 @@ from app.schemas.material_library import (
     PatchLibraryItem,
 )
 from app.services.asset_service import AssetService, _detect_kind_mime
-from app.storage import LocalStorage, ObsStorage, Storage, StorageError, get_storage
+from app.storage import Storage, StorageError, get_storage
 
 
 class MaterialLibraryService:

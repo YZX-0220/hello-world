@@ -4,7 +4,7 @@
 """
 
 from sqlalchemy import and_, or_
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.constants import CONVERSATION_TITLE_DEFAULT
@@ -79,9 +79,9 @@ class ConversationRepository:
                     and_(Conversation.updated_at == ts, Conversation.id < cid),  # type: ignore[arg-type]
                 )
             )
-        stmt = stmt.order_by(Conversation.updated_at.desc(), Conversation.id.desc()).limit(
+        stmt = stmt.order_by(col(Conversation.updated_at).desc(), col(Conversation.id).desc()).limit(
             limit + 1
-        )  # type: ignore[attr-defined]
+        )
         result = await self._session.exec(stmt)
         return list(result.all())
 

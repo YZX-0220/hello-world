@@ -3,6 +3,8 @@
 内容读取支持 Range/HEAD（由 FileResponse 处理），只返回本站文件流。
 """
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -108,6 +110,9 @@ async def get_asset(
 @router.api_route("/assets/{asset_id}/content", methods=["GET", "HEAD"])
 async def read_asset_content(
     asset_id: str,
+    thumbnail: Literal["small", "medium", "raw"] = Query(
+        default="raw", description="缩略图规格：small(320px WebP)、medium(800px WebP)、raw(原图)"
+    ),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(db_session),
 ):
@@ -115,10 +120,18 @@ async def read_asset_content(
     asset, storage_key = await AssetService(session).open_content(user.id, asset_id)
     storage = get_storage()
     if isinstance(storage, ObsStorage):
-        direct_url = storage.generate_presigned_download_url(
-            storage_key, filename=asset.original_name
+        # 仅对图片格式且指定缩略图规则时生效
+        process_rule = (
+            thumbnail if (asset.kind == "image" and thumbnail in ("small", "medium")) else None
         )
-        return RedirectResponse(url=direct_url, status_code=302)
+        direct_url = storage.generate_presigned_download_url(
+            storage_key, filename=asset.original_name, image_process=process_rule
+        )
+        return RedirectResponse(
+            url=direct_url,
+            status_code=302,
+            headers={"Cache-Control": "private, max-age=600"},
+        )
 
     path = storage.open_read_path(storage_key)
     return FileResponse(path, media_type=asset.mime_type, filename=asset.original_name or None)

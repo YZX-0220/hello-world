@@ -28,6 +28,7 @@ def _csrf(client: AsyncClient) -> dict[str, str]:
 @pytest.fixture
 def mock_obs(monkeypatch):
     from unittest.mock import MagicMock, patch
+
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "huawei_cloud_obs_bucket", "mock-bucket")
@@ -82,9 +83,18 @@ async def test_obs_storage_methods(mock_obs):
     upload_url = storage.generate_presigned_upload_url("test.png", "image/png")
     assert "mock-url" in upload_url
 
-    # 2. 预签名下载
+    # 2. 预签名下载与图像缩略图处理
     download_url = storage.generate_presigned_download_url("test.png", filename="demo.png")
     assert "mock-url" in download_url
+    assert (
+        mock_obs.createSignedUrl.call_args[1]["queryParams"]["response-content-disposition"]
+        is not None
+    )
+
+    # 测试带 small 缩略图参数
+    storage.generate_presigned_download_url("test.png", image_process="small")
+    assert "x-image-process" in mock_obs.createSignedUrl.call_args[1]["queryParams"]
+    assert "image/resize" in mock_obs.createSignedUrl.call_args[1]["queryParams"]["x-image-process"]
 
     # 3. 查元数据
     meta = storage.get_object_metadata("test.png")

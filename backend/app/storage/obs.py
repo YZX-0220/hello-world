@@ -8,7 +8,7 @@
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from obs import ObsClient
 
@@ -106,10 +106,23 @@ class ObsStorage(Storage):
         )
         return str(res.signedUrl)
 
+    # 华为云 OBS 图像处理标准预设
+    IMAGE_PROCESS_PRESETS: ClassVar[dict[str, str]] = {
+        "small": "image/resize,m_lfit,w_320,limit_1/format,webp/quality,q_80",
+        "medium": "image/resize,m_lfit,w_800,limit_1/format,webp/quality,q_85",
+    }
+
     def generate_presigned_download_url(
-        self, object_key: str, expires: int = 3600, filename: str | None = None
+        self,
+        object_key: str,
+        expires: int = 3600,
+        filename: str | None = None,
+        image_process: str | None = None,
     ) -> str:
-        """生成供浏览器直接播放/查看/下载的预签名 GET URL。"""
+        """生成供浏览器直接播放/查看/下载的预签名 GET URL。
+
+        支持 image_process 参数（可传预设别名如 small/medium 或完整 OBS 图像处理规则）。
+        """
         clean_key = object_key.lstrip("/")
         queryParams: dict[str, Any] = {}
         if filename:
@@ -117,6 +130,13 @@ class ObsStorage(Storage):
 
             encoded = quote(filename)
             queryParams["response-content-disposition"] = f"inline; filename*=utf-8''{encoded}"
+
+        # 处理图片缩略图/格式转换参数
+        process_rule = (
+            self.IMAGE_PROCESS_PRESETS.get(image_process, image_process) if image_process else None
+        )
+        if process_rule:
+            queryParams["x-image-process"] = process_rule
 
         res = self._client.createSignedUrl(
             method="GET",

@@ -22,13 +22,21 @@ from app.services.material_library_service import MaterialLibraryService
 from app.storage import ObsStorage, get_storage
 
 
-def _serve_asset_response(asset: Asset, storage_key: str) -> Response:
+def _serve_asset_response(
+    asset: Asset, storage_key: str, *, image_process: str | None = None
+) -> Response:
     storage = get_storage()
     if isinstance(storage, ObsStorage) and asset.storage_provider == "obs":
+        # 仅对图片格式且指定缩略图规则时生效
+        process_rule = image_process if (asset.kind == "image" and image_process) else None
         direct_url = storage.generate_presigned_download_url(
-            storage_key, filename=asset.original_name
+            storage_key, filename=asset.original_name, image_process=process_rule
         )
-        return RedirectResponse(url=direct_url, status_code=302)
+        return RedirectResponse(
+            url=direct_url,
+            status_code=302,
+            headers={"Cache-Control": "private, max-age=600"},
+        )
 
     path = storage.open_read_path(storage_key)
     return FileResponse(
@@ -89,10 +97,15 @@ async def get_library_item(
 async def read_library_media(
     item_id: str,
     role: Literal["video", "cover"],
+    thumbnail: Literal["small", "medium", "raw"] = Query(
+        default="small",
+        description="封面缩略图规格（仅对 cover 有效）：small(320px WebP)、medium(800px WebP)、raw(原图)",
+    ),
     session: AsyncSession = Depends(db_session),
 ):
     asset, storage_key = await MaterialLibraryService(session).open_content(item_id, role)
-    return _serve_asset_response(asset, storage_key)
+    process_rule = thumbnail if (role == "cover" and thumbnail in ("small", "medium")) else None
+    return _serve_asset_response(asset, storage_key, image_process=process_rule)
 
 
 @admin_router.post("/material-library/uploads", response_model=AssetView, status_code=201)
@@ -153,7 +166,16 @@ async def delete_library_item(
 @admin_router.get("/material-library/{item_id}/{role}")
 @admin_router.head("/material-library/{item_id}/{role}")
 async def read_admin_library_media(
-    item_id: str, role: Literal["video", "cover"], session: AsyncSession = Depends(db_session)
+    item_id: str,
+    role: Literal["video", "cover"],
+    thumbnail: Literal["small", "medium", "raw"] = Query(
+        default="small",
+        description="封面缩略图规格（仅对 cover 有效）：small(320px WebP)、medium(800px WebP)、raw(原图)",
+    ),
+    session: AsyncSession = Depends(db_session),
 ):
-    asset, storage_key = await MaterialLibraryService(session).open_content(item_id, role, admin=True)
-    return _serve_asset_response(asset, storage_key)
+    asset, storage_key = await MaterialLibraryService(session).open_content(
+        item_id, role, admin=True
+    )
+    process_rule = thumbnail if (role == "cover" and thumbnail in ("small", "medium")) else None
+    return _serve_asset_response(asset, storage_key, image_process=process_rule)

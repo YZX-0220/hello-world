@@ -6,7 +6,11 @@
 """
 
 import asyncio
+import sys
 from pathlib import Path
+
+# 确保 backend 根目录在 Python 模块搜索路径中
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core.config import settings
 from app.db.models.asset import Asset

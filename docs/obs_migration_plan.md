@@ -112,9 +112,11 @@
    - 接收 `UploadFile`，不在本地磁盘创建文件。
    - 直接把输入流通过 `ObsClient.putContent` 或管道推送到 OBS。
    - 数据库记录 `storage_provider="obs"`。
-2. **`GET /api/v1/assets/{asset_id}` (原文件流下载)**：
+2. **`GET /api/v1/assets/{asset_id}/content` (原文件流下载)**：
    - 若 `storage_provider == "obs"`，直接返回 `RedirectResponse(url=signed_url, status_code=302)`。
    - 浏览器收到 302 自动向华为云 OBS 拿分段数据，**立即切断对后端 3M 带宽的占用**。
+3. **`GET /api/v1/material-library/{item_id}/{role}` (平台示例素材与 TV 演示)**：
+   - 平台素材库同样对接 `ObsStorage`。若素材位于 OBS，直接返回 `302 Found` 重定向至 OBS 预签名直链，天然支持 HTTPS 播放并解除服务器出口带宽瓶颈。
 
 #### 2.3 厂商视频回流改造 (`VideoDownloadService`)
 - 废弃原先 `httpx.AsyncClient().get(stream=True)` 下载成片到 `data/videos/` 的逻辑。

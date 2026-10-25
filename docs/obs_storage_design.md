@@ -9,10 +9,11 @@
 - 单个 20MB 视频下载或播放需要占用 ~1 分钟全部带宽，极易引发业务 API 响应超时与服务不可用。
 
 ### 1.2 核心目标
-1. **数据零中转 (Zero-Relay)**：所有大体积二进制流（用户素材、剪辑导出成片、AI 生成视频）100% 绕过业务服务器，直通华为云 OBS。
+1. **数据零中转 (Zero-Relay)**：所有大体积二进制流（用户素材、剪辑导出成片、AI 生成视频、公共素材库视频）100% 绕过业务服务器，直通华为云 OBS。
 2. **业务解耦**：业务服务器仅负责权限鉴权、预签名生成、元数据登记及状态机管理。
 3. **秒传与去重**：利用 OBS 对象的 ETag（MD5 指纹）与数据库资产指纹联动，避免重复上传与存储冗余。
-4. **外部抓取 (Way-A)**：AI 厂商成片回流直接通过 OBS 异步外部拉取接口（`asyncFetchObject`）入桶，完全不耗费本地下载带宽。
+4. **外部抓取 (Way-A)**：AI 厂商成片回流直接通过 OBS 异步外部拉取接口（`setBucketFetchJob`）入桶，完全不耗费本地下载带宽。
+5. **边缘图像处理 (Image Process)**：利用 OBS 原生图像处理能力提供实时动态缩略图与 WebP 转码，大幅加速前端瀑布流与画布预览。
 
 ---
 
@@ -82,16 +83,19 @@
 - 厂商提供临时成果下载 URL（例如 `https://ark-tos.volces.com/.../output.mp4`）。
 - **优化前**：服务器 HTTP 下载 30MB 视频，再写入本地或上传，严重堵塞 3M 进出口带宽。
 - **优化后**：
-  1. 后端调用 OBS `asyncFetchObject` 接口，下发外部拉取任务：
+  1. 后端调用 OBS `setBucketFetchJob` 接口，下发外部拉取任务：
      ```python
-     obs_client.asyncFetchObject(
+     obs_client.setBucketFetchJob(
          bucketName=bucket,
-         objectKey=f"outputs/{user_id}/{job_id}.mp4",
-         job={"url": provider_task_result_url}
+         job={"url": provider_task_result_url, "object": f"outputs/{user_id}/{job_id}.mp4"}
      )
      ```
   2. 华为云数据中心节点直接通过多线公网拉取厂商视频，直接落入 `hello-world-yzx` 桶中。
   3. 后端将 `VideoJob.download_status` 标记为完成，并记录资产 `Asset` 指向该 OBS Object Key。
+
+### 3.5 平台素材库（TV / Material Library）与直读重定向
+- 平台素材库在用户访问演示视频（`/tv`）与封面时，通过 `GET /api/v1/material-library/{id}/{role}` 读取。
+- 若资产位于 OBS（`storage_provider == "obs"`），后端响应 `302 Found` 重定向至 OBS 预签名直链，天然支持 HTTPS 并释放全部服务器下行流量。
 
 ---
 
@@ -106,3 +110,24 @@
 
 ### 4.2 空间与成本优化
 - 用户重复上传同一背景音乐或常用 LOGO 图标时，后端直接复用已有 OBS 对象，节约对象存储存储费与上传请求费。
+
+---
+
+## 5. 华为云 OBS 图像处理（图片缩略图）深度评估与应用方案
+
+华为云 OBS 原生支持通过在访问 URL 后追加 `x-image-process` 查询参数实现边缘图片实时缩放、裁剪、格式转换（WebP）和旋转。
+
+### 5.1 对本项目的核心价值
+1. **彻底解决前端移动端/看板加载卡顿**：
+   - 用户上传的原图通常为手机直拍（5MB~20MB，4000x3000）。
+   - 在前端 TV 瀑布流、素材选择器弹窗、画布节点预览中，若直接拉取原图，一次性加载 10 张图会下载 ~100MB 流量。
+   - 启用缩略图参数后（如 `?x-image-process=image/resize,m_lfit,w_300/format,webp`），单张图体积直降到 **30KB~80KB**，体积缩减 **98%**，首屏秒开。
+2. **零服务器算力开销**：
+   - 缩略图生成完全由华为云 OBS 服务端边缘计算节点即时完成，业务服务器无需消耗 CPU/内存运行 Pillow/OpenCV 切图。
+3. **免二次存储成本**：
+   - 动态处理不需要在存储桶中另存一份 `thumb_xxx.jpg` 文件，极大精简桶内对象数量并节省容量计费。
+
+### 5.2 推荐接入方式
+- 后端生成直链或 302 重定向时，针对 `kind == "image"` 且携带 `thumbnail=true`（或 `w=xxx,h=xxx`）的请求，自动拼接华为云样式后缀：
+  `https://{bucket}.{endpoint}/{key}?x-image-process=image/resize,m_lfit,w_320,h_240/quality,q_80/format,webp`
+- 前端封面组件展示缩略图，用户点击放大/双击预览才加载原图。

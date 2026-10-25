@@ -55,6 +55,7 @@ Hello World AI 视频平台后端（比赛演示版 / MVP）。定位是**有状
 - SQLModel（数据层，表使用 `class X(SQLModel, table=True)` + `Field(...)`）
 - SQLite + Alembic 迁移 + aiosqlite（业务运行使用异步 AsyncSession；Alembic 迁移使用同步引擎，两者读同一套模型）
 - Redis（验证码、限流、短缓存、轮询锁）
+- 对象存储：华为云 OBS（`esdk-obs-python`，实现零中转直传/直读、秒传与外部拉取）+ 本地存储平滑回退
 - HTTPX（外部文本 / 搜索 / 视频厂商调用）
 - pydantic-settings（配置）、ruff（静态检查）、mypy（类型检查）、pytest（测试）
 - uv（依赖管理与虚拟环境）
@@ -335,4 +336,22 @@ proxy_set_header X-Forwarded-Proto $scheme;
 补充测试：`uv run pytest tests/test_site_traffic.py tests/test_traffic_client_ip.py`，
 覆盖 IPv4/IPv6、公网/内网、伪造转发头、两种可信代理模式、网络切换不重复计数、
 明细不泄露到公开接口，以及升级/降级保留已有访问和累计数。
+
+---
+
+## 华为云 OBS 对象存储架构升级（2026-10-26）
+
+为了彻底摆脱服务器 **3Mbps 公网带宽**（传输峰值仅 ~350KB/s）对音视频大文件传输的瓶颈，后端已完成从本地文件系统向华为云 OBS 的全链路迁移与重构：
+
+### 核心特性
+- **数据流零中转 (Zero-Relay)**：
+  - 前端直传：`POST /api/v1/assets/upload-intent` 申请预签名 PUT URL，浏览器直推 OBS，再通过 `POST /api/v1/assets/{id}/complete` 校验 ETag 完成落库。
+  - 前端直读：`/assets/{id}/content` 和 `/material-library/{id}/{role}` 在 OBS 模式下一律返回 **`302 Found` 重定向** 至带签名的 OBS 原生 HTTPS 直链，视频播放与素材加载 100% 绕过业务服务器。
+  - 外部成片零流量转存：AI 厂商（火山方舟等）成片回调后，后端调用 OBS 原生 `setBucketFetchJob` 接口由云厂商机房之间高速拉取入桶，无需下载到服务器本地。
+- **秒传与防重复**：利用客户端计算的 Hash / OBS ETag 比对数据库资产，命中直接复用，免去重复传输与存储开销。
+- **平滑双轨兼容**：未配置 OBS 时自动回退至本地存储，提供幂等存量迁移脚本 `scripts/migrate_local_to_obs.py`。
+
+详细设计与方案规范请参见：
+- [华为云 OBS 对象存储架构设计方案](docs/obs_storage_design.md)
+- [华为云 OBS 平滑迁移与过渡方案](docs/obs_migration_plan.md)
 

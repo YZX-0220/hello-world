@@ -39,8 +39,13 @@ class ConversationService:
     @staticmethod
     def _fingerprint(content: str, collaboration: CanvasCollaboration | None = None) -> str:
         """请求指纹：防止同一幂等 ID 被不同正文复用。"""
-        value = content if collaboration is None else json.dumps(
-            {"content": content, "canvas_collaboration": collaboration.model_dump()}, sort_keys=True
+        value = (
+            content
+            if collaboration is None
+            else json.dumps(
+                {"content": content, "canvas_collaboration": collaboration.model_dump()},
+                sort_keys=True,
+            )
         )
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -60,7 +65,12 @@ class ConversationService:
             raise AppError(CONVERSATION_NOT_FOUND)
 
     async def send_message(
-        self, user_id: str, conversation_id: str, content: str, client_request_id: str, web_search_enabled: bool = False,
+        self,
+        user_id: str,
+        conversation_id: str,
+        content: str,
+        client_request_id: str,
+        web_search_enabled: bool = False,
         canvas_collaboration: CanvasCollaboration | None = None,
     ):
         """保存用户消息并运行 Agent，返回 (user_message, assistant_message, project)。
@@ -105,7 +115,9 @@ class ConversationService:
         await self.get_or_404(user_id, conversation_id)
         fingerprint = self._fingerprint(content, canvas_collaboration)
 
-        existing = await self._convs.get_message_by_client_request_id(conversation_id, client_request_id)
+        existing = await self._convs.get_message_by_client_request_id(
+            conversation_id, client_request_id
+        )
         if existing is not None:
             if existing.request_fingerprint != fingerprint:
                 raise AppError(IDEMPOTENCY_KEY_REUSED)
@@ -114,7 +126,11 @@ class ConversationService:
             result.update(user_message=existing, assistant_message=assistant, replayed=True)
             yield (
                 "run_started",
-                {"conversation_id": conversation_id, "client_request_id": client_request_id, "replayed": True},
+                {
+                    "conversation_id": conversation_id,
+                    "client_request_id": client_request_id,
+                    "replayed": True,
+                },
             )
             yield (
                 "run_completed",
@@ -154,7 +170,11 @@ class ConversationService:
             result.update(user_message=user_message, assistant_message=None, replayed=False)
             yield (
                 "run_started",
-                {"conversation_id": conversation_id, "client_request_id": client_request_id, "replayed": False},
+                {
+                    "conversation_id": conversation_id,
+                    "client_request_id": client_request_id,
+                    "replayed": False,
+                },
             )
 
             # 构造历史（本轮之前的所有 user/assistant 消息）
@@ -174,7 +194,9 @@ class ConversationService:
                 model_content,
                 [] if canvas_collaboration else history,
                 summary_text="" if canvas_collaboration else summary_text,
-                summary_through_message_id=None if canvas_collaboration else summary_through_message_id,
+                summary_through_message_id=None
+                if canvas_collaboration
+                else summary_through_message_id,
                 retrieval_notes="" if canvas_collaboration else retrieval_notes,
                 brief_override=canvas_brief,
             )
@@ -215,7 +237,9 @@ class ConversationService:
                     source_message_id=assistant_message.id,
                     suggested_prompt=output.suggested_prompt,
                 )
-                current_version = await self._projects.get_current_spec_version(user_id, conversation_id)
+                current_version = await self._projects.get_current_spec_version(
+                    user_id, conversation_id
+                )
                 yield ("patch_applied", {"version": current_version})
 
             # 联网搜索：模型请求过、且用户开启联网 → 记录工具调用、执行搜索、保存引用，
@@ -230,17 +254,29 @@ class ConversationService:
                     history=[] if canvas_collaboration else history,
                     user_content=model_content,
                     summary_text="" if canvas_collaboration else summary_text,
-                    summary_through_message_id=None if canvas_collaboration else summary_through_message_id,
+                    summary_through_message_id=None
+                    if canvas_collaboration
+                    else summary_through_message_id,
                     brief_override=canvas_brief,
                 )
-                yield ("searched", {"citations": citation_count, "query_count": len(output.search_requests)})
+                yield (
+                    "searched",
+                    {"citations": citation_count, "query_count": len(output.search_requests)},
+                )
 
             if canvas_collaboration is not None:
                 await canvas_service.complete(
-                    user_id, conversation_id, client_request_id, canvas_collaboration,
-                    original, output.canvas_content, assistant_message.id,
-                    self._projects.merge_patch(canvas_brief or {}, patch), output.suggested_prompt,
-                    user_content=content, discussion_reply=assistant_message.content,
+                    user_id,
+                    conversation_id,
+                    client_request_id,
+                    canvas_collaboration,
+                    original,
+                    output.canvas_content,
+                    assistant_message.id,
+                    self._projects.merge_patch(canvas_brief or {}, patch),
+                    output.suggested_prompt,
+                    user_content=content,
+                    discussion_reply=assistant_message.content,
                 )
 
             await self._convs.touch_last_message_at(conversation_id)
@@ -268,14 +304,22 @@ class ConversationService:
                 try:
                     await self._session.rollback()
                     await canvas_service.fail(
-                        user_id, conversation_id, client_request_id, canvas_collaboration.target_node_id
+                        user_id,
+                        conversation_id,
+                        client_request_id,
+                        canvas_collaboration.target_node_id,
                     )
                 except Exception:
                     logger.exception("Failed to clear the canvas collaboration marker")
             raise
 
     async def stream_message_events(
-        self, user_id: str, conversation_id: str, content: str, client_request_id: str, web_search_enabled: bool = False,
+        self,
+        user_id: str,
+        conversation_id: str,
+        content: str,
+        client_request_id: str,
+        web_search_enabled: bool = False,
         canvas_collaboration: CanvasCollaboration | None = None,
     ):
         """事件流式发送消息：逐阶段 yield (event_type, payload)。
@@ -362,7 +406,11 @@ class ConversationService:
                     {
                         "query": query,
                         "results": [
-                            {"title": r.title[:500], "url": r.url[:1000], "snippet": r.snippet[:2000]}
+                            {
+                                "title": r.title[:500],
+                                "url": r.url[:1000],
+                                "snippet": r.snippet[:2000],
+                            }
                             for r in results
                         ],
                     },
@@ -452,7 +500,10 @@ class ConversationService:
         """找到某条用户消息对应的助手回复。"""
         rows = await self._convs.list_messages(user_message.conversation_id, 1000, None)
         for row in rows:
-            if row.role == MessageRole.ASSISTANT.value and row.reply_to_message_id == user_message.id:
+            if (
+                row.role == MessageRole.ASSISTANT.value
+                and row.reply_to_message_id == user_message.id
+            ):
                 return row
         return None
 
@@ -497,9 +548,14 @@ class ConversationService:
         if target_idx <= boundary_idx:
             return  # 边界后无新增可摘要消息
 
-        to_summarize = [{"role": row.role, "content": row.content} for row in messages[boundary_idx + 1 : target_idx + 1]]
+        to_summarize = [
+            {"role": row.role, "content": row.content}
+            for row in messages[boundary_idx + 1 : target_idx + 1]
+        ]
         prev_summary = (ctx.summary_text if ctx is not None else "") or ""
-        summary = await self._agent.summarize_history(build_summary_prompt(to_summarize, prev_summary=prev_summary))
+        summary = await self._agent.summarize_history(
+            build_summary_prompt(to_summarize, prev_summary=prev_summary)
+        )
         if not summary:
             return  # 生成失败：静默跳过，不阻塞聊天
 
@@ -513,7 +569,9 @@ class ConversationService:
         self._session.add(ctx)
         await self._session.commit()
 
-    async def list_conversations(self, user_id: str, status: str | None, limit: int, cursor: str | None):
+    async def list_conversations(
+        self, user_id: str, status: str | None, limit: int, cursor: str | None
+    ):
         """返回 (page_rows, next_cursor)。page_rows 长度不超过 limit；next_cursor=None 表示已到末尾。"""
         rows = await self._convs.list_conversations(user_id, status, limit, cursor)
         has_more = len(rows) > limit
@@ -521,7 +579,9 @@ class ConversationService:
         next_cursor = encode_cursor(page[-1].updated_at, page[-1].id) if page and has_more else None
         return page, next_cursor
 
-    async def list_messages(self, user_id: str, conversation_id: str, limit: int, cursor: str | None):
+    async def list_messages(
+        self, user_id: str, conversation_id: str, limit: int, cursor: str | None
+    ):
         await self.get_or_404(user_id, conversation_id)
         rows = await self._convs.list_messages(conversation_id, limit, cursor)
         has_more = len(rows) > limit

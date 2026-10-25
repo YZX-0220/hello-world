@@ -107,11 +107,11 @@ def test_unresolvable_inputs_block_without_discarding_materials(kind):
     elif kind == "unsupported":
         spec.mode = "video_extend"
     elif kind == "too_many_images":
-        spec = VideoBrief(mode="reference_image_to_video", reference_asset_ids=[str(i) for i in range(31)])
-    elif kind == "duplicate_roles":
         spec = VideoBrief(
-            mode="reference_image_to_video", reference_asset_ids=["a", "a"]
+            mode="reference_image_to_video", reference_asset_ids=[str(i) for i in range(31)]
         )
+    elif kind == "duplicate_roles":
+        spec = VideoBrief(mode="reference_image_to_video", reference_asset_ids=["a", "a"])
     else:
         selected = target(
             replace(
@@ -133,8 +133,12 @@ def test_unknown_rule_and_impossible_combination_fail_closed():
 
 def test_seedance_accepts_thirty_references_and_adaptive_ratio():
     profile = get_profile("ark_seedance_v1", "doubao-seedance-2-5")
-    spec = VideoBrief(mode="reference_image_to_video", reference_asset_ids=[str(i) for i in range(30)])
-    result = propose_settings(target(profile), spec, requested(duration_seconds=7, aspect_ratio="adaptive"))
+    spec = VideoBrief(
+        mode="reference_image_to_video", reference_asset_ids=[str(i) for i in range(30)]
+    )
+    result = propose_settings(
+        target(profile), spec, requested(duration_seconds=7, aspect_ratio="adaptive")
+    )
     assert not result["issues"]
     assert result["settings"]["duration_seconds"] == 7
     assert result["settings"]["aspect_ratio"] == "adaptive"
@@ -145,11 +149,19 @@ def test_seedance_accepts_thirty_references_and_adaptive_ratio():
 def test_custom_template_must_transport_reviewed_settings_and_materials(complete):
     profile = get_profile("generic_async_json_v1", "text_reference_media")
     selected = target(profile)
-    body = {"duration": "{duration_seconds}", "ratio": "{aspect_ratio}", "first": "{first_frame_url}"}
+    body = {
+        "duration": "{duration_seconds}",
+        "ratio": "{aspect_ratio}",
+        "first": "{first_frame_url}",
+    }
     if complete:
         body.update(resolution="{resolution}", last="{last_frame_url}")
-    selected.revision = SimpleNamespace(custom_template_json=json.dumps({"request_template_json": body}))
-    spec = VideoBrief(mode="first_last_frame_to_video", first_frame_asset_id="first", last_frame_asset_id="last")
+    selected.revision = SimpleNamespace(
+        custom_template_json=json.dumps({"request_template_json": body})
+    )
+    spec = VideoBrief(
+        mode="first_last_frame_to_video", first_frame_asset_id="first", last_frame_asset_id="last"
+    )
     result = propose_settings(selected, spec, requested())
     assert bool(result["issues"]) is (not complete)
     if not complete:

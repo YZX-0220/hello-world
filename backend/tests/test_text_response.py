@@ -1,4 +1,5 @@
 """Real-provider failures must be visible instead of becoming successful empty replies."""
+
 import logging
 
 import httpx
@@ -22,12 +23,16 @@ def test_structured_response_rejects_non_object_json():
         _parse_structured('["unexpected"]')
 
 
-@pytest.mark.parametrize("payload", [{"choices": []}, {"choices": [{"message": {"content": ""}}]}, []])
+@pytest.mark.parametrize(
+    "payload", [{"choices": []}, {"choices": [{"message": {"content": ""}}]}, []]
+)
 async def test_empty_or_malformed_response_is_visible(monkeypatch, payload):
     async def post(self, *args, **kwargs):
         return httpx.Response(200, json=payload)
 
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
     with pytest.raises(TextProviderError) as failure:
-        await OpenAICompatibleTextProvider().generate([{"role": "user", "content": "test"}], structured=True)
+        await OpenAICompatibleTextProvider().generate(
+            [{"role": "user", "content": "test"}], structured=True
+        )
     assert failure.value.code == "AGENT_OUTPUT_INVALID"

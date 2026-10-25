@@ -18,7 +18,9 @@ class VideoJobRepository:
         return result.first()
 
     async def get_by_idempotency(self, user_id: str, idempotency_key: str) -> VideoJob | None:
-        stmt = select(VideoJob).where(VideoJob.user_id == user_id, VideoJob.idempotency_key == idempotency_key)
+        stmt = select(VideoJob).where(
+            VideoJob.user_id == user_id, VideoJob.idempotency_key == idempotency_key
+        )
         result = await self._session.exec(stmt)
         return result.first()
 

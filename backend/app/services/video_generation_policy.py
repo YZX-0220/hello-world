@@ -42,8 +42,12 @@ POLICY_VERSION = 1
 
 def digest(value: Any) -> str:
     return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True,
-                   default=lambda v: sorted(v) if isinstance(v, (set, frozenset)) else str(v)).encode()
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            default=lambda v: sorted(v) if isinstance(v, (set, frozenset)) else str(v),
+        ).encode()
     ).hexdigest()
 
 
@@ -109,7 +113,11 @@ async def resolve_target(session, user_id: str, config_id: str) -> GenerationTar
             "base_url": revision.base_url,
         }
     preset = get_preset(protocol)
-    template = get_template(protocol, revision.template_code) if revision and revision.template_code else None
+    template = (
+        get_template(protocol, revision.template_code)
+        if revision and revision.template_code
+        else None
+    )
     profile = get_profile(protocol, profile_code) if profile_code else None
     # Exact registered IDs are safe to resolve; prefix guesses may match another model.
     if profile is None:
@@ -136,8 +144,12 @@ async def resolve_target(session, user_id: str, config_id: str) -> GenerationTar
         template_version=template.version if template else None,
         adapter_version=POLICY_VERSION,
         rules_hash=digest(
-            {"policy": POLICY_VERSION, "profile": asdict(profile) if profile else None,
-             "protocol": asdict(preset) if preset else None, "template": asdict(template) if template else None}
+            {
+                "policy": POLICY_VERSION,
+                "profile": asdict(profile) if profile else None,
+                "protocol": asdict(preset) if preset else None,
+                "template": asdict(template) if template else None,
+            }
         ),
     )
     return GenerationTarget(identity, label, profile, revision, error)
@@ -161,7 +173,9 @@ def input_issues(profile: ModelProfile, spec: VideoBrief) -> list[str]:
         spec.reference_asset_ids,
     )
     images = ([first] if first else []) + ([last] if last else []) + refs
-    identical_frames = profile.allows_identical_frames and mode == "first_last_frame_to_video" and not refs
+    identical_frames = (
+        profile.allows_identical_frames and mode == "first_last_frame_to_video" and not refs
+    )
     if len(set(images)) != len(images) and not identical_frames:
         issues.append("同一张图片不能同时充当多个素材角色，请重新指定首帧、尾帧或参考图。")
     if mode == "text_to_video" and images:
@@ -361,9 +375,16 @@ def propose_settings(target: GenerationTarget, spec: VideoBrief, requested: dict
             required.add("reference_image_urls")
         missing = required - mapped
         if missing:
-            return {"issues": ["自定义视频模板未映射这些审理参数或素材：" + "、".join(sorted(missing))
-                               + "。请补全模板占位符，或切换已配置的通道。"],
-                    "settings": effective, "wire": wire, "changes": changes}
+            return {
+                "issues": [
+                    "自定义视频模板未映射这些审理参数或素材："
+                    + "、".join(sorted(missing))
+                    + "。请补全模板占位符，或切换已配置的通道。"
+                ],
+                "settings": effective,
+                "wire": wire,
+                "changes": changes,
+            }
     return {"issues": [], "settings": effective, "wire": wire, "changes": changes}
 
 

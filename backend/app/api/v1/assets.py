@@ -4,18 +4,65 @@
 """
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import db_session, get_current_user, require_csrf
-from app.core.config import settings
 from app.db.models.user import User
-from app.schemas.asset import AssetView
+from app.schemas.asset import (
+    AssetUploadCompleteRequest,
+    AssetUploadIntentRequest,
+    AssetUploadIntentResponse,
+    AssetView,
+)
 from app.schemas.conversation import Page
 from app.services.asset_service import AssetService
-from app.storage import LocalStorage
+from app.storage import ObsStorage, get_storage
 
 router = APIRouter()
+
+
+# ============ 新增 OBS 两阶段直传接口 ============
+
+
+@router.post("/assets/upload-intent", response_model=AssetUploadIntentResponse, status_code=200)
+async def create_upload_intent(
+    req: AssetUploadIntentRequest,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+):
+    """阶段一：获取 OBS 预签名直传凭证（支持 Hash 秒传判重）。"""
+    svc = AssetService(session)
+    return await svc.create_upload_intent(user.id, req)
+
+
+@router.post("/assets/{asset_id}/complete", response_model=AssetView, status_code=200)
+async def complete_upload(
+    asset_id: str,
+    req: AssetUploadCompleteRequest,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+    session: AsyncSession = Depends(db_session),
+):
+    """阶段二：前端通知直传完成，后端核验 OBS ETag/大小并激活素材。"""
+    svc = AssetService(session)
+    return await svc.complete_upload(user.id, asset_id, req)
+
+
+@router.get("/assets/{asset_id}/direct-url")
+async def get_asset_direct_url(
+    asset_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(db_session),
+):
+    """获取素材在 OBS 的预签名直接访问/拉流 URL（绕过 3M 业务服务器）。"""
+    svc = AssetService(session)
+    url = await svc.get_direct_url(user.id, asset_id)
+    return {"direct_url": url}
+
+
+# ============ 存量接口平滑过渡（保留接口，底层透明入桶与直链重定向） ============
 
 
 @router.post("/assets", response_model=AssetView, status_code=201)
@@ -43,7 +90,9 @@ async def list_assets(
     status: str | None = Query(default=None, max_length=20),
     cursor: str | None = Query(default=None),
 ):
-    views, next_cursor = await AssetService(session).list(user.id, conversation_id, kind, purpose, status, limit, cursor)
+    views, next_cursor = await AssetService(session).list(
+        user.id, conversation_id, kind, purpose, status, limit, cursor
+    )
     return Page(items=views, next_cursor=next_cursor)
 
 
@@ -62,8 +111,16 @@ async def read_asset_content(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(db_session),
 ):
+    """读取素材：若为 OBS 存储直接 302 重定向到预签名直链，完全不耗服务器下行带宽。"""
     asset, storage_key = await AssetService(session).open_content(user.id, asset_id)
-    path = LocalStorage(settings.storage_root).open_read_path(storage_key)
+    storage = get_storage()
+    if isinstance(storage, ObsStorage):
+        direct_url = storage.generate_presigned_download_url(
+            storage_key, filename=asset.original_name
+        )
+        return RedirectResponse(url=direct_url, status_code=302)
+
+    path = storage.open_read_path(storage_key)
     return FileResponse(path, media_type=asset.mime_type, filename=asset.original_name or None)
 
 

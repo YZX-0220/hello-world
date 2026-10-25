@@ -122,7 +122,9 @@ class AgentService:
             missing = [str(x) for x in (structured.get("missing_fields") or [])]
             return AgentOutput(
                 reply=reply,
-                canvas_content=structured.get("canvas_content") if isinstance(structured.get("canvas_content"), str) else None,
+                canvas_content=structured.get("canvas_content")
+                if isinstance(structured.get("canvas_content"), str)
+                else None,
                 state_patch=patch,
                 missing_fields=missing,
                 ready_for_generation=bool(structured.get("ready_for_generation", False)),
@@ -138,7 +140,9 @@ class AgentService:
     def _review_notes(value: object, limit: int) -> list[str]:
         if not isinstance(value, list):
             return []
-        return [item.strip()[:2000] for item in value if isinstance(item, str) and item.strip()][:limit]
+        return [item.strip()[:2000] for item in value if isinstance(item, str) and item.strip()][
+            :limit
+        ]
 
     async def run_turn(
         self,
@@ -163,7 +167,8 @@ class AgentService:
         非空时注入到上下文供后续多轮使用。
         """
         brief_dict = (
-            brief_override if brief_override is not None
+            brief_override
+            if brief_override is not None
             else await self._projects.get_current_brief(user_id, conversation_id)
         )
         brief = VideoBrief.model_validate(brief_dict) if brief_dict else VideoBrief()
@@ -244,16 +249,24 @@ class AgentService:
         if not search_results_text.strip():
             return None
         brief_dict = (
-            brief_override if brief_override is not None
+            brief_override
+            if brief_override is not None
             else await self._projects.get_current_brief(user_id, conversation_id)
         )
         brief = VideoBrief.model_validate(brief_dict) if brief_dict else VideoBrief()
         context = build_context(
-            brief, history, user_content, summary_text=summary_text, summary_through_message_id=summary_through_message_id
+            brief,
+            history,
+            user_content,
+            summary_text=summary_text,
+            summary_through_message_id=summary_through_message_id,
         )
         messages: list[dict[str, str]] = [
             *context,
-            {"role": "user", "content": "请依据以下检索结果，简洁地给出最终回复。不要把检索到的来源标题、链接或完整依据复述出来——它们仅供参考，你的回答应聚焦视频创作内容本身。"},
+            {
+                "role": "user",
+                "content": "请依据以下检索结果，简洁地给出最终回复。不要把检索到的来源标题、链接或完整依据复述出来——它们仅供参考，你的回答应聚焦视频创作内容本身。",
+            },
             # 检索结果注入（role="assistant" 承载，见方法注释）
             {"role": "assistant", "content": f"【检索结果】\n{search_results_text}"},
         ]
@@ -268,10 +281,15 @@ class AgentService:
         """Deliver a complete plan in one pass; chat clarification rules do not apply here."""
         try:
             result = await self._provider.generate(
-                build_context(brief, [], content, system_prompt=VIDEO_REVIEW_SYSTEM_PROMPT), structured=True,
+                build_context(brief, [], content, system_prompt=VIDEO_REVIEW_SYSTEM_PROMPT),
+                structured=True,
             )
         except TextProviderError as exc:
-            code = TEXT_PROVIDER_TIMEOUT if exc.code == "TEXT_PROVIDER_TIMEOUT" else TEXT_PROVIDER_UNAVAILABLE
+            code = (
+                TEXT_PROVIDER_TIMEOUT
+                if exc.code == "TEXT_PROVIDER_TIMEOUT"
+                else TEXT_PROVIDER_UNAVAILABLE
+            )
             raise AppError(code, exc.message) from exc
         return self._parse_output(result.structured, result.reply)
 

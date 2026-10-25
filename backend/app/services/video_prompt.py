@@ -5,11 +5,19 @@ from app.schemas.agent import VideoBrief
 
 def compile_video_prompt(spec: VideoBrief, suggested_prompt: str | None = None) -> str:
     fields = [
-        ("objective", "创作目标"), ("audience", "目标受众"), ("language", "内容语言"),
-        ("subject", "画面主体"), ("scene", "场景与分镜"), ("visual_style", "视觉风格"),
-        ("camera", "镜头运动"), ("motion", "主体动作"), ("lighting", "光线与氛围"),
-        ("narration", "旁白"), ("negative_prompt", "避免出现"),
-        ("duration_seconds", "总时长（秒）"), ("aspect_ratio", "画幅"),
+        ("objective", "创作目标"),
+        ("audience", "目标受众"),
+        ("language", "内容语言"),
+        ("subject", "画面主体"),
+        ("scene", "场景与分镜"),
+        ("visual_style", "视觉风格"),
+        ("camera", "镜头运动"),
+        ("motion", "主体动作"),
+        ("lighting", "光线与氛围"),
+        ("narration", "旁白"),
+        ("negative_prompt", "避免出现"),
+        ("duration_seconds", "总时长（秒）"),
+        ("aspect_ratio", "画幅"),
     ]
     if not any(getattr(spec, key) for key, _ in fields[:10]) and not suggested_prompt:
         return ""
@@ -17,7 +25,8 @@ def compile_video_prompt(spec: VideoBrief, suggested_prompt: str | None = None) 
     if suggested_prompt and suggested_prompt.strip():
         lines.append(f"视频创作描述：\n{suggested_prompt.strip()}")
     lines.extend(
-        f"{label}：{value}" for key, label in fields
+        f"{label}：{value}"
+        for key, label in fields
         if (value := getattr(spec, key)) is not None and str(value).strip()
     )
     if spec.first_frame_asset_id:

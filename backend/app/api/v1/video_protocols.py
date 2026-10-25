@@ -24,6 +24,7 @@ async def get_generation_target(
     session: AsyncSession = Depends(db_session),
 ):
     from app.services.video_generation_policy import resolve_target
+
     return (await resolve_target(session, user.id, api_config_id)).view()
 
 

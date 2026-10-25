@@ -19,6 +19,7 @@ dependencies = [
     "aiosmtplib>=2.4.0",
     "python-multipart>=0.0.12",
     "pillow>=10.4.0",
+    "esdk-obs-python>=3.26.6",
 ]
 
 [dependency-groups]

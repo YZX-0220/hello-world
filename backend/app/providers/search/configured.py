@@ -36,14 +36,23 @@ class ConfiguredSearchProvider(SearchProvider):
             raise SearchProviderError("SEARCH_UNAVAILABLE", "搜索接口未配置", retryable=False)
         url = f"{settings.search_base_url.rstrip('/')}/search"
         payload = {"query": query, "max_results": limit}
-        headers = {"Authorization": f"Bearer {settings.search_api_key}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {settings.search_api_key}",
+            "Content-Type": "application/json",
+        }
         try:
             async with httpx.AsyncClient(timeout=settings.search_timeout) as client:
                 resp = await client.post(url, json=payload, headers=headers)
         except httpx.HTTPError as exc:
-            raise SearchProviderError("SEARCH_UNAVAILABLE", "搜索服务暂时不可用", retryable=True) from exc
+            raise SearchProviderError(
+                "SEARCH_UNAVAILABLE", "搜索服务暂时不可用", retryable=True
+            ) from exc
         if resp.status_code >= 400:
-            raise SearchProviderError("SEARCH_UNAVAILABLE", f"搜索服务返回 {resp.status_code}", retryable=resp.status_code >= 500)
+            raise SearchProviderError(
+                "SEARCH_UNAVAILABLE",
+                f"搜索服务返回 {resp.status_code}",
+                retryable=resp.status_code >= 500,
+            )
 
         data = resp.json()
         raw_results = data.get("results") or []

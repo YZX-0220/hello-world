@@ -7,7 +7,6 @@
     （capability_source=user_declared）处理；是否有效由任务创建时再判。
 """
 
-
 from dataclasses import asdict
 
 from app.core.errors import VIDEO_PROTOCOL_UNSUPPORTED, VIDEO_TEMPLATE_UNSUPPORTED, AppError
@@ -48,7 +47,12 @@ def _generation_fields(profile: ModelProfile) -> list[DynamicFieldView]:
     fields: list[DynamicFieldView] = []
     for key, value in profile.generation_options.items():
         fields.append(
-            DynamicFieldView(name=key, label=key, input_type="boolean" if isinstance(value, bool) else "text", required=False)
+            DynamicFieldView(
+                name=key,
+                label=key,
+                input_type="boolean" if isinstance(value, bool) else "text",
+                required=False,
+            )
         )
     return fields
 
@@ -93,12 +97,11 @@ def profile_to_view(profile: ModelProfile) -> ModelProfileView:
         max_reference_videos=profile.max_source_videos,
         max_reference_audios=0,
         supports_audio=bool(profile.generation_options.get("generate_audio", False)),
-        supports_negative_prompt=bool(profile.generation_options.get("supports_negative_prompt", False)),
+        supports_negative_prompt=bool(
+            profile.generation_options.get("supports_negative_prompt", False)
+        ),
         generation_option_fields=_generation_fields(profile),
-        mode_constraints=[
-            ModeConstraintView(**asdict(c))
-            for c in profile.mode_constraints
-        ],
+        mode_constraints=[ModeConstraintView(**asdict(c)) for c in profile.mode_constraints],
         rules=[asdict(r) for r in profile.rules],
         image_constraints=asdict(profile.image_constraints) if profile.image_constraints else None,
         allows_identical_frames=profile.allows_identical_frames,
@@ -116,7 +119,9 @@ def get_template_view(protocol_code: str, template_code: str) -> ProtocolTemplat
     return template_to_view(template) if template is not None else None
 
 
-def list_profile_views(protocol_code: str, template_code: str | None = None) -> list[ModelProfileView]:
+def list_profile_views(
+    protocol_code: str, template_code: str | None = None
+) -> list[ModelProfileView]:
     return [profile_to_view(p) for p in list_profiles(protocol_code, template_code)]
 
 
@@ -127,14 +132,21 @@ def list_template_views(protocol_code: str) -> list[ProtocolTemplateView]:
 class ProtocolReferences:
     """一次校验通过的协议引用，供创建/检测配置与任务创建使用。"""
 
-    def __init__(self, preset: ProtocolPreset, template: ProtocolTemplate | None, profile: ModelProfile | None) -> None:
+    def __init__(
+        self,
+        preset: ProtocolPreset,
+        template: ProtocolTemplate | None,
+        profile: ModelProfile | None,
+    ) -> None:
         self.preset = preset
         self.template = template
         self.profile = profile
         self.capability_source = "user_declared" if profile is None else "registry"
 
 
-def validate_payload_refs(protocol_code: str, template_code: str | None, capability_profile_code: str | None) -> ProtocolReferences:
+def validate_payload_refs(
+    protocol_code: str, template_code: str | None, capability_profile_code: str | None
+) -> ProtocolReferences:
     """校验协议/模板/能力引用是否合法，返回可直接落库的引用对象。
 
     抛出：VIDEO_PROTOCOL_UNSUPPORTED / VIDEO_TEMPLATE_UNSUPPORTED。
@@ -156,7 +168,9 @@ def validate_payload_refs(protocol_code: str, template_code: str | None, capabil
         if template_code:
             raise AppError(VIDEO_TEMPLATE_UNSUPPORTED)
 
-    profile = get_profile(protocol_code, capability_profile_code) if capability_profile_code else None
+    profile = (
+        get_profile(protocol_code, capability_profile_code) if capability_profile_code else None
+    )
     return ProtocolReferences(preset=preset, template=template, profile=profile)
 
 

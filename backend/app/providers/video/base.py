@@ -83,4 +83,10 @@ class VideoProvider(ABC):
         raise NotImplementedError
 
 
-__all__ = ["AdapterContext", "VideoProvider", "VideoProviderError", "VideoSubmitResult", "VideoTaskStatus"]
+__all__ = [
+    "AdapterContext",
+    "VideoProvider",
+    "VideoProviderError",
+    "VideoSubmitResult",
+    "VideoTaskStatus",
+]

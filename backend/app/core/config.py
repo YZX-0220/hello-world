@@ -86,8 +86,8 @@ class Settings(BaseSettings):
     # ---- 视频生成（外部厂商调用）----
     # video_provider: fake（开发，返回可控假状态）或 generic_v1（通用异步 JSON 协议）
     video_provider: str = "fake"
-    video_provider_timeout: int = 120          # 单次厂商请求总超时（秒）
-    video_connect_timeout: int = 10            # 连接超时（秒）
+    video_provider_timeout: int = 120  # 单次厂商请求总超时（秒）
+    video_connect_timeout: int = 10  # 连接超时（秒）
     video_max_response_bytes: int = 5 * 1024 * 1024  # 厂商响应体大小上限（字节）
     video_poll_interval_seconds: int = 3  # 视频任务主动轮询的建议间隔（秒）
 
@@ -97,6 +97,12 @@ class Settings(BaseSettings):
     video_platform_model: str = ""  # 平台通道使用的模型/接入点（如 ep-…）
     video_platform_protocol: str = "ark_seedance_v1"
     video_platform_profile_code: str = ""  # ep-* 等接入点必须显式绑定已登记能力
+
+    # ---- 华为云 OBS 对象存储 ----
+    huawei_cloud_obs_endpoint: str = ""
+    huawei_cloud_obs_bucket: str = ""
+    huawei_cloud_obs_access_key: str = ""
+    huawei_cloud_obs_secret_key: str = ""
 
     # ---- 存储与限制 ----
     storage_root: str = "./data"

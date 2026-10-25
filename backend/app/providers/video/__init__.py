@@ -28,4 +28,7 @@ def get_video_provider(protocol_code: str | None = None) -> VideoProvider:
 
         return FalQueueV1Provider()
     from app.providers.video.base import VideoProviderError
-    raise VideoProviderError("VIDEO_PROTOCOL_UNSUPPORTED", "视频通道协议没有可用适配器。", retryable=False)
+
+    raise VideoProviderError(
+        "VIDEO_PROTOCOL_UNSUPPORTED", "视频通道协议没有可用适配器。", retryable=False
+    )

@@ -93,8 +93,13 @@ class ProjectRepository:
         return project
 
     async def commit_canvas_spec(
-        self, project: VideoProject, canvas_json: str, canvas_version: int,
-        spec_version: int, spec_json: str, suggested_prompt: str | None,
+        self,
+        project: VideoProject,
+        canvas_json: str,
+        canvas_version: int,
+        spec_version: int,
+        spec_json: str,
+        suggested_prompt: str | None,
         generation_review_json: str | None = None,
     ) -> VideoProject:
         """Publish the prepared brief and its sources atomically; reject edits during AI work."""
@@ -106,9 +111,13 @@ class ProjectRepository:
                 col(VideoProject.current_spec_version) == spec_version,
             )
             .values(
-                current_spec_json=spec_json, current_spec_version=spec_version + 1,
-                canvas_data_json=canvas_json, canvas_version=canvas_version + 1,
-                confirmed_spec_version=None, confirmed_at=None, updated_at=now(),
+                current_spec_json=spec_json,
+                current_spec_version=spec_version + 1,
+                canvas_data_json=canvas_json,
+                canvas_version=canvas_version + 1,
+                confirmed_spec_version=None,
+                confirmed_at=None,
+                updated_at=now(),
             )
             .execution_options(synchronize_session=False)
             .returning(col(VideoProject.id))
@@ -116,11 +125,16 @@ class ProjectRepository:
         if (await self._session.execute(stmt)).first() is None:
             await self._session.rollback()
             raise AppError(CANVAS_VERSION_CONFLICT, "整理期间画布已变化，请用最新内容重新整理")
-        self._session.add(VideoProjectVersion(
-            project_id=project.id, version=spec_version + 1, spec_json=spec_json,
-            source_type=VersionSource.AGENT.value, suggested_prompt=suggested_prompt,
-            generation_review_json=generation_review_json,
-        ))
+        self._session.add(
+            VideoProjectVersion(
+                project_id=project.id,
+                version=spec_version + 1,
+                spec_json=spec_json,
+                source_type=VersionSource.AGENT.value,
+                suggested_prompt=suggested_prompt,
+                generation_review_json=generation_review_json,
+            )
+        )
         await self._session.commit()
         await self._session.refresh(project)
         return project

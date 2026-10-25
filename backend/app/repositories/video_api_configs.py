@@ -17,10 +17,14 @@ class VideoApiConfigRepository:
         self._session = session
 
     async def get_for_user(self, config_id: str, user_id: str) -> VideoApiConfig | None:
-        stmt = select(VideoApiConfig).where(
-            VideoApiConfig.id == config_id,
-            VideoApiConfig.user_id == user_id,
-        ).execution_options(populate_existing=True)
+        stmt = (
+            select(VideoApiConfig)
+            .where(
+                VideoApiConfig.id == config_id,
+                VideoApiConfig.user_id == user_id,
+            )
+            .execution_options(populate_existing=True)
+        )
         result = await self._session.exec(stmt)
         return result.first()
 

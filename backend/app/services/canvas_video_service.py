@@ -140,7 +140,9 @@ async def reviewed_version(
     validate_settings(target, spec, record["settings"], record["wire"])
     from app.services.video_image_service import validate_review_images
 
-    await validate_review_images(session, project.user_id, target.profile, spec, record.get("materials", []))
+    await validate_review_images(
+        session, project.user_id, target.profile, spec, record.get("materials", [])
+    )
     return row, record, target
 
 
@@ -215,8 +217,12 @@ def _asset_spec(snapshot, mode, roles, duration, allow_identical_frames=False):
         last = roles.get("last_frame_node_id") or (
             images[1]["id"] if len(images) > 1 else first if allow_identical_frames else ""
         )
-        if (len(images) not in ((1, 2) if allow_identical_frames else (2,))
-                or (first == last and not allow_identical_frames) or first not in by_id or last not in by_id):
+        if (
+            len(images) not in ((1, 2) if allow_identical_frames else (2,))
+            or (first == last and not allow_identical_frames)
+            or first not in by_id
+            or last not in by_id
+        ):
             issues.append("请指定首帧和尾帧图片，并取消未使用的图片。")
         else:
             values.update(first_frame_asset_id=by_id[first], last_frame_asset_id=by_id[last])
@@ -279,9 +285,11 @@ class CanvasVideoService:
         self._repo = ProjectRepository(session)
 
     async def prepare(
-        self, *args, **kwargs,
+        self,
+        *args,
+        **kwargs,
     ):
-        pending_images = []
+        pending_images: list[Any] = []
         try:
             return await self._prepare(*args, **kwargs, pending_images=pending_images)
         except BaseException:
@@ -353,7 +361,10 @@ class CanvasVideoService:
                     issues.append("选中的图片素材不存在、未就绪或无权使用，请重新上传。")
         target = await resolve_target(self._session, user_id, api_config_id)
         asset_spec, role_issues = _asset_spec(
-            snapshot, mode, roles, duration_seconds,
+            snapshot,
+            mode,
+            roles,
+            duration_seconds,
             allow_identical_frames=bool(target.profile and target.profile.allows_identical_frames),
         )
         issues.extend(role_issues)
@@ -384,7 +395,10 @@ class CanvasVideoService:
         materials, material_notices = [], []
         if not issues:
             materials, material_notices, material_issues, _pending = await prepare_images(
-                self._session, user_id, target.profile, asset_spec,
+                self._session,
+                user_id,
+                target.profile,
+                asset_spec,
                 {n["asset_id"]: n["title"] for n in snapshot if n.get("asset_id")},
                 pending=pending_images,
             )
@@ -465,13 +479,17 @@ class CanvasVideoService:
                 output.assumptions.append(f"本次默认画幅为 {effective['aspect_ratio']}。")
         spec = apply_image_bindings(spec, materials)
         if target.profile and target.profile.image_constraints and resolution == "1080p":
-            output.assumptions.append("1080p 输出采用 HEVC 编码，部分浏览器可能无法直接播放，可下载后用兼容播放器查看。")
+            output.assumptions.append(
+                "1080p 输出采用 HEVC 编码，部分浏览器可能无法直接播放，可下载后用兼容播放器查看。"
+            )
         if target.profile and target.profile.image_constraints and spec.last_frame_asset_id:
             frames = {b["role"]: b for b in materials}
             if "first_frame" in frames and "last_frame" in frames:
                 first, last = frames["first_frame"], frames["last_frame"]
                 if first["width"] * last["height"] != last["width"] * first["height"]:
-                    material_notices.append("首尾帧比例不同：输出画幅跟随首帧，厂商会自动适配尾帧，可能改变尾帧构图。")
+                    material_notices.append(
+                        "首尾帧比例不同：输出画幅跟随首帧，厂商会自动适配尾帧，可能改变尾帧构图。"
+                    )
         # Detect target revision/rule changes during the LLM call as well as canvas edits.
         current_target = await resolve_target(self._session, user_id, api_config_id)
         if current_target.fingerprint != target.fingerprint:

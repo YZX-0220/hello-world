@@ -31,13 +31,10 @@ class SessionRepository:
     async def find_active_by_token(self, token: str) -> UserSession | None:
         """按 token 查找有效会话（未过期、未撤销）。"""
         digest = token_sha256(token)
-        stmt = (
-            select(UserSession)
-            .where(
-                UserSession.token_hash == digest,
-                UserSession.expires_at > now(),
-                UserSession.revoked_at.is_(None),  # type: ignore[union-attr]
-            )
+        stmt = select(UserSession).where(
+            UserSession.token_hash == digest,
+            UserSession.expires_at > now(),
+            UserSession.revoked_at.is_(None),  # type: ignore[union-attr]
         )
         result = await self._session.exec(stmt)
         return result.first()

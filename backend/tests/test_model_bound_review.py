@@ -150,7 +150,11 @@ async def test_changed_binding_cannot_submit_the_old_review(client, monkeypatch,
     assert (await confirm(client, cid, headers, project)).status_code == 200
     if change == "rules":
         key = ("ark_seedance_v1", "doubao-seedance-2-5")
-        monkeypatch.setitem(registry._PROFILES, key, replace(registry._PROFILES[key], version=registry._PROFILES[key].version + 1))
+        monkeypatch.setitem(
+            registry._PROFILES,
+            key,
+            replace(registry._PROFILES[key], version=registry._PROFILES[key].version + 1),
+        )
     elif change == "options":
         options = reviewed_options(project)
         options["aspect_ratio"] = "9:16"
@@ -299,8 +303,11 @@ async def test_different_protocol_dispatches_submit_poll_and_download_by_job_ide
     assert isinstance(get_video_provider("dashscope_async_v1"), DashScopeAsyncV1Provider)
 
 
-async def test_conflicting_ai_technical_text_cannot_leak_into_the_compiled_prompt(client, monkeypatch):
+async def test_conflicting_ai_technical_text_cannot_leak_into_the_compiled_prompt(
+    client, monkeypatch
+):
     cid, headers, _ = await create_project(client)
+
     class OldPrompt(ControlledProvider):
         async def generate(self, messages, *, structured=False):
             result = await super().generate(messages, structured=structured)
@@ -309,9 +316,15 @@ async def test_conflicting_ai_technical_text_cannot_leak_into_the_compiled_promp
             result.structured["suggested_prompt"] = "9:16，1080p，总时长20秒，完全不同的自由提示词"
             result.structured["suggestions"] = ["你还需要修改吗？"]
             return result
+
     monkeypatch.setattr("app.services.agent_service.get_text_provider", lambda: OldPrompt())
-    project = await prepare(client, cid, headers, (await client.get(f"/api/v1/conversations/{cid}/project")).json(),
-                            resolution="720p")
+    project = await prepare(
+        client,
+        cid,
+        headers,
+        (await client.get(f"/api/v1/conversations/{cid}/project")).json(),
+        resolution="720p",
+    )
     prompt = project["compiled_prompt"]
     assert "9:16" not in prompt and "1080p" not in prompt and "20秒" not in prompt
     assert "（秒）：20" not in prompt
@@ -320,16 +333,22 @@ async def test_conflicting_ai_technical_text_cannot_leak_into_the_compiled_promp
     assert "？" not in project["canvas_data"]["generation_review"]["content"]
 
 
-async def test_ai_time_line_beyond_effective_duration_gets_one_internal_repair_then_blocks(client, monkeypatch):
+async def test_ai_time_line_beyond_effective_duration_gets_one_internal_repair_then_blocks(
+    client, monkeypatch
+):
     cid, headers, _ = await create_project(client)
+
     class TooLong(ControlledProvider):
         async def generate(self, messages, *, structured=False):
             result = await super().generate(messages, structured=structured)
             result.structured["state_patch"]["motion"] = "0-30秒，主体持续奔跑"
             return result
+
     provider = TooLong()
     monkeypatch.setattr("app.services.agent_service.get_text_provider", lambda: provider)
-    project = await prepare(client, cid, headers, (await client.get(f"/api/v1/conversations/{cid}/project")).json())
+    project = await prepare(
+        client, cid, headers, (await client.get(f"/api/v1/conversations/{cid}/project")).json()
+    )
     assert len(provider.calls) == 2
     assert project["canvas_data"]["generation_review"]["status"] == "blocked"
     assert "时间线" in project["canvas_data"]["generation_review"]["content"]

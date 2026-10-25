@@ -68,7 +68,13 @@ def _stored_base_url(payload_base_url: str | None, refs: ProtocolReferences) -> 
 # ---- 用户自定义模板（generic_async_json_v1 的 template_mode="custom"）----
 
 # 必填字段（缺省即 422）
-_CUSTOM_TEMPLATE_REQUIRED = ("submit_path", "task_id_path", "poll_path", "status_path", "result_url_path")
+_CUSTOM_TEMPLATE_REQUIRED = (
+    "submit_path",
+    "task_id_path",
+    "poll_path",
+    "status_path",
+    "result_url_path",
+)
 
 
 def _custom_template_fields(payload: Any) -> dict[str, Any]:
@@ -117,11 +123,15 @@ class VideoApiConfigService:
         self._repo = VideoApiConfigRepository(session)
         self._rev_repo = VideoApiConfigRevisionRepository(session)
 
-    async def test(self, payload: TestVideoApiConfigRequest, resolver: Any = None) -> TestVideoApiConfigResult:
+    async def test(
+        self, payload: TestVideoApiConfigRequest, resolver: Any = None
+    ) -> TestVideoApiConfigResult:
         """临时检测（不保存凭据、不创建收费视频）。"""
         return _build_detection(payload, resolver)
 
-    async def create(self, user_id: str, payload: VideoApiConfigCreateRequest, resolver: Any = None) -> VideoApiConfigView:
+    async def create(
+        self, user_id: str, payload: VideoApiConfigCreateRequest, resolver: Any = None
+    ) -> VideoApiConfigView:
         refs = _validate_constraints(payload, resolver)
         detection = _build_detection(payload, resolver)
         if await self._repo.get_by_display_name(user_id, payload.display_name) is not None:
@@ -129,7 +139,9 @@ class VideoApiConfigService:
 
         # 自定义模板校验放在任何 DB 写入之前，失败不会留下半状态
         custom_template_json = (
-            _assemble_custom_template(_custom_template_fields(payload)) if payload.template_mode == "custom" else None
+            _assemble_custom_template(_custom_template_fields(payload))
+            if payload.template_mode == "custom"
+            else None
         )
 
         config = VideoApiConfig(
@@ -153,7 +165,9 @@ class VideoApiConfigService:
             options=payload.options,
             capability_profile_code=payload.capability_profile_code,
             verification_status=detection.verification_status,
-            last_verified_at=detection.checked_at if detection.verification_status == "verified" else None,
+            last_verified_at=detection.checked_at
+            if detection.verification_status == "verified"
+            else None,
             custom_template_json=custom_template_json,
         )
         self._session.add(revision)
@@ -210,7 +224,9 @@ class VideoApiConfigService:
         keys: list[tuple[datetime, str]] = []
         page_cursor = cursor
         while len(views) < limit:
-            configs = await self._repo.list_for_user(user_id, status, limit=limit, cursor=page_cursor)
+            configs = await self._repo.list_for_user(
+                user_id, status, limit=limit, cursor=page_cursor
+            )
             if not configs:
                 break
             for config in configs:
@@ -231,7 +247,13 @@ class VideoApiConfigService:
             return views, encode_cursor(t, cid)
         return views, None
 
-    async def patch(self, user_id: str, config_id: str, payload: VideoApiConfigPatchRequest, resolver: Any = None) -> VideoApiConfigView:
+    async def patch(
+        self,
+        user_id: str,
+        config_id: str,
+        payload: VideoApiConfigPatchRequest,
+        resolver: Any = None,
+    ) -> VideoApiConfigView:
         config = await self._require_config(user_id, config_id)
         if config.version != payload.expected_version:
             raise AppError(VIDEO_CONFIG_INVALID, "配置已发生变化，请刷新后重试")
@@ -313,10 +335,14 @@ class VideoApiConfigService:
         config.updated_at = now()
         await self._session.commit()
 
-    async def retest(self, user_id: str, config_id: str, resolver: Any = None) -> TestVideoApiConfigResult:
+    async def retest(
+        self, user_id: str, config_id: str, resolver: Any = None
+    ) -> TestVideoApiConfigResult:
         config = await self._require_config(user_id, config_id)
         revision = await self._require_revision(config)
-        auth = json.loads(decrypt_secret(revision.encrypted_auth_json, settings.credential_encryption_keys))
+        auth = json.loads(
+            decrypt_secret(revision.encrypted_auth_json, settings.credential_encryption_keys)
+        )
         payload = TestVideoApiConfigRequest(
             source_type=revision.source_type,
             protocol_code=revision.protocol_code,
@@ -330,7 +356,9 @@ class VideoApiConfigService:
         )
         result = _build_detection(payload, resolver)
         revision.verification_status = result.verification_status
-        revision.last_verified_at = result.checked_at if result.verification_status == "verified" else None
+        revision.last_verified_at = (
+            result.checked_at if result.verification_status == "verified" else None
+        )
         revision.last_error_code = None
         await self._session.commit()
         return result
@@ -352,31 +380,45 @@ class VideoApiConfigService:
     async def _current_revision(self, config: VideoApiConfig) -> VideoApiConfigRevision:
         return await self._require_revision(config)
 
-    def _merge_connection_fields(self, base: VideoApiConfigRevision, payload: VideoApiConfigPatchRequest) -> TestVideoApiConfigRequest:
+    def _merge_connection_fields(
+        self, base: VideoApiConfigRevision, payload: VideoApiConfigPatchRequest
+    ) -> TestVideoApiConfigRequest:
         """以当前 revision 为基准，用 patch 显式提供的覆盖，构造完整检测 payload。"""
-        current_auth = json.loads(decrypt_secret(base.encrypted_auth_json, settings.credential_encryption_keys))
+        current_auth = json.loads(
+            decrypt_secret(base.encrypted_auth_json, settings.credential_encryption_keys)
+        )
         return TestVideoApiConfigRequest(
             source_type=payload.source_type or base.source_type,
             protocol_code=payload.protocol_code or base.protocol_code,
-            template_code=payload.template_code if payload.template_code is not None else base.template_code,
+            template_code=payload.template_code
+            if payload.template_code is not None
+            else base.template_code,
             base_url=payload.base_url if payload.base_url is not None else base.base_url,
             remote_model_id=payload.remote_model_id or base.remote_model_id,
             auth=payload.auth if payload.auth is not None else current_auth,
             options=payload.options or json.loads(base.public_options_json or "{}"),
-            capability_profile_code=payload.capability_profile_code if payload.capability_profile_code is not None else base.capability_profile_code,
+            capability_profile_code=payload.capability_profile_code
+            if payload.capability_profile_code is not None
+            else base.capability_profile_code,
             relay_risk_accepted=(
-                payload.relay_risk_accepted if payload.relay_risk_accepted is not None else base.relay_risk_accepted_at is not None
+                payload.relay_risk_accepted
+                if payload.relay_risk_accepted is not None
+                else base.relay_risk_accepted_at is not None
             ),
         )
 
-    def _merged_custom_template(self, base: VideoApiConfigRevision, payload: VideoApiConfigPatchRequest) -> str | None:
+    def _merged_custom_template(
+        self, base: VideoApiConfigRevision, payload: VideoApiConfigPatchRequest
+    ) -> str | None:
         """计算修改后落库的自定义模板（JSON 字符串）。
 
         - 有效 template_mode == "builtin"：清空自定义模板（返回 None）；
         - 有效 template_mode == "custom"：以当前 revision 为基准，patch 覆盖组装完整模板，
           再经 `_assemble_custom_template` 校验必填字段。
         """
-        effective_mode = payload.template_mode or ("custom" if base.custom_template_json else "builtin")
+        effective_mode = payload.template_mode or (
+            "custom" if base.custom_template_json else "builtin"
+        )
         if effective_mode != "custom":
             return None
         current = json.loads(base.custom_template_json) if base.custom_template_json else {}
@@ -384,13 +426,17 @@ class VideoApiConfigService:
             "submit_method": payload.submit_method or current.get("submit_method"),
             "submit_path": payload.submit_path or current.get("submit_path"),
             "request_template_json": (
-                payload.request_template_json if payload.request_template_json is not None else current.get("request_template_json")
+                payload.request_template_json
+                if payload.request_template_json is not None
+                else current.get("request_template_json")
             ),
             "task_id_path": payload.task_id_path or current.get("task_id_path"),
             "poll_method": payload.poll_method or current.get("poll_method"),
             "poll_path": payload.poll_path or current.get("poll_path"),
             "status_path": payload.status_path or current.get("status_path"),
-            "status_map": payload.status_map if payload.status_map is not None else current.get("status_map"),
+            "status_map": payload.status_map
+            if payload.status_map is not None
+            else current.get("status_map"),
             "result_url_path": payload.result_url_path or current.get("result_url_path"),
         }
         return _assemble_custom_template(merged)
@@ -421,7 +467,9 @@ class VideoApiConfigService:
             template_version=refs.template.version if refs.template else None,
             base_url=base_url,
             remote_model_id=remote_model_id,
-            encrypted_auth_json=encrypt_secret(json.dumps(auth, ensure_ascii=False), settings.credential_encryption_keys),
+            encrypted_auth_json=encrypt_secret(
+                json.dumps(auth, ensure_ascii=False), settings.credential_encryption_keys
+            ),
             public_options_json=_filter_options(options, refs),
             capability_profile_code=capability_profile_code,
             capabilities_json=json.dumps(list(refs.profile.modes)) if refs.profile else "[]",
@@ -433,8 +481,12 @@ class VideoApiConfigService:
             custom_template_json=custom_template_json,
         )
 
-    def _to_view(self, config: VideoApiConfig, revision: VideoApiConfigRevision) -> VideoApiConfigView:
-        custom = json.loads(revision.custom_template_json) if revision.custom_template_json else None
+    def _to_view(
+        self, config: VideoApiConfig, revision: VideoApiConfigRevision
+    ) -> VideoApiConfigView:
+        custom = (
+            json.loads(revision.custom_template_json) if revision.custom_template_json else None
+        )
         return VideoApiConfigView(
             id=config.id,
             display_name=config.display_name,

@@ -84,7 +84,11 @@ async def readyz() -> JSONResponse:
             await conn.execute(text("SELECT 1"))
         components["database"] = {"status": "ok", "latency_ms": 1, "message": None}
     except Exception:
-        components["database"] = {"status": "unavailable", "latency_ms": None, "message": _READYZ_DB_MSG}
+        components["database"] = {
+            "status": "unavailable",
+            "latency_ms": None,
+            "message": _READYZ_DB_MSG,
+        }
 
     # ---- Redis（可降级） ----
     redis_status = "ok"
@@ -95,7 +99,11 @@ async def readyz() -> JSONResponse:
         components["redis"] = {"status": "ok", "latency_ms": 1, "message": None}
     except Exception:
         redis_status = "unavailable"
-        components["redis"] = {"status": "unavailable", "latency_ms": None, "message": _READYZ_REDIS_MSG}
+        components["redis"] = {
+            "status": "unavailable",
+            "latency_ms": None,
+            "message": _READYZ_REDIS_MSG,
+        }
 
     # ---- 存储（可降级） ----
     storage_status = "ok"
@@ -106,7 +114,11 @@ async def readyz() -> JSONResponse:
         components["storage"] = {"status": "ok", "latency_ms": 1, "message": None}
     except Exception:
         storage_status = "unavailable"
-        components["storage"] = {"status": "unavailable", "latency_ms": None, "message": "存储目录不可用"}
+        components["storage"] = {
+            "status": "unavailable",
+            "latency_ms": None,
+            "message": "存储目录不可用",
+        }
 
     db_status = components["database"]["status"]
     if db_status == "unavailable":

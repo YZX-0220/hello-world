@@ -78,6 +78,16 @@ class PrepareCanvasVideoRequest(CanvasGenerationSettings):
     node_ids: list[str] = Field(min_length=1, max_length=50)
     expected_canvas_version: int = Field(ge=0)
     api_config_id: str = Field(default="platform", min_length=1, max_length=128)
-    mode: Literal["auto", "text_to_video", "first_frame_to_video", "first_last_frame_to_video",
-                  "reference_image_to_video", "video_to_video", "video_extend", "audio_or_performance_to_video"] = "auto"
-    input_roles: dict[Literal["first_frame_node_id", "last_frame_node_id"], str] = Field(default_factory=dict, max_length=2)
+    mode: Literal[
+        "auto",
+        "text_to_video",
+        "first_frame_to_video",
+        "first_last_frame_to_video",
+        "reference_image_to_video",
+        "video_to_video",
+        "video_extend",
+        "audio_or_performance_to_video",
+    ] = "auto"
+    input_roles: dict[Literal["first_frame_node_id", "last_frame_node_id"], str] = Field(
+        default_factory=dict, max_length=2
+    )

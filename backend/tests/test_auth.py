@@ -13,7 +13,9 @@ def _last_code() -> str:
 
 
 async def _send_register_code(client: httpx.AsyncClient, email: str = EMAIL) -> None:
-    resp = await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
+    resp = await client.post(
+        "/api/v1/auth/email-codes", json={"email": email, "purpose": "register"}
+    )
     assert resp.status_code == 202
     assert resp.json()["accepted"] is True
 
@@ -37,7 +39,9 @@ async def test_register_sets_cookies_and_current_user(client: httpx.AsyncClient)
 
 async def test_logout_revokes_session(client: httpx.AsyncClient) -> None:
     await _send_register_code(client)
-    await client.post("/api/v1/auth/register", json={"email": EMAIL, "code": _last_code(), "password": PASSWORD})
+    await client.post(
+        "/api/v1/auth/register", json={"email": EMAIL, "code": _last_code(), "password": PASSWORD}
+    )
 
     csrf = client.cookies.get("hw_csrf", "")
     logout = await client.post(
@@ -52,15 +56,21 @@ async def test_logout_revokes_session(client: httpx.AsyncClient) -> None:
 
 async def test_password_login_and_wrong_password(client: httpx.AsyncClient) -> None:
     await _send_register_code(client)
-    await client.post("/api/v1/auth/register", json={"email": EMAIL, "code": _last_code(), "password": PASSWORD})
+    await client.post(
+        "/api/v1/auth/register", json={"email": EMAIL, "code": _last_code(), "password": PASSWORD}
+    )
 
     # 正确密码登录
-    ok = await client.post("/api/v1/auth/login/password", json={"email": EMAIL, "password": PASSWORD})
+    ok = await client.post(
+        "/api/v1/auth/login/password", json={"email": EMAIL, "password": PASSWORD}
+    )
     assert ok.status_code == 200
     assert ok.json()["email"] == EMAIL
 
     # 错误密码 → 401 INVALID_CREDENTIALS
-    bad = await client.post("/api/v1/auth/login/password", json={"email": EMAIL, "password": "wrong-password"})
+    bad = await client.post(
+        "/api/v1/auth/login/password", json={"email": EMAIL, "password": "wrong-password"}
+    )
     assert bad.status_code == 401
     assert bad.json()["error"]["code"] == "INVALID_CREDENTIALS"
 

@@ -105,11 +105,17 @@ class DashScopeAsyncV1Provider(VideoProvider):
         except httpx.HTTPError as exc:
             raise VideoProviderError("VIDEO_SUBMISSION_FAILED", "提交厂商请求失败") from exc
         if not (200 <= resp.status_code < 300):
-            raise VideoProviderError("VIDEO_SUBMISSION_FAILED", f"厂商拒绝任务（HTTP {resp.status_code}）", retryable=False)
+            raise VideoProviderError(
+                "VIDEO_SUBMISSION_FAILED",
+                f"厂商拒绝任务（HTTP {resp.status_code}）",
+                retryable=False,
+            )
         data = resp.json() or {}
         task_id = _extract(data, "output.task_id") or (data.get("task_id") or "")
         if not task_id:
-            raise VideoProviderError("VIDEO_SUBMISSION_FAILED", "厂商响应缺少任务 ID", retryable=False)
+            raise VideoProviderError(
+                "VIDEO_SUBMISSION_FAILED", "厂商响应缺少任务 ID", retryable=False
+            )
         return VideoSubmitResult(provider_task_id=str(task_id))
 
     async def poll(self, task_id: str, ctx: AdapterContext) -> VideoTaskStatus:

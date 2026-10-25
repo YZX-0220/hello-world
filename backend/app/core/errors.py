@@ -67,9 +67,13 @@ IDEMPOTENCY_KEY_REUSED = ErrorCode("IDEMPOTENCY_KEY_REUSED", 409, "同一幂等�
 TEXT_PROVIDER_TIMEOUT = ErrorCode("TEXT_PROVIDER_TIMEOUT", 504, "文本模型响应超时")
 TEXT_PROVIDER_UNAVAILABLE = ErrorCode("TEXT_PROVIDER_UNAVAILABLE", 502, "文本模型暂时不可用")
 AGENT_OUTPUT_INVALID = ErrorCode("AGENT_OUTPUT_INVALID", 502, "AI 结构化输出无法校验")
-PROJECT_VERSION_CONFLICT = ErrorCode("PROJECT_VERSION_CONFLICT", 409, "视频方案已经发生变化，请刷新后重新确认")
+PROJECT_VERSION_CONFLICT = ErrorCode(
+    "PROJECT_VERSION_CONFLICT", 409, "视频方案已经发生变化，请刷新后重新确认"
+)
 PROJECT_NOT_READY = ErrorCode("PROJECT_NOT_READY", 422, "视频方案信息不足")
-CANVAS_VERSION_CONFLICT = ErrorCode("CANVAS_VERSION_CONFLICT", 409, "画布已在另一处更新，本地草稿已保留")
+CANVAS_VERSION_CONFLICT = ErrorCode(
+    "CANVAS_VERSION_CONFLICT", 409, "画布已在另一处更新，本地草稿已保留"
+)
 CANVAS_NODE_INVALID = ErrorCode("CANVAS_NODE_INVALID", 422, "协作目标不存在或不是文本节点")
 
 # ---- 视频配置与素材 ----
@@ -77,7 +81,9 @@ VIDEO_PROTOCOL_UNSUPPORTED = ErrorCode("VIDEO_PROTOCOL_UNSUPPORTED", 422, "协�
 VIDEO_TEMPLATE_UNSUPPORTED = ErrorCode("VIDEO_TEMPLATE_UNSUPPORTED", 422, "协议模板不可用")
 VIDEO_MODEL_UNSUPPORTED = ErrorCode("VIDEO_MODEL_UNSUPPORTED", 422, "模型未登记或不允许")
 VIDEO_CONFIG_INVALID = ErrorCode("VIDEO_CONFIG_INVALID", 422, "视频接口配置无效")
-VIDEO_API_CONFIG_NOT_FOUND = ErrorCode("VIDEO_API_CONFIG_NOT_FOUND", 404, "视频接口配置不存在或无权访问")
+VIDEO_API_CONFIG_NOT_FOUND = ErrorCode(
+    "VIDEO_API_CONFIG_NOT_FOUND", 404, "视频接口配置不存在或无权访问"
+)
 VIDEO_CONFIG_NAME_EXISTS = ErrorCode("VIDEO_CONFIG_NAME_EXISTS", 409, "该配置名称已存在")
 RELAY_RISK_NOT_ACCEPTED = ErrorCode("RELAY_RISK_NOT_ACCEPTED", 422, "未确认第三方中转风险")
 UNSAFE_BASE_URL = ErrorCode("UNSAFE_BASE_URL", 422, "接口地址存在安全风险")
@@ -101,8 +107,12 @@ VIDEO_MODE_UNSUPPORTED = ErrorCode("VIDEO_MODE_UNSUPPORTED", 422, "模型不支�
 VIDEO_INPUT_INVALID = ErrorCode("VIDEO_INPUT_INVALID", 422, "视频任务输入组合错误")
 VIDEO_OPTION_UNSUPPORTED = ErrorCode("VIDEO_OPTION_UNSUPPORTED", 422, "生成选项不受支持")
 VIDEO_SUBMISSION_FAILED = ErrorCode("VIDEO_SUBMISSION_FAILED", 502, "厂商明确拒绝任务")
-PROVIDER_SUBMISSION_UNKNOWN = ErrorCode("PROVIDER_SUBMISSION_UNKNOWN", 202, "无法确认厂商是否已接受")
-PLATFORM_DAILY_QUOTA_EXCEEDED = ErrorCode("PLATFORM_DAILY_QUOTA_EXCEEDED", 429, "平台每日免费额度已用完")
+PROVIDER_SUBMISSION_UNKNOWN = ErrorCode(
+    "PROVIDER_SUBMISSION_UNKNOWN", 202, "无法确认厂商是否已接受"
+)
+PLATFORM_DAILY_QUOTA_EXCEEDED = ErrorCode(
+    "PLATFORM_DAILY_QUOTA_EXCEEDED", 429, "平台每日免费额度已用完"
+)
 VIDEO_PROVIDER_RATE_LIMITED = ErrorCode("VIDEO_PROVIDER_RATE_LIMITED", 429, "厂商限制请求频率")
 VIDEO_POLL_FAILED = ErrorCode("VIDEO_POLL_FAILED", 502, "查询厂商状态暂时失败")
 VIDEO_CANCEL_UNSUPPORTED = ErrorCode("VIDEO_CANCEL_UNSUPPORTED", 409, "厂商不支持取消")
@@ -144,11 +154,15 @@ class AppError(Exception):
         super().__init__(self.message)
 
 
-def build_error(request: Request, code: str, message: str, details: Mapping[str, Any]) -> ErrorResponse:
+def build_error(
+    request: Request, code: str, message: str, details: Mapping[str, Any]
+) -> ErrorResponse:
     """按统一格式构造错误响应，并回填 request_id。"""
     request_id = getattr(request.state, "request_id", None) or "-"
     return ErrorResponse(
-        error=ErrorBody(code=code, message=message, request_id=request_id, details=dict(details or {}))
+        error=ErrorBody(
+            code=code, message=message, request_id=request_id, details=dict(details or {})
+        )
     )
 
 
@@ -157,18 +171,24 @@ def _request_id(request: Request) -> str:
     return getattr(request.state, "request_id", None) or "-"
 
 
-def _to_json_response(status_code: int, request_id: str, code: str, message: str, details: Mapping[str, Any]) -> Response:
+def _to_json_response(
+    status_code: int, request_id: str, code: str, message: str, details: Mapping[str, Any]
+) -> Response:
     """构造统一的 JSON 错误响应。"""
     return JSONResponse(
         status_code=status_code,
         content=ErrorResponse(
-            error=ErrorBody(code=code, message=message, request_id=request_id, details=dict(details))
+            error=ErrorBody(
+                code=code, message=message, request_id=request_id, details=dict(details)
+            )
         ).model_dump(),
     )
 
 
 def _app_error_handler(request: Request, exc: AppError) -> Response:
-    return _to_json_response(exc.status_code, _request_id(request), exc.code, exc.message, exc.details)
+    return _to_json_response(
+        exc.status_code, _request_id(request), exc.code, exc.message, exc.details
+    )
 
 
 def _validation_error_handler(request: Request, exc: RequestValidationError) -> Response:
@@ -176,8 +196,16 @@ def _validation_error_handler(request: Request, exc: RequestValidationError) -> 
     field_errors: list[dict[str, str]] = []
     for err in exc.errors():
         field = ".".join(str(p) for p in err.get("loc", []) if p not in ("body", "query", "path"))
-        field_errors.append(FieldError(field=field or "_root", reason=str(err.get("msg", ""))).model_dump())
-    return _to_json_response(422, _request_id(request), "VALIDATION_ERROR", "请求参数校验失败", {"field_errors": field_errors})
+        field_errors.append(
+            FieldError(field=field or "_root", reason=str(err.get("msg", ""))).model_dump()
+        )
+    return _to_json_response(
+        422,
+        _request_id(request),
+        "VALIDATION_ERROR",
+        "请求参数校验失败",
+        {"field_errors": field_errors},
+    )
 
 
 def _http_error_handler(request: Request, exc: StarletteHTTPException) -> Response:

@@ -113,8 +113,14 @@ class ImageConstraints:
     max_ratio: float = 2.5
     max_bytes_exclusive: int = 30_000_000
     mime_types: tuple[str, ...] = (
-        "image/jpeg", "image/png", "image/webp", "image/bmp", "image/tiff",
-        "image/gif", "image/heic", "image/heif",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/bmp",
+        "image/tiff",
+        "image/gif",
+        "image/heic",
+        "image/heif",
     )
 
 

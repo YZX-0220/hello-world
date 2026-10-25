@@ -25,8 +25,12 @@ class VideoJob(SQLModel, table=True):
     project_version: int = Field()  # 固定版本
     # 平台自有通道（请求 api_config_id="platform"）不引用用户配置：api_config_id 存 NULL、
     # revision 也为 None；用户自配通道则存真实 config.id / revision.id（非空）。
-    api_config_id: str | None = Field(default=None, foreign_key="video_api_configs.id", ondelete="RESTRICT")
-    api_config_revision_id: str | None = Field(default=None, foreign_key="video_api_config_revisions.id", ondelete="RESTRICT")
+    api_config_id: str | None = Field(
+        default=None, foreign_key="video_api_configs.id", ondelete="RESTRICT"
+    )
+    api_config_revision_id: str | None = Field(
+        default=None, foreign_key="video_api_config_revisions.id", ondelete="RESTRICT"
+    )
     previous_job_id: str | None = Field(default=None, foreign_key="video_jobs.id")
     idempotency_key: str = Field(max_length=64)  # 请求头值
     request_fingerprint: str = Field(max_length=128)  # 规范化请求摘要
@@ -83,7 +87,9 @@ class VideoJobAsset(SQLModel, table=True):
     created_at: datetime = Field(default_factory=now)
 
     __table_args__ = (
-        UniqueConstraint("video_job_id", "role", "position", name="uq_video_job_assets_role_position"),
+        UniqueConstraint(
+            "video_job_id", "role", "position", name="uq_video_job_assets_role_position"
+        ),
     )
 
 

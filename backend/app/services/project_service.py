@@ -63,10 +63,14 @@ class ProjectService:
         current = json.loads(project.current_spec_json or "{}")
         merged = self.merge_patch(current, patch)
         spec_json = json.dumps(merged, ensure_ascii=False)
-        await self._repo.commit_spec(project, spec_json, source, source_message_id, suggested_prompt)
+        await self._repo.commit_spec(
+            project, spec_json, source, source_message_id, suggested_prompt
+        )
         return merged
 
-    async def patch_manual(self, user_id: str, conversation_id: str, expected_version: int, patch: dict) -> None:
+    async def patch_manual(
+        self, user_id: str, conversation_id: str, expected_version: int, patch: dict
+    ) -> None:
         """用户手动修改方案（带乐观锁）。版本不符抛 PROJECT_VERSION_CONFLICT。"""
         project = await self._current_project(user_id, conversation_id)
         if expected_version != project.current_spec_version:

@@ -12,12 +12,26 @@ from app.core.config import settings
 
 # 需要被脱敏的敏感键名（含常见变体）
 _SENSITIVE_KEYS = {
-    "password", "api_key", "apikey", "token", "access_token", "refresh_token",
-    "secret", "secret_key", "code", "auth", "authorization", "session",
-    "credential", "signature", "signed_token",
+    "password",
+    "api_key",
+    "apikey",
+    "token",
+    "access_token",
+    "refresh_token",
+    "secret",
+    "secret_key",
+    "code",
+    "auth",
+    "authorization",
+    "session",
+    "credential",
+    "signature",
+    "signed_token",
 }
 
-_SENSITIVE_KEY_RE = re.compile(r"(_password|api[_-]?key|token|secret|code|auth|signature|credential)", re.IGNORECASE)
+_SENSITIVE_KEY_RE = re.compile(
+    r"(_password|api[_-]?key|token|secret|code|auth|signature|credential)", re.IGNORECASE
+)
 
 
 def _mask(key: str) -> str:

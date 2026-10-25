@@ -13,7 +13,9 @@ class AssetRepository:
         self._session = session
 
     async def get_for_user(self, asset_id: str, user_id: str) -> Asset | None:
-        stmt = select(Asset).where(Asset.id == asset_id, Asset.user_id == user_id, Asset.status != "deleted")
+        stmt = select(Asset).where(
+            Asset.id == asset_id, Asset.user_id == user_id, Asset.status != "deleted"
+        )
         result = await self._session.exec(stmt)
         return result.first()
 

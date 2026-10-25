@@ -47,6 +47,7 @@ def constant_time_compare(a: str, b: str) -> bool:
 
 # ---- 视频 API 密钥加解密（Fernet，双钥轮换）----
 
+
 def generate_fernet_key() -> str:
     """生成一把新的 Fernet 密钥（32 字节 urlsafe base64）。
 

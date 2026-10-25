@@ -14,4 +14,3 @@ def normalize_email(email: str) -> str:
         return validated.normalized
     except EmailNotValidError as exc:
         raise ValueError(f"邮箱格式不正确：{exc}") from exc
-

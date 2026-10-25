@@ -59,7 +59,9 @@ def _project_view(project: VideoProject, suggested_prompt: str | None = None) ->
         canvas_version=project.canvas_version,
         confirmed_spec_version=confirmed,
         confirmed_at=project.confirmed_at,
-        is_current_version_confirmed=(confirmed is not None and confirmed == project.current_spec_version),
+        is_current_version_confirmed=(
+            confirmed is not None and confirmed == project.current_spec_version
+        ),
         created_at=project.created_at,
         updated_at=project.updated_at,
     )
@@ -75,7 +77,11 @@ async def create_conversation(
     svc = ConversationService(session)
     conversation = await svc.create_conversation(user.id, payload.title)
     project = await ProjectRepository(session).get_by_conversation(user.id, conversation.id)
-    sp = await ProjectRepository(session).get_latest_suggested_prompt(project.id) if project else None
+    sp = (
+        await ProjectRepository(session).get_latest_suggested_prompt(project.id)
+        if project
+        else None
+    )
     return {
         "conversation": ConversationView.model_validate(conversation),
         "project": _project_view(project, sp) if project else None,
@@ -111,9 +117,14 @@ async def get_conversation(
             project_id=project.id,
             current_spec_version=project.current_spec_version,
             confirmed_spec_version=confirmed,
-            is_current_version_confirmed=(confirmed is not None and confirmed == project.current_spec_version),
+            is_current_version_confirmed=(
+                confirmed is not None and confirmed == project.current_spec_version
+            ),
         )
-    return {"conversation": ConversationView.model_validate(conversation), "project_summary": summary}
+    return {
+        "conversation": ConversationView.model_validate(conversation),
+        "project_summary": summary,
+    }
 
 
 @router.get("/conversations/{conversation_id}/messages", response_model=Page)
@@ -139,16 +150,26 @@ async def send_message(
 ):
     svc = ConversationService(session)
     user_message, assistant_message, _ = await svc.send_message(
-        user.id, conversation_id, payload.content, payload.client_request_id, payload.web_search_enabled,
+        user.id,
+        conversation_id,
+        payload.content,
+        payload.client_request_id,
+        payload.web_search_enabled,
         payload.canvas_collaboration,
     )
     project = await ProjectRepository(session).get_by_conversation(user.id, conversation_id)
-    sp = await ProjectRepository(session).get_latest_suggested_prompt(project.id) if project else None
+    sp = (
+        await ProjectRepository(session).get_latest_suggested_prompt(project.id)
+        if project
+        else None
+    )
     return {
         "run_id": user_message.id,
         "run_status": "succeeded" if assistant_message is not None else "pending",
         "user_message": await svc.message_view(user_message) if user_message else None,
-        "assistant_message": await svc.message_view(assistant_message) if assistant_message else None,
+        "assistant_message": await svc.message_view(assistant_message)
+        if assistant_message
+        else None,
         "project": _project_view(project, sp) if project else None,
     }
 
@@ -175,7 +196,11 @@ async def send_message_stream(
 
     async def event_stream():
         async for event_type, data in svc.stream_message_events(
-            user.id, conversation_id, payload.content, payload.client_request_id, payload.web_search_enabled,
+            user.id,
+            conversation_id,
+            payload.content,
+            payload.client_request_id,
+            payload.web_search_enabled,
             payload.canvas_collaboration,
         ):
             yield _sse_event(event_type, data)
@@ -183,7 +208,11 @@ async def send_message_stream(
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -228,13 +257,18 @@ async def confirm_project(
 
 @router.post("/conversations/{conversation_id}/canvas/confirm")
 async def confirm_canvas_plan(
-    conversation_id: str, payload: ConfirmCanvasPlanRequest,
-    user: User = Depends(get_current_user), _csrf: None = Depends(require_csrf),
+    conversation_id: str,
+    payload: ConfirmCanvasPlanRequest,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
     session: AsyncSession = Depends(db_session),
 ) -> VideoProjectView:
     await ConversationService(session).get_or_404(user.id, conversation_id)
     await CanvasService(session).confirm(
-        user.id, conversation_id, payload.target_node_id, payload.message_id,
+        user.id,
+        conversation_id,
+        payload.target_node_id,
+        payload.message_id,
         payload.expected_canvas_version,
     )
     return await get_project(conversation_id, user, session)
@@ -242,15 +276,23 @@ async def confirm_canvas_plan(
 
 @router.post("/conversations/{conversation_id}/canvas/prepare-video")
 async def prepare_canvas_video(
-    conversation_id: str, payload: PrepareCanvasVideoRequest,
-    user: User = Depends(get_current_user), _csrf: None = Depends(require_csrf),
+    conversation_id: str,
+    payload: PrepareCanvasVideoRequest,
+    user: User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
     session: AsyncSession = Depends(db_session),
 ) -> VideoProjectView:
     await ConversationService(session).get_or_404(user.id, conversation_id)
     project = await CanvasVideoService(session).prepare(
-        user.id, conversation_id, payload.node_ids, payload.expected_canvas_version,
-        payload.duration_seconds, payload.resolution,
-        payload.api_config_id, payload.mode, payload.input_roles,
+        user.id,
+        conversation_id,
+        payload.node_ids,
+        payload.expected_canvas_version,
+        payload.duration_seconds,
+        payload.resolution,
+        payload.api_config_id,
+        payload.mode,
+        payload.input_roles,
     )
     sp = await ProjectRepository(session).get_latest_suggested_prompt(project.id)
     return _project_view(project, sp)
@@ -281,7 +323,12 @@ async def patch_project(
     if await repo.get_by_conversation(user.id, conversation_id) is None:
         raise AppError(CONVERSATION_NOT_FOUND)
     svc = ProjectService(session)
-    await svc.patch_manual(user.id, conversation_id, payload.expected_spec_version, payload.patch.model_dump(exclude_unset=True))
+    await svc.patch_manual(
+        user.id,
+        conversation_id,
+        payload.expected_spec_version,
+        payload.patch.model_dump(exclude_unset=True),
+    )
     project = await repo.get_by_conversation(user.id, conversation_id)
     if project is None:
         raise AppError(CONVERSATION_NOT_FOUND)
@@ -304,7 +351,12 @@ async def save_canvas(
         raise AppError(CONVERSATION_NOT_FOUND)
     await ConversationService(session).get_or_404(user.id, conversation_id)
     project = await repo.save_canvas(
-        project, json.dumps(await restore_review_metadata(session, project, payload.canvas_data.to_data()), ensure_ascii=False), payload.expected_canvas_version
+        project,
+        json.dumps(
+            await restore_review_metadata(session, project, payload.canvas_data.to_data()),
+            ensure_ascii=False,
+        ),
+        payload.expected_canvas_version,
     )
     sp = await repo.get_latest_suggested_prompt(project.id)
     return _project_view(project, sp)

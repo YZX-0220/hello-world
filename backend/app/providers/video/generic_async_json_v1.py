@@ -100,7 +100,9 @@ class GenericAsyncJsonV1Provider(VideoProvider):
         tpl = ctx.template or self._template
         endpoint = tpl.submit
         if endpoint is None:
-            raise VideoProviderError("VIDEO_PROTOCOL_UNSUPPORTED", "模板缺少提交端点", retryable=False)
+            raise VideoProviderError(
+                "VIDEO_PROTOCOL_UNSUPPORTED", "模板缺少提交端点", retryable=False
+            )
         await self._require_public(ctx.base_url)
         url = ctx.base_url.rstrip("/") + endpoint.path
         payload = _fill(endpoint.request_template_json, request)
@@ -110,17 +112,25 @@ class GenericAsyncJsonV1Provider(VideoProvider):
         except httpx.HTTPError as exc:
             raise VideoProviderError("VIDEO_SUBMISSION_FAILED", "提交厂商请求失败") from exc
         if resp.status_code not in endpoint.success_statuses:
-            raise VideoProviderError("VIDEO_SUBMISSION_FAILED", f"厂商拒绝任务（HTTP {resp.status_code}）", retryable=False)
+            raise VideoProviderError(
+                "VIDEO_SUBMISSION_FAILED",
+                f"厂商拒绝任务（HTTP {resp.status_code}）",
+                retryable=False,
+            )
         task_id = _extract(resp.json(), endpoint.id_json_path)
         if not task_id:
-            raise VideoProviderError("VIDEO_SUBMISSION_FAILED", "厂商响应缺少任务 ID", retryable=False)
+            raise VideoProviderError(
+                "VIDEO_SUBMISSION_FAILED", "厂商响应缺少任务 ID", retryable=False
+            )
         return VideoSubmitResult(provider_task_id=str(task_id))
 
     async def poll(self, task_id: str, ctx: AdapterContext) -> VideoTaskStatus:
         tpl = ctx.template or self._template
         endpoint = tpl.poll
         if endpoint is None:
-            raise VideoProviderError("VIDEO_PROTOCOL_UNSUPPORTED", "模板缺少轮询端点", retryable=False)
+            raise VideoProviderError(
+                "VIDEO_PROTOCOL_UNSUPPORTED", "模板缺少轮询端点", retryable=False
+            )
         await self._require_public(ctx.base_url)
         url = (ctx.base_url.rstrip("/") + endpoint.path).replace("{task_id}", task_id)
         try:

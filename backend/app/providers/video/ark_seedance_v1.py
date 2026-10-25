@@ -50,11 +50,16 @@ def _failure(error: Any, fallback="厂商未返回具体原因") -> tuple[str, s
     detail = re.sub(r"https?://[^\s\"<>]+", "[素材地址]", detail)
     detail = re.sub(r"(?i)Bearer\s+\S+", "Bearer [已隐藏]", detail)[:1200]
     lowered = (code + " " + detail).lower()
-    if any(word in lowered for word in ("real person", "real human", "human face", "portrait", "人脸", "真人")):
+    if any(
+        word in lowered
+        for word in ("real person", "real human", "human face", "portrait", "人脸", "真人")
+    ):
         hint = "该素材涉及真人人像准入要求；当前普通图片入口尚未接入专用人像通道，请更换素材。"
     elif any(word in lowered for word in ("sensitive", "contentpolicy", "moderation")):
         hint = "内容未通过厂商审核，请调整描述或素材后重新审理。"
-    elif any(word in lowered for word in ("authentication", "unauthorized", "accessdenied", "apikey")):
+    elif any(
+        word in lowered for word in ("authentication", "unauthorized", "accessdenied", "apikey")
+    ):
         hint = "请检查视频通道的密钥、模型开通状态和调用权限。"
     elif any(word in lowered for word in ("quota", "balance", "ratelimit", "overdue")):
         hint = "请检查厂商余额、额度或并发限制，稍后再试。"
@@ -147,9 +152,10 @@ def _build_body(request: dict[str, Any]) -> dict[str, Any]:
     if request.get("execution_expires_after"):
         body["execution_expires_after"] = request["execution_expires_after"]
     target = request.get("generation_target") or {}
-    if ((request.get("remote_model_id") == "doubao-seedance-2-5-260628"
-         or target.get("profile_code") == "doubao-seedance-2-5")
-            and request.get("mode") == "reference_image_to_video"):
+    if (
+        request.get("remote_model_id") == "doubao-seedance-2-5-260628"
+        or target.get("profile_code") == "doubao-seedance-2-5"
+    ) and request.get("mode") == "reference_image_to_video":
         body["omni_reference_task_type"] = "reference"
     return body
 
@@ -198,7 +204,11 @@ class ArkSeedanceProvider(VideoProvider):
                         retryable=False,
                     ) from exc
         if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > 64_000_000:
-            raise VideoProviderError("VIDEO_SUBMISSION_FAILED", "生成请求超过厂商 64 MB 上限，请精简方案。", retryable=False)
+            raise VideoProviderError(
+                "VIDEO_SUBMISSION_FAILED",
+                "生成请求超过厂商 64 MB 上限，请精简方案。",
+                retryable=False,
+            )
         try:
             async with self._client() as c:
                 resp = await c.post(url, json=payload, headers=self._headers(ctx))
@@ -210,7 +220,9 @@ class ArkSeedanceProvider(VideoProvider):
             raise VideoProviderError(code, message, retryable=False)
         task_id = (resp.json() or {}).get("id")
         if not task_id:
-            raise VideoProviderError("VIDEO_SUBMISSION_FAILED", "厂商响应缺少任务 ID", retryable=False)
+            raise VideoProviderError(
+                "VIDEO_SUBMISSION_FAILED", "厂商响应缺少任务 ID", retryable=False
+            )
         return VideoSubmitResult(provider_task_id=str(task_id))
 
     async def poll(self, task_id: str, ctx: AdapterContext) -> VideoTaskStatus:
@@ -232,8 +244,12 @@ class ArkSeedanceProvider(VideoProvider):
             code, message = _failure(data.get("error"))
         elif raw == "expired":
             code, message = "PROVIDER_TASK_EXPIRED", "厂商任务排队或执行超时，请稍后重试。"
-        return VideoTaskStatus(raw_status=str(mapped), error_code=code, error_message=message,
-                               extra={"remote_status": str(raw)})
+        return VideoTaskStatus(
+            raw_status=str(mapped),
+            error_code=code,
+            error_message=message,
+            extra={"remote_status": str(raw)},
+        )
 
     async def fetch_result_url(self, task_id: str, ctx: AdapterContext) -> str | None:
         await self._require_public(ctx.base_url)

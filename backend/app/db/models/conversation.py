@@ -48,7 +48,9 @@ class Message(SQLModel, table=True):
     created_at: datetime = Field(default_factory=now)
 
     __table_args__ = (
-        UniqueConstraint("conversation_id", "client_request_id", name="uq_messages_conv_client_request"),
+        UniqueConstraint(
+            "conversation_id", "client_request_id", name="uq_messages_conv_client_request"
+        ),
         Index("ix_messages_conv_created", "conversation_id", "created_at", "id"),
     )
 
@@ -56,7 +58,9 @@ class Message(SQLModel, table=True):
 class ConversationContext(SQLModel, table=True):
     __tablename__ = "conversation_contexts"
 
-    conversation_id: str = Field(foreign_key="conversations.id", primary_key=True, ondelete="CASCADE")
+    conversation_id: str = Field(
+        foreign_key="conversations.id", primary_key=True, ondelete="CASCADE"
+    )
     summary_text: str = Field(default="")  # 仅摘要，不保存项目状态
     summary_through_message_id: str | None = Field(default=None)
     summary_model: str | None = Field(default=None, max_length=200)

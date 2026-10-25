@@ -57,7 +57,9 @@ class TextProvider(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def generate(self, messages: list[dict[str, str]], *, structured: bool = False) -> TextResult:
+    async def generate(
+        self, messages: list[dict[str, str]], *, structured: bool = False
+    ) -> TextResult:
         """给定对话消息，返回非流式生成结果。structured=True 时请求结构化输出。
 
         messages 形如 [{"role": "system"|"user"|"assistant", "content": "..."}]。

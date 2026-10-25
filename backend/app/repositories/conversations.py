@@ -57,7 +57,9 @@ class ConversationRepository:
         result = await self._session.exec(stmt)
         return result.first()
 
-    async def list_conversations(self, user_id: str, status: str | None, limit: int, cursor: str | None) -> list[Conversation]:
+    async def list_conversations(
+        self, user_id: str, status: str | None, limit: int, cursor: str | None
+    ) -> list[Conversation]:
         """按 (updated_at desc, id desc) 游标分页。
 
         返回不超过 limit+1 条：多出的 1 条用于判定是否还有下一页。
@@ -77,11 +79,15 @@ class ConversationRepository:
                     and_(Conversation.updated_at == ts, Conversation.id < cid),  # type: ignore[arg-type]
                 )
             )
-        stmt = stmt.order_by(Conversation.updated_at.desc(), Conversation.id.desc()).limit(limit + 1)  # type: ignore[attr-defined]
+        stmt = stmt.order_by(Conversation.updated_at.desc(), Conversation.id.desc()).limit(
+            limit + 1
+        )  # type: ignore[attr-defined]
         result = await self._session.exec(stmt)
         return list(result.all())
 
-    async def patch(self, user_id: str, conversation_id: str, title: str | None, status: str | None) -> Conversation | None:
+    async def patch(
+        self, user_id: str, conversation_id: str, title: str | None, status: str | None
+    ) -> Conversation | None:
         conversation = await self.get(user_id, conversation_id)
         if conversation is None:
             return None
@@ -105,7 +111,9 @@ class ConversationRepository:
         return conversation
 
     # ---- 消息 ----
-    async def add_message(self, conversation_id, role: MessageRole, content: str, **kwargs) -> Message:
+    async def add_message(
+        self, conversation_id, role: MessageRole, content: str, **kwargs
+    ) -> Message:
         """创建消息。role 用字符串值，kwargs 可传 client_request_id 等。"""
         message = Message(
             conversation_id=conversation_id,
@@ -118,7 +126,9 @@ class ConversationRepository:
         await self._session.refresh(message)
         return message
 
-    async def get_message_by_client_request_id(self, conversation_id: str, client_request_id: str) -> Message | None:
+    async def get_message_by_client_request_id(
+        self, conversation_id: str, client_request_id: str
+    ) -> Message | None:
         stmt = select(Message).where(
             Message.conversation_id == conversation_id,
             Message.client_request_id == client_request_id,
@@ -126,7 +136,9 @@ class ConversationRepository:
         result = await self._session.exec(stmt)
         return result.first()
 
-    async def list_messages(self, conversation_id: str, limit: int, cursor: str | None) -> list[Message]:
+    async def list_messages(
+        self, conversation_id: str, limit: int, cursor: str | None
+    ) -> list[Message]:
         """按 (created_at asc, id asc) 游标分页。游标为上一页最后一条的 (created_at, id)。"""
         stmt = select(Message).where(Message.conversation_id == conversation_id)
         if cursor is not None:
@@ -138,10 +150,7 @@ class ConversationRepository:
                     and_(Message.created_at == ts, Message.id > cid),  # type: ignore[arg-type]
                 )
             )
-        stmt = (
-            stmt.order_by(Message.created_at.asc(), Message.id.asc())  # type: ignore[attr-defined]
-            .limit(limit + 1)
-        )
+        stmt = stmt.order_by(Message.created_at.asc(), Message.id.asc()).limit(limit + 1)  # type: ignore[attr-defined]
         result = await self._session.exec(stmt)
         return list(result.all())
 

@@ -18,14 +18,19 @@ class Asset(SQLModel, table=True):
 
     id: str = Field(default_factory=new_id, primary_key=True)
     user_id: str = Field(foreign_key="users.id", index=True, ondelete="CASCADE")
-    conversation_id: str | None = Field(default=None, foreign_key="conversations.id", ondelete="SET NULL")
+    conversation_id: str | None = Field(
+        default=None, foreign_key="conversations.id", ondelete="SET NULL"
+    )
     kind: str = Field(max_length=20)  # image/video/audio
     purpose: str = Field(max_length=30)  # 首帧、尾帧、参考等
     original_name: str = Field(default="", max_length=500)  # 仅展示
-    storage_key: str = Field(unique=True, max_length=1000)  # Storage Root 下相对路径
-    mime_type: str = Field(max_length=200)  # 服务端检测值
+    storage_key: str = Field(
+        unique=True, max_length=1000
+    )  # Storage Root 下相对路径或 OBS Object Key
+    storage_provider: str = Field(default="obs", max_length=20)  # local / obs
+    mime_type: str = Field(max_length=200)  # 服务端检测值或 Content-Type
     size_bytes: int = Field()
-    sha256: str = Field(max_length=64)  # 64 位十六进制
+    sha256: str = Field(max_length=64)  # 64 位十六进制或 ETag/MD5
     width: int | None = Field(default=None)
     height: int | None = Field(default=None)
     duration_ms: int | None = Field(default=None)

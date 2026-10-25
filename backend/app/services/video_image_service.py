@@ -33,16 +33,21 @@ def image_refs(spec: VideoBrief):
 
 def _metadata(data, image, mime):
     return {
-        "sha256": hashlib.sha256(data).hexdigest(), "width": image.width,
-        "height": image.height, "mime_type": mime, "size_bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "width": image.width,
+        "height": image.height,
+        "mime_type": mime,
+        "size_bytes": len(data),
     }
 
 
 def image_issues(meta: dict, rules: ImageConstraints) -> list[str]:
     width, height = meta["width"], meta["height"]
     issues = []
-    if not (rules.min_width <= width <= rules.max_width
-            and rules.min_height <= height <= rules.max_height):
+    if not (
+        rules.min_width <= width <= rules.max_width
+        and rules.min_height <= height <= rules.max_height
+    ):
         issues.append("图片宽、高必须分别在模型允许的尺寸范围内")
     if height <= 0 or not rules.min_ratio <= width / height <= rules.max_ratio:
         issues.append("图片宽高比超出模型范围")
@@ -78,17 +83,24 @@ def adapt_image(data: bytes, rules: ImageConstraints):
         width, height = image.size
         canvas_w = max(width, math.ceil(height * rules.min_ratio))
         canvas_h = max(height, math.ceil(width / rules.max_ratio))
-        upper = min(rules.max_width / canvas_w, rules.max_height / canvas_h,
-                    math.sqrt(settings.image_max_pixels / (canvas_w * canvas_h)))
+        upper = min(
+            rules.max_width / canvas_w,
+            rules.max_height / canvas_h,
+            math.sqrt(settings.image_max_pixels / (canvas_w * canvas_h)),
+        )
         lower = max(rules.min_width / canvas_w, rules.min_height / canvas_h)
         scale = max(lower, min(1.0, upper))
         if scale != 1:
             # Leave rounding headroom at the upper pixel boundary.
             if scale < 1:
                 scale *= 0.999
-            image = image.resize((max(1, round(width * scale)), max(1, round(height * scale))),
-                                 Image.Resampling.LANCZOS)
-            actions.append(f"等比{'放大' if scale > 1 else '缩小'}：{width}×{height} → {image.width}×{image.height}")
+            image = image.resize(
+                (max(1, round(width * scale)), max(1, round(height * scale))),
+                Image.Resampling.LANCZOS,
+            )
+            actions.append(
+                f"等比{'放大' if scale > 1 else '缩小'}：{width}×{height} → {image.width}×{image.height}"
+            )
         canvas_w = max(image.width, rules.min_width, math.ceil(image.height * rules.min_ratio))
         canvas_h = max(image.height, rules.min_height, math.ceil(image.width / rules.max_ratio))
         padding = (canvas_w, canvas_h) != image.size
@@ -96,7 +108,9 @@ def adapt_image(data: bytes, rules: ImageConstraints):
         if padding or needs_conversion or actions or len(data) >= rules.max_bytes_exclusive:
             rgba = image.convert("RGBA")
             background = Image.new("RGB", (canvas_w, canvas_h), (24, 24, 24))
-            background.paste(rgba, ((canvas_w - rgba.width) // 2, (canvas_h - rgba.height) // 2), rgba)
+            background.paste(
+                rgba, ((canvas_w - rgba.width) // 2, (canvas_h - rgba.height) // 2), rgba
+            )
             if padding:
                 actions.append(f"背景补边至 {canvas_w}×{canvas_h}，保留完整画面，不裁剪主体")
             if "A" in image.getbands() or image.info.get("transparency") is not None:
@@ -133,7 +147,9 @@ def _read_asset(asset, storage):
 
 def _cached_matches(asset, storage, meta):
     try:
-        return all(getattr(asset, k) == v for k, v in meta.items()) and bool(_read_asset(asset, storage))
+        return all(getattr(asset, k) == v for k, v in meta.items()) and bool(
+            _read_asset(asset, storage)
+        )
     except (OSError, ValueError, StorageError):
         return False
 
@@ -164,19 +180,35 @@ async def prepare_images(session, user_id, profile, spec, titles, pending=None):
                 prepared = source
                 if any(getattr(source, k) != v for k, v in meta.items()):
                     # Reuse identical derived bytes owned by this user; never infer cross-user files.
-                    prepared = (await session.exec(select(Asset).where(
-                        Asset.user_id == user_id, Asset.sha256 == meta["sha256"],
-                        Asset.purpose == "generation_input", Asset.status == "ready",
-                    ))).first()
-                    if prepared is None or not await asyncio.to_thread(_cached_matches, prepared, storage, meta):
+                    prepared = (
+                        await session.exec(
+                            select(Asset).where(
+                                Asset.user_id == user_id,
+                                Asset.sha256 == meta["sha256"],
+                                Asset.purpose == "generation_input",
+                                Asset.status == "ready",
+                            )
+                        )
+                    ).first()
+                    if prepared is None or not await asyncio.to_thread(
+                        _cached_matches, prepared, storage, meta
+                    ):
                         aid = new_id()
-                        ext = {"image/png": "png", "image/webp": "webp"}.get(meta["mime_type"], "jpg")
+                        ext = {"image/png": "png", "image/webp": "webp"}.get(
+                            meta["mime_type"], "jpg"
+                        )
                         key = f"{user_id}/generation-input/{aid}.{ext}"
                         await asyncio.to_thread(storage.write_stream, encoded, key, final_key=key)
                         prepared = Asset(
-                            id=aid, user_id=user_id, conversation_id=source.conversation_id,
-                            kind="image", purpose="generation_input",
-                            original_name="生成用适配图片.jpg", storage_key=key, status="ready", **meta,
+                            id=aid,
+                            user_id=user_id,
+                            conversation_id=source.conversation_id,
+                            kind="image",
+                            purpose="generation_input",
+                            original_name="生成用适配图片.jpg",
+                            storage_key=key,
+                            status="ready",
+                            **meta,
                         )
                         # Do not hold a database write lock while the text AI is running.
                         pending.append(prepared)
@@ -184,14 +216,28 @@ async def prepare_images(session, user_id, profile, spec, titles, pending=None):
                 if actions:
                     notices.append(f"图片【{title}】：{'；'.join(actions)}。原图已保留。")
                     if any("放大" in action for action in actions):
-                        notices.append(f"图片【{title}】的放大用于满足输入尺寸，不会恢复原图缺失的细节。")
+                        notices.append(
+                            f"图片【{title}】的放大用于满足输入尺寸，不会恢复原图缺失的细节。"
+                        )
             source, prepared, meta, actions = cache[source_id]
-            bindings.append({
-                "source_asset_id": source_id, "source_sha256": source.sha256,
-                "asset_id": prepared.id, "role": role, "position": position,
-                **meta, "actions": actions,
-            })
-        except (OSError, ValueError, StorageError, UnidentifiedImageError, Image.DecompressionBombError):
+            bindings.append(
+                {
+                    "source_asset_id": source_id,
+                    "source_sha256": source.sha256,
+                    "asset_id": prepared.id,
+                    "role": role,
+                    "position": position,
+                    **meta,
+                    "actions": actions,
+                }
+            )
+        except (
+            OSError,
+            ValueError,
+            StorageError,
+            UnidentifiedImageError,
+            Image.DecompressionBombError,
+        ):
             issues.append(f"图片【{title}】无法读取或自动适配，请换图或重新上传后审理。")
     return bindings, notices, issues, pending
 
@@ -218,8 +264,10 @@ async def validate_review_images(session, user_id, profile, spec, bindings):
     checked = set()
     for binding in bindings:
         try:
-            for aid, sha in ((binding["source_asset_id"], binding["source_sha256"]),
-                             (binding["asset_id"], binding["sha256"])):
+            for aid, sha in (
+                (binding["source_asset_id"], binding["source_sha256"]),
+                (binding["asset_id"], binding["sha256"]),
+            ):
                 row = await repo.get_for_user(aid, user_id)
                 if row is None or row.status != "ready" or row.kind != "image" or row.sha256 != sha:
                     raise ValueError("素材已变化")
@@ -232,5 +280,13 @@ async def validate_review_images(session, user_id, profile, spec, bindings):
                     meta = await asyncio.to_thread(_inspect_bytes, data)
                     if any(meta[k] != binding[k] for k in meta) or image_issues(meta, rules):
                         raise ValueError("素材不符合审理快照或模型要求")
-        except (OSError, ValueError, StorageError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
-            raise AppError(PROJECT_NOT_CONFIRMED, "审理所用图片已失效或变化，请重新上传或重新审理。") from exc
+        except (
+            OSError,
+            ValueError,
+            StorageError,
+            UnidentifiedImageError,
+            Image.DecompressionBombError,
+        ) as exc:
+            raise AppError(
+                PROJECT_NOT_CONFIRMED, "审理所用图片已失效或变化，请重新上传或重新审理。"
+            ) from exc

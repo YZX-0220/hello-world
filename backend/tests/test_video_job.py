@@ -14,7 +14,11 @@ async def _register(client: httpx.AsyncClient) -> None:
     email = f"vjob-{uuid.uuid4().hex[:8]}@test.com"
     await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
     code = fake_instance.sent[-1]["code"]
-    assert (await client.post("/api/v1/auth/register", json={"email": email, "code": code, "password": PASSWORD})).status_code == 201
+    assert (
+        await client.post(
+            "/api/v1/auth/register", json={"email": email, "code": code, "password": PASSWORD}
+        )
+    ).status_code == 201
 
 
 def _csrf(client: httpx.AsyncClient) -> dict[str, str]:
@@ -23,25 +27,51 @@ def _csrf(client: httpx.AsyncClient) -> dict[str, str]:
 
 async def _review_project(client, cid, config_id):
     project = (await client.get(f"/api/v1/conversations/{cid}/project")).json()
-    canvas = {"nodes": [{"id": "script", "type": "text", "title": "脚本", "content": "一辆穿越草原的越野车"}],
-              "connections": [], "selected_api_config_id": config_id}
-    saved = await client.put(f"/api/v1/conversations/{cid}/canvas",
-                            json={"canvas_data": canvas, "expected_canvas_version": project["canvas_version"]}, headers=_csrf(client))
+    canvas = {
+        "nodes": [
+            {"id": "script", "type": "text", "title": "脚本", "content": "一辆穿越草原的越野车"}
+        ],
+        "connections": [],
+        "selected_api_config_id": config_id,
+    }
+    saved = await client.put(
+        f"/api/v1/conversations/{cid}/canvas",
+        json={"canvas_data": canvas, "expected_canvas_version": project["canvas_version"]},
+        headers=_csrf(client),
+    )
     assert saved.status_code == 200, saved.text
-    reviewed = await client.post(f"/api/v1/conversations/{cid}/canvas/prepare-video",
-                                 json={"node_ids": ["script"], "expected_canvas_version": saved.json()["canvas_version"],
-                                       "duration_seconds": 8, "resolution": "720p", "api_config_id": config_id},
-                                 headers=_csrf(client))
+    reviewed = await client.post(
+        f"/api/v1/conversations/{cid}/canvas/prepare-video",
+        json={
+            "node_ids": ["script"],
+            "expected_canvas_version": saved.json()["canvas_version"],
+            "duration_seconds": 8,
+            "resolution": "720p",
+            "api_config_id": config_id,
+        },
+        headers=_csrf(client),
+    )
     assert reviewed.status_code == 200, reviewed.text
     project = reviewed.json()
     assert project["canvas_data"]["generation_review"]["status"] == "ready", project
-    confirmed = await client.post(f"/api/v1/conversations/{cid}/project/confirm",
-                                  json={"spec_version": project["current_spec_version"]}, headers=_csrf(client))
+    confirmed = await client.post(
+        f"/api/v1/conversations/{cid}/project/confirm",
+        json={"spec_version": project["current_spec_version"]},
+        headers=_csrf(client),
+    )
     assert confirmed.status_code == 200, confirmed.text
     data = project["canvas_data"]
-    return {"conversation_id": cid, "project_id": project["id"], "spec_version": project["current_spec_version"],
-            "api_config_id": config_id, "generation_options": {**data["generation_settings"],
-            "review_fingerprint": data["generation_review"]["fingerprint"], "canvas_source_node_ids": ["script"]}}
+    return {
+        "conversation_id": cid,
+        "project_id": project["id"],
+        "spec_version": project["current_spec_version"],
+        "api_config_id": config_id,
+        "generation_options": {
+            **data["generation_settings"],
+            "review_fingerprint": data["generation_review"]["fingerprint"],
+            "canvas_source_node_ids": ["script"],
+        },
+    }
 
 
 async def _make_deliverable(client: httpx.AsyncClient) -> tuple[str, dict]:
@@ -126,7 +156,9 @@ def _platform_cmd(info: dict, **overrides) -> dict:
     return cmd
 
 
-async def test_older_project_cannot_submit_a_video_longer_than_fifteen_seconds(client: httpx.AsyncClient) -> None:
+async def test_older_project_cannot_submit_a_video_longer_than_fifteen_seconds(
+    client: httpx.AsyncClient,
+) -> None:
     info = await _make_confirmed_project(client)
     headers = _csrf(client)
     changed = await client.patch(
@@ -138,11 +170,13 @@ async def test_older_project_cannot_submit_a_video_longer_than_fifteen_seconds(c
     info["spec_version"] = changed.json()["current_spec_version"]
     confirmed = await client.post(
         f"/api/v1/conversations/{info['conversation_id']}/project/confirm",
-        json={"spec_version": info["spec_version"]}, headers=headers,
+        json={"spec_version": info["spec_version"]},
+        headers=headers,
     )
     assert confirmed.status_code == 200, confirmed.text
     rejected = await client.post(
-        "/api/v1/video-jobs", json=_platform_cmd(info),
+        "/api/v1/video-jobs",
+        json=_platform_cmd(info),
         headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
     assert rejected.status_code == 409, rejected.text
@@ -201,18 +235,24 @@ async def test_video_job_idempotency(client: httpx.AsyncClient) -> None:
         "mode": "text_to_video",
         "generation_options": info["generation_options"],
     }
-    r1 = await client.post("/api/v1/video-jobs", json=base, headers={**headers, "Idempotency-Key": idem})
+    r1 = await client.post(
+        "/api/v1/video-jobs", json=base, headers={**headers, "Idempotency-Key": idem}
+    )
     assert r1.status_code == 202
     job1 = r1.json()
 
     # 同 key 同请求 → 幂等返回原任务（仍 202）
-    r2 = await client.post("/api/v1/video-jobs", json=base, headers={**headers, "Idempotency-Key": idem})
+    r2 = await client.post(
+        "/api/v1/video-jobs", json=base, headers={**headers, "Idempotency-Key": idem}
+    )
     assert r2.status_code == 202
     assert r2.json()["id"] == job1["id"]
 
     # 同 key 不同请求 → 409
     base["mode"] = "first_frame_to_video"
-    r3 = await client.post("/api/v1/video-jobs", json=base, headers={**headers, "Idempotency-Key": idem})
+    r3 = await client.post(
+        "/api/v1/video-jobs", json=base, headers={**headers, "Idempotency-Key": idem}
+    )
     assert r3.status_code == 409
     assert r3.json()["error"]["code"] == "IDEMPOTENCY_KEY_REUSED"
 
@@ -233,7 +273,9 @@ async def test_video_job_list(client: httpx.AsyncClient) -> None:
         headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
     assert r.status_code == 202
-    listed = await client.get("/api/v1/video-jobs", params={"conversation_id": info["conversation_id"]})
+    listed = await client.get(
+        "/api/v1/video-jobs", params={"conversation_id": info["conversation_id"]}
+    )
     assert listed.status_code == 200
     assert len(listed.json()["items"]) >= 1
     assert listed.json()["items"][0]["mode"] == "text_to_video"
@@ -309,7 +351,9 @@ async def test_download_stores_result_asset(client: httpx.AsyncClient) -> None:
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
     created = await client.post(
-        "/api/v1/video-jobs", json=_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+        "/api/v1/video-jobs",
+        json=_cmd(info),
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
     body = await _poll_to_succeeded(client, created.json()["id"])
     assert body is not None
@@ -349,7 +393,9 @@ async def test_direct_fallback(client: httpx.AsyncClient, monkeypatch) -> None:
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
     created = await client.post(
-        "/api/v1/video-jobs", json=_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+        "/api/v1/video-jobs",
+        json=_cmd(info),
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
     body = await _poll_to_succeeded(client, created.json()["id"])
     assert body is not None
@@ -363,9 +409,13 @@ async def test_direct_fallback(client: httpx.AsyncClient, monkeypatch) -> None:
 async def test_cancel_and_idempotent(client: httpx.AsyncClient) -> None:
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
-    created = (await client.post(
-        "/api/v1/video-jobs", json=_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
-    )).json()
+    created = (
+        await client.post(
+            "/api/v1/video-jobs",
+            json=_cmd(info),
+            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        )
+    ).json()
     cancelled = await client.post(f"/api/v1/video-jobs/{created['id']}/cancel", headers=headers)
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "cancelled"
@@ -377,9 +427,13 @@ async def test_retry_requires_failed_download(client: httpx.AsyncClient) -> None
     """仅当生成成功且下载失败时可重试；已成功落盘时重试应报错。"""
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
-    created = (await client.post(
-        "/api/v1/video-jobs", json=_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
-    )).json()
+    created = (
+        await client.post(
+            "/api/v1/video-jobs",
+            json=_cmd(info),
+            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        )
+    ).json()
     body = await _poll_to_succeeded(client, created["id"])
     assert body is not None and body["download_status"] == "stored"
     retry = await client.post(f"/api/v1/video-jobs/{created['id']}/download/retry", headers=headers)
@@ -392,7 +446,9 @@ async def test_platform_channel_create(client: httpx.AsyncClient) -> None:
     info = await _make_confirmed_project(client)
     headers = _csrf(client)
     r = await client.post(
-        "/api/v1/video-jobs", json=_platform_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+        "/api/v1/video-jobs",
+        json=_platform_cmd(info),
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
     assert r.status_code == 202, r.text
     job = r.json()
@@ -406,12 +462,16 @@ async def test_platform_channel_daily_quota(client: httpx.AsyncClient) -> None:
     info = await _make_confirmed_project(client)
     headers = _csrf(client)
     r1 = await client.post(
-        "/api/v1/video-jobs", json=_platform_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+        "/api/v1/video-jobs",
+        json=_platform_cmd(info),
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
     assert r1.status_code == 202, r1.text
 
     r2 = await client.post(
-        "/api/v1/video-jobs", json=_platform_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+        "/api/v1/video-jobs",
+        json=_platform_cmd(info),
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
     assert r2.status_code == 429, r2.text
     assert r2.json()["error"]["code"] == "PLATFORM_DAILY_QUOTA_EXCEEDED"
@@ -425,14 +485,18 @@ async def test_platform_quota_does_not_affect_user_config(client: httpx.AsyncCli
     # 先消费掉平台当日额度
     platform_info = await _review_project(client, info["conversation_id"], "platform")
     pr = await client.post(
-        "/api/v1/video-jobs", json=_platform_cmd(platform_info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+        "/api/v1/video-jobs",
+        json=_platform_cmd(platform_info),
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
     assert pr.status_code == 202, pr.text
 
     # 用户自配 API 创建不受平台配额影响（切换通道后重新审理）。
     info = await _review_project(client, info["conversation_id"], info["api_config_id"])
     cr = await client.post(
-        "/api/v1/video-jobs", json=_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+        "/api/v1/video-jobs",
+        json=_cmd(info),
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
     assert cr.status_code == 202, cr.text
     assert cr.json()["api_config_id"] == info["api_config_id"]
@@ -445,7 +509,9 @@ async def test_platform_channel_poll(client: httpx.AsyncClient) -> None:
     headers = _csrf(client)
     created = (
         await client.post(
-            "/api/v1/video-jobs", json=_platform_cmd(info), headers={**headers, "Idempotency-Key": str(uuid.uuid4())}
+            "/api/v1/video-jobs",
+            json=_platform_cmd(info),
+            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
         )
     ).json()
     jid = created["id"]

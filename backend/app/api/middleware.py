@@ -41,7 +41,20 @@ def cors_config() -> dict[str, Any]:
         "allow_origins": origins,
         "allow_credentials": True,
         "allow_methods": ["GET", "POST", "PATCH", "DELETE", "PUT", "OPTIONS", "HEAD"],
-        "allow_headers": ["Authorization", "Content-Type", "X-CSRF-Token", "X-Request-ID", "Idempotency-Key", "Range"],
-        "expose_headers": ["X-Request-ID", "X-Response-Time-Ms", "Content-Disposition", "Accept-Ranges", "Content-Range"],
+        "allow_headers": [
+            "Authorization",
+            "Content-Type",
+            "X-CSRF-Token",
+            "X-Request-ID",
+            "Idempotency-Key",
+            "Range",
+        ],
+        "expose_headers": [
+            "X-Request-ID",
+            "X-Response-Time-Ms",
+            "Content-Disposition",
+            "Accept-Ranges",
+            "Content-Range",
+        ],
         "max_age": 600,
     }

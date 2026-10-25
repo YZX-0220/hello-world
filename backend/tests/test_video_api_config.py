@@ -13,7 +13,9 @@ async def _register(client: httpx.AsyncClient) -> None:
     email = f"vapi-{uuid.uuid4().hex[:8]}@test.com"
     await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
     code = fake_instance.sent[-1]["code"]
-    resp = await client.post("/api/v1/auth/register", json={"email": email, "code": code, "password": PASSWORD})
+    resp = await client.post(
+        "/api/v1/auth/register", json={"email": email, "code": code, "password": PASSWORD}
+    )
     assert resp.status_code == 201, resp.text
 
 
@@ -48,11 +50,15 @@ async def test_video_protocols_readonly(client: httpx.AsyncClient) -> None:
     assert generic["auth_fields"][0]["name"] == "api_key"
     assert generic["auth_fields"][0]["secret"] is True
 
-    templates = await client.get("/api/v1/video-api-templates", params={"protocol_code": "generic_async_json_v1"})
+    templates = await client.get(
+        "/api/v1/video-api-templates", params={"protocol_code": "generic_async_json_v1"}
+    )
     assert templates.status_code == 200
     assert any(t["code"] == "v1_videos_json_v1" for t in templates.json()["items"])
 
-    profiles = await client.get("/api/v1/video-model-profiles", params={"protocol_code": "generic_async_json_v1"})
+    profiles = await client.get(
+        "/api/v1/video-model-profiles", params={"protocol_code": "generic_async_json_v1"}
+    )
     assert profiles.status_code == 200
     assert any(p["code"] == "text_reference_media" for p in profiles.json()["items"])
 
@@ -94,7 +100,9 @@ async def test_duplicate_display_name_conflict(client: httpx.AsyncClient) -> Non
 async def test_patch_identity_no_new_revision(client: httpx.AsyncClient) -> None:
     await _register(client)
     headers = _headers(client)
-    created = (await client.post("/api/v1/video-api-configs", json=_create_payload(), headers=headers)).json()
+    created = (
+        await client.post("/api/v1/video-api-configs", json=_create_payload(), headers=headers)
+    ).json()
 
     resp = await client.patch(
         f"/api/v1/video-api-configs/{created['id']}",
@@ -111,7 +119,9 @@ async def test_patch_identity_no_new_revision(client: httpx.AsyncClient) -> None
 async def test_patch_connection_creates_revision(client: httpx.AsyncClient) -> None:
     await _register(client)
     headers = _headers(client)
-    created = (await client.post("/api/v1/video-api-configs", json=_create_payload(), headers=headers)).json()
+    created = (
+        await client.post("/api/v1/video-api-configs", json=_create_payload(), headers=headers)
+    ).json()
 
     resp = await client.patch(
         f"/api/v1/video-api-configs/{created['id']}",
@@ -128,7 +138,9 @@ async def test_patch_connection_creates_revision(client: httpx.AsyncClient) -> N
 async def test_delete_then_not_found(client: httpx.AsyncClient) -> None:
     await _register(client)
     headers = _headers(client)
-    created = (await client.post("/api/v1/video-api-configs", json=_create_payload(), headers=headers)).json()
+    created = (
+        await client.post("/api/v1/video-api-configs", json=_create_payload(), headers=headers)
+    ).json()
     cid = created["id"]
 
     resp = await client.delete(f"/api/v1/video-api-configs/{cid}", headers=headers)
@@ -143,7 +155,9 @@ async def test_delete_then_not_found(client: httpx.AsyncClient) -> None:
 async def test_retest_persisted_config(client: httpx.AsyncClient) -> None:
     await _register(client)
     headers = _headers(client)
-    created = (await client.post("/api/v1/video-api-configs", json=_create_payload(), headers=headers)).json()
+    created = (
+        await client.post("/api/v1/video-api-configs", json=_create_payload(), headers=headers)
+    ).json()
 
     resp = await client.post(f"/api/v1/video-api-configs/{created['id']}/test", headers=headers)
     assert resp.status_code == 200
@@ -170,7 +184,9 @@ async def test_create_config_with_custom_template(client: httpx.AsyncClient) -> 
     """template_mode="custom" 时把用户模板组装进 custom_template_json 落库，视图可回读。"""
     await _register(client)
     headers = _headers(client)
-    resp = await client.post("/api/v1/video-api-configs", json=_custom_template_payload(), headers=headers)
+    resp = await client.post(
+        "/api/v1/video-api-configs", json=_custom_template_payload(), headers=headers
+    )
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["template_mode"] == "custom"

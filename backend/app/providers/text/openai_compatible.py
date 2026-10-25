@@ -29,9 +29,13 @@ def _parse_structured(content: str) -> dict:
     try:
         result = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise TextProviderError("AGENT_OUTPUT_INVALID", "AI 结构化输出无法校验", retryable=False) from exc
+        raise TextProviderError(
+            "AGENT_OUTPUT_INVALID", "AI 结构化输出无法校验", retryable=False
+        ) from exc
     if not isinstance(result, dict):
-        raise TextProviderError("AGENT_OUTPUT_INVALID", "AI 结构化输出必须是一个 JSON 对象", retryable=False)
+        raise TextProviderError(
+            "AGENT_OUTPUT_INVALID", "AI 结构化输出必须是一个 JSON 对象", retryable=False
+        )
     return result
 
 
@@ -40,7 +44,9 @@ class OpenAICompatibleTextProvider(TextProvider):
 
     @property
     def capabilities(self) -> TextCapabilities:
-        return TextCapabilities(supports_structured_output=True, supports_tool_call=True, supports_native_search=False)
+        return TextCapabilities(
+            supports_structured_output=True, supports_tool_call=True, supports_native_search=False
+        )
 
     async def _post(self, messages: list[dict[str, str]], structured: bool) -> tuple[str, dict]:
         base_url = settings.text_base_url.rstrip("/")
@@ -60,14 +66,20 @@ class OpenAICompatibleTextProvider(TextProvider):
             async with httpx.AsyncClient(timeout=settings.text_timeout) as client:
                 resp = await client.post(url, json=payload, headers=headers)
         except httpx.TimeoutException as exc:
-            raise TextProviderError("TEXT_PROVIDER_TIMEOUT", "文本模型响应超时", retryable=True) from exc
+            raise TextProviderError(
+                "TEXT_PROVIDER_TIMEOUT", "文本模型响应超时", retryable=True
+            ) from exc
         except httpx.HTTPError as exc:
-            raise TextProviderError("TEXT_PROVIDER_UNAVAILABLE", "文本模型暂时不可用", retryable=True) from exc
+            raise TextProviderError(
+                "TEXT_PROVIDER_UNAVAILABLE", "文本模型暂时不可用", retryable=True
+            ) from exc
         if resp.status_code == 429:
             raise TextProviderError("TEXT_PROVIDER_UNAVAILABLE", "文本模型限流", retryable=True)
         if resp.status_code >= 400:
             raise TextProviderError(
-                "TEXT_PROVIDER_UNAVAILABLE", f"文本模型返回 {resp.status_code}", retryable=resp.status_code >= 500
+                "TEXT_PROVIDER_UNAVAILABLE",
+                f"文本模型返回 {resp.status_code}",
+                retryable=resp.status_code >= 500,
             )
         try:
             data = resp.json()
@@ -75,12 +87,18 @@ class OpenAICompatibleTextProvider(TextProvider):
             message = choice.get("message") or {}
             content = message.get("content") or ""
         except (ValueError, AttributeError, IndexError, TypeError) as exc:
-            raise TextProviderError("AGENT_OUTPUT_INVALID", "文本模型返回了无法解析的响应，请重新发送", retryable=True) from exc
+            raise TextProviderError(
+                "AGENT_OUTPUT_INVALID", "文本模型返回了无法解析的响应，请重新发送", retryable=True
+            ) from exc
         if not isinstance(content, str) or not content.strip():
-            raise TextProviderError("AGENT_OUTPUT_INVALID", "文本模型没有返回有效内容，请重新发送", retryable=True)
+            raise TextProviderError(
+                "AGENT_OUTPUT_INVALID", "文本模型没有返回有效内容，请重新发送", retryable=True
+            )
         return content, data
 
-    async def generate(self, messages: list[dict[str, str]], *, structured: bool = False) -> TextResult:
+    async def generate(
+        self, messages: list[dict[str, str]], *, structured: bool = False
+    ) -> TextResult:
         content, data = await self._post(messages, structured)
 
         structured_data = None

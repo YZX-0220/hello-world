@@ -87,14 +87,20 @@ class CanvasService:
                 candidate = {}
             accepted = target.get("last_ai") or {}
             if candidate.get("content"):
-                parts.append(f"上次讨论的待确认方案（尚未写入小框）：\n{candidate['content'][:12000]}")
+                parts.append(
+                    f"上次讨论的待确认方案（尚未写入小框）：\n{candidate['content'][:12000]}"
+                )
             history = target.get("ai_history") or []
             if history:
-                recent = [f"{m.get('role')}: {str(m.get('content') or '')[:1500]}" for m in history[-4:]]
+                recent = [
+                    f"{m.get('role')}: {str(m.get('content') or '')[:1500]}" for m in history[-4:]
+                ]
                 parts.append("该小框最近的讨论（仅作上下文）：\n" + "\n".join(recent))
-            base = candidate.get("brief") or (
-                accepted.get("brief") if accepted.get("after") == original else {}
-            ) or {}
+            base = (
+                candidate.get("brief")
+                or (accepted.get("brief") if accepted.get("after") == original else {})
+                or {}
+            )
             for node in nodes:
                 if node.get("id") in collaboration.reference_node_ids and node is not target:
                     parts.append(
@@ -178,8 +184,12 @@ class CanvasService:
         raise AppError(CANVAS_VERSION_CONFLICT)
 
     async def confirm(
-        self, user_id: str, conversation_id: str, target_id: str,
-        message_id: str, expected_version: int,
+        self,
+        user_id: str,
+        conversation_id: str,
+        target_id: str,
+        message_id: str,
+        expected_version: int,
     ) -> None:
         project = await self._repo.get_by_conversation(user_id, conversation_id)
         if project is None:
@@ -196,14 +206,18 @@ class CanvasService:
         before = target.get("content") or ""
         after = (
             f"{before}\n\n{pending['content']}"
-            if pending.get("apply_mode") == "append" and before else pending["content"]
+            if pending.get("apply_mode") == "append" and before
+            else pending["content"]
         )
         # Validate structured metadata; it remains scoped to this node until video preparation.
         brief = VideoBrief.model_validate(pending.get("brief") or {}).model_dump(mode="json")
         target["content"] = after
         target["last_ai"] = {
-            "before": before, "after": after, "message_id": message_id,
-            "brief": brief, "suggested_prompt": pending.get("suggested_prompt"),
+            "before": before,
+            "after": after,
+            "message_id": message_id,
+            "brief": brief,
+            "suggested_prompt": pending.get("suggested_prompt"),
         }
         target.pop("pending_ai", None)
         await self._repo.save_canvas(

@@ -29,7 +29,9 @@ async def _register(client: httpx.AsyncClient, tag: str) -> None:
     email = f"asset-{tag}-{uuid.uuid4().hex[:8]}@test.com"
     await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
     code = fake_instance.sent[-1]["code"]
-    resp = await client.post("/api/v1/auth/register", json={"email": email, "code": code, "password": PASSWORD})
+    resp = await client.post(
+        "/api/v1/auth/register", json={"email": email, "code": code, "password": PASSWORD}
+    )
     assert resp.status_code == 201, resp.text
 
 
@@ -61,9 +63,14 @@ async def test_upload_png_and_read_content(client: httpx.AsyncClient) -> None:
     assert body["status"] == "ready"
     assert body["content_url"].endswith(f"/api/v1/assets/{body['id']}/content")
 
-    content = await client.get(f"/api/v1/assets/{body['id']}/content")
-    assert content.status_code == 200
-    assert content.content == data  # 读取回传的就是原始文件字节
+    content = await client.get(f"/api/v1/assets/{body['id']}/content", follow_redirects=False)
+    assert content.status_code in (200, 302)
+    if content.status_code == 302:
+        assert "obs" in content.headers.get("location", "") or "http" in content.headers.get(
+            "location", ""
+        )
+    else:
+        assert content.content == data
 
 
 async def test_reject_mismatched_content(client: httpx.AsyncClient) -> None:
@@ -139,10 +146,18 @@ async def test_provider_asset_token_flow(client: httpx.AsyncClient, db_session) 
     job_id = "job-fixed-0001"
     asset = (await db_session.exec(select(Asset).where(Asset.id == aid))).first()
     job = VideoJob(
-        id=job_id, user_id=asset.user_id, conversation_id="test-conversation",
-        project_id="test-project", project_version_id="test-version", project_version=1,
-        idempotency_key="test-token", request_fingerprint="test", protocol_code="ark_seedance_v1",
-        remote_model_id="test", mode="first_frame_to_video", status="queued",
+        id=job_id,
+        user_id=asset.user_id,
+        conversation_id="test-conversation",
+        project_id="test-project",
+        project_version_id="test-version",
+        project_version=1,
+        idempotency_key="test-token",
+        request_fingerprint="test",
+        protocol_code="ark_seedance_v1",
+        remote_model_id="test",
+        mode="first_frame_to_video",
+        status="queued",
     )
     db_session.add(job)
 
@@ -152,16 +167,21 @@ async def test_provider_asset_token_flow(client: httpx.AsyncClient, db_session) 
 
     token, _ = sign_provider_asset(aid, job_id, "first_frame", settings.app_secret, 600)
 
-    got = await client.get(f"/api/v1/provider-assets/{token}")
-    assert got.status_code == 200
-    assert got.content == data
+    got = await client.get(f"/api/v1/provider-assets/{token}", follow_redirects=False)
+    assert got.status_code in (200, 302)
+    if got.status_code == 302:
+        assert "obs" in got.headers.get("location", "") or "http" in got.headers.get("location", "")
+    else:
+        assert got.content == data
 
     # 篡改 signature -> 404
     bad = token[:-6] + "xxxxxx"
     assert (await client.get(f"/api/v1/provider-assets/{bad}")).status_code == 404
     # 厂商可能先 HEAD 再 GET/Range；有效期内允许重复读取，仍须校验签名、任务与角色。
-    assert (await client.head(f"/api/v1/provider-assets/{token}")).status_code == 200
-    assert (await client.get(f"/api/v1/provider-assets/{token}")).status_code == 200
+    head_resp = await client.head(f"/api/v1/provider-assets/{token}", follow_redirects=False)
+    assert head_resp.status_code in (200, 302)
+    get_resp = await client.get(f"/api/v1/provider-assets/{token}", follow_redirects=False)
+    assert get_resp.status_code in (200, 302)
     wrong_role, _ = sign_provider_asset(aid, job_id, "last_frame", settings.app_secret, 600)
     assert (await client.get(f"/api/v1/provider-assets/{wrong_role}")).status_code == 404
     job.status = "failed"

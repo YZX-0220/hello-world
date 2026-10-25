@@ -69,7 +69,11 @@ async def require_csrf(request: Request) -> None:
 
 
 async def get_material_library_admin(user: User = Depends(get_current_user)) -> User:
-    allowed = {email.strip().casefold() for email in settings.material_library_admin_emails.split(",") if email.strip()}
+    allowed = {
+        email.strip().casefold()
+        for email in settings.material_library_admin_emails.split(",")
+        if email.strip()
+    }
     if user.email.casefold() not in allowed:
         raise AppError(LIBRARY_ADMIN_REQUIRED)
     return user

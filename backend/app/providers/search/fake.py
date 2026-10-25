@@ -1,6 +1,5 @@
 """开发/测试用的 Fake 搜索 Provider。返回固定占位结果，便于走通链路。"""
 
-
 from app.core.time import now
 from app.providers.search.base import SearchProvider, SearchResult
 

@@ -31,7 +31,9 @@ def _validate_constraints(payload: VideoApiConfigBase, resolver: Any = None) -> 
     resolver 供测试注入（如 mock DNS）；生产默认结构校验（不发起 DNS），
     真正的解析安全判定在任务提交前再做一次。
     """
-    refs = validate_payload_refs(payload.protocol_code, payload.template_code, payload.capability_profile_code)
+    refs = validate_payload_refs(
+        payload.protocol_code, payload.template_code, payload.capability_profile_code
+    )
 
     if payload.source_type == "relay":
         if not payload.relay_risk_accepted:

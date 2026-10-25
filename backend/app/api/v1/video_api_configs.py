@@ -32,7 +32,9 @@ async def test_video_api_config(
     return await VideoApiConfigService(session).test(payload)
 
 
-@router.post("/video-api-configs", response_model=VideoApiConfigView, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/video-api-configs", response_model=VideoApiConfigView, status_code=status.HTTP_201_CREATED
+)
 async def create_video_api_config(
     payload: VideoApiConfigCreateRequest,
     user: User = Depends(get_current_user),
@@ -52,7 +54,9 @@ async def list_video_api_configs(
     cursor: str | None = Query(default=None),
 ):
     """配置列表（按 created_at,id desc 游标分页）；next_cursor 为空表示已到末尾。"""
-    views, next_cursor = await VideoApiConfigService(session).list(user.id, protocol_code, status, limit, cursor)
+    views, next_cursor = await VideoApiConfigService(session).list(
+        user.id, protocol_code, status, limit, cursor
+    )
     return Page(items=views, next_cursor=next_cursor)
 
 

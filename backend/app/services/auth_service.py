@@ -80,7 +80,9 @@ def _validate_password(password: str) -> None:
         raise AppError(INVALID_CREDENTIALS)
 
 
-async def _consume_or_raise(redis: aioredis.Redis, email: str, purpose: EmailCodePurpose, code: str) -> None:
+async def _consume_or_raise(
+    redis: aioredis.Redis, email: str, purpose: EmailCodePurpose, code: str
+) -> None:
     """校验验证码，并按结果抛对应错误码。"""
     result = await otp_service.consume_code(redis, email, purpose, code)
     if result == 1:
@@ -93,7 +95,9 @@ async def _consume_or_raise(redis: aioredis.Redis, email: str, purpose: EmailCod
 
 
 async def _enforce_login_rate(redis: aioredis.Redis, email: str, ip: str) -> None:
-    count = await redis.eval(_LOGIN_RATE_LUA, 1, _login_rate_key(email, ip), str(_LOGIN_WINDOW_SECONDS))
+    count = await redis.eval(
+        _LOGIN_RATE_LUA, 1, _login_rate_key(email, ip), str(_LOGIN_WINDOW_SECONDS)
+    )
     if int(count) > _LOGIN_MAX_ATTEMPTS:
         raise AppError(RATE_LIMITED)
 
@@ -121,7 +125,9 @@ class AuthService:
         return 60
 
     # ---- 注册 ----
-    async def register(self, email: str, code: str, password: str, ip: str, user_agent: str | None) -> tuple[User, str]:
+    async def register(
+        self, email: str, code: str, password: str, ip: str, user_agent: str | None
+    ) -> tuple[User, str]:
         normalized = normalize_email(email)
         _validate_password(password)
         await _consume_or_raise(self._redis, normalized, EmailCodePurpose.REGISTER, code)
@@ -130,7 +136,9 @@ class AuthService:
         return user, token
 
     # ---- 密码登录 ----
-    async def login_password(self, email: str, password: str, ip: str, user_agent: str | None) -> tuple[User, str]:
+    async def login_password(
+        self, email: str, password: str, ip: str, user_agent: str | None
+    ) -> tuple[User, str]:
         normalized = normalize_email(email)
         await _enforce_login_rate(self._redis, normalized, ip)
         user = await self._users.find_by_email(normalized)
@@ -145,7 +153,9 @@ class AuthService:
         return user, token
 
     # ---- 验证码登录 ----
-    async def login_email_code(self, email: str, code: str, ip: str, user_agent: str | None) -> tuple[User, str]:
+    async def login_email_code(
+        self, email: str, code: str, ip: str, user_agent: str | None
+    ) -> tuple[User, str]:
         normalized = normalize_email(email)
         await _enforce_login_rate(self._redis, normalized, ip)
         await _consume_or_raise(self._redis, normalized, EmailCodePurpose.LOGIN, code)

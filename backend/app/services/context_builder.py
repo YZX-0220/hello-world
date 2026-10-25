@@ -123,9 +123,19 @@ def brief_to_text(brief: VideoBrief) -> str:
     """把当前结构化方案 + 素材占用转成一段人可读摘要，便于模型了解现状。"""
     parts: list[str] = []
     mapping = {
-        "objective": "目标", "audience": "受众", "language": "语言", "duration_seconds": "时长(秒)",
-        "aspect_ratio": "画幅", "mode": "模式", "visual_style": "视觉风格", "subject": "主体",
-        "scene": "场景", "camera": "镜头", "motion": "运动", "lighting": "光线", "narration": "旁白",
+        "objective": "目标",
+        "audience": "受众",
+        "language": "语言",
+        "duration_seconds": "时长(秒)",
+        "aspect_ratio": "画幅",
+        "mode": "模式",
+        "visual_style": "视觉风格",
+        "subject": "主体",
+        "scene": "场景",
+        "camera": "镜头",
+        "motion": "运动",
+        "lighting": "光线",
+        "narration": "旁白",
         "negative_prompt": "负面提示",
     }
     for field, label in mapping.items():
@@ -148,7 +158,9 @@ def brief_to_text(brief: VideoBrief) -> str:
     return "；".join(parts) if parts else "（目前方案为空）"
 
 
-def build_summary_prompt(messages: list[dict[str, str]], prev_summary: str = "") -> list[dict[str, str]]:
+def build_summary_prompt(
+    messages: list[dict[str, str]], prev_summary: str = ""
+) -> list[dict[str, str]]:
     """构造交给文本模型做摘要的消息列表。
 
     messages 为待压缩的 [{"role","content"}]（按时间顺序）；prev_summary 为既有历史摘要，
@@ -196,7 +208,10 @@ def build_context(
     - 否则回退到只取最近 N 条的历史（首期保守预算）。
     """
     messages: list[dict[str, str]] = [
-        {"role": "system", "content": f"{system_prompt}\n\n【当前状态】当前方案：{brief_to_text(brief)}"}
+        {
+            "role": "system",
+            "content": f"{system_prompt}\n\n【当前状态】当前方案：{brief_to_text(brief)}",
+        }
     ]
 
     # 累积的联网检索依据：只用于后端上下文，不进入任何前端响应字段

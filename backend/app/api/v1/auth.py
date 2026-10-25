@@ -70,7 +70,11 @@ async def register(
     service: AuthService = Depends(get_auth_service),
 ) -> UserView:
     user, token = await service.register(
-        payload.email, payload.code, payload.password, _client_ip(request), request.headers.get("user-agent")
+        payload.email,
+        payload.code,
+        payload.password,
+        _client_ip(request),
+        request.headers.get("user-agent"),
     )
     _set_auth_cookies(response, token)
     return UserView.model_validate(user)

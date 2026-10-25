@@ -24,23 +24,24 @@ from app.db.models.video_api_config import VideoApiConfigRevision
 from app.db.models.video_job import VideoJob
 from app.providers.video import get_video_provider
 from app.providers.video.base import AdapterContext
-from app.storage import LocalStorage
+from app.storage import ObsStorage, Storage, get_storage
 from app.video_registry import get_profile
 
 
 def _custom_template(value):
     # Local import avoids the job/download service cycle.
     from app.services.video_job_service import _build_custom_template
+
     return _build_custom_template(value)
 
 
 class VideoDownloadService:
-    def __init__(self, session: Any, storage: LocalStorage | None = None) -> None:
+    def __init__(self, session: Any, storage: Storage | None = None) -> None:
         self._session = session
-        self._storage = storage or LocalStorage(settings.storage_root)
+        self._storage = storage or get_storage()
 
     async def fetch_result_asset(self, job: VideoJob) -> str:
-        """对已成功的任务执行一次下载/降级，返回更新后的 download_status。"""
+        """对已成功的任务执行一次下载/转存/降级，返回更新后的 download_status。"""
         if job.status != "succeeded":
             raise AppError(VIDEO_DOWNLOAD_FAILED, "任务尚未生成成功，不能下载结果")
         if job.api_config_id is None:
@@ -49,13 +50,58 @@ class VideoDownloadService:
             ctx = self._platform_ctx(job)
         else:
             revision = (
-                await self._session.exec(select(VideoApiConfigRevision).where(VideoApiConfigRevision.id == job.api_config_revision_id))
+                await self._session.exec(
+                    select(VideoApiConfigRevision).where(
+                        VideoApiConfigRevision.id == job.api_config_revision_id
+                    )
+                )
             ).first()
             ctx = self._ctx(revision)
-        data = await get_video_provider(job.protocol_code).download_result(job.provider_task_id or "", ctx)
+
+        # 方式 A：当存储为 OBS 且厂商提供了结果直链时，尝试由 OBS 异步从公网抓取入桶（零服务器流量）
+        if isinstance(self._storage, ObsStorage):
+            status_obj = await get_video_provider(job.protocol_code).poll(
+                job.provider_task_id or "", ctx
+            )
+            if status_obj and status_obj.result_url:
+                try:
+                    return await self._store_result_via_obs_fetch(job, status_obj.result_url)
+                except Exception:
+                    pass  # 若异步拉取失败，平滑降级到传统下载/直链流程
+
+        data = await get_video_provider(job.protocol_code).download_result(
+            job.provider_task_id or "", ctx
+        )
         if data:
             return await self._store_result(job, data)
         return await self._fallback_direct(job, revision, ctx)
+
+    async def _store_result_via_obs_fetch(self, job: VideoJob, remote_video_url: str) -> str:
+        """通过 OBS asyncFetchObject 异步抓取外部视频入桶（方式 A）。"""
+        asset_id = new_id()
+        storage_key = f"outputs/{job.user_id}/{job.id}.mp4"
+        assert isinstance(self._storage, ObsStorage)
+        self._storage.async_fetch_object(remote_video_url, storage_key)
+
+        asset = Asset(
+            id=asset_id,
+            user_id=job.user_id,
+            conversation_id=job.conversation_id,
+            kind="video",
+            purpose="result",
+            original_name=f"video-{job.id[:8]}.mp4",
+            storage_key=storage_key,
+            storage_provider="obs",
+            mime_type="video/mp4",
+            size_bytes=1,  # 异步拉取中初始占位，拉取完成后由后台/读取时修正
+            sha256="",
+            status="ready",
+        )
+        self._session.add(asset)
+        job.local_asset_id = asset_id
+        job.download_status = DownloadStatus.STORED.value
+        await self._session.commit()
+        return job.download_status
 
     async def _store_result(self, job: VideoJob, data: bytes) -> str:
         asset_id = new_id()
@@ -83,13 +129,22 @@ class VideoDownloadService:
         await self._session.commit()
         return DownloadStatus.STORED.value
 
-    async def _fallback_direct(self, job: VideoJob, revision: VideoApiConfigRevision | None, ctx: AdapterContext) -> str:
-        url = await get_video_provider(job.protocol_code).fetch_result_url(job.provider_task_id or "", ctx)
-        profile = get_profile(job.protocol_code, job.model_profile_code or (revision.capability_profile_code if revision else "") or "")
+    async def _fallback_direct(
+        self, job: VideoJob, revision: VideoApiConfigRevision | None, ctx: AdapterContext
+    ) -> str:
+        url = await get_video_provider(job.protocol_code).fetch_result_url(
+            job.provider_task_id or "", ctx
+        )
+        profile = get_profile(
+            job.protocol_code,
+            job.model_profile_code or (revision.capability_profile_code if revision else "") or "",
+        )
         if profile is not None and url and profile.allows_provider_direct_url:
             expires = now() + timedelta(seconds=profile.provider_direct_url_ttl)
             job.encrypted_result_ref_json = encrypt_secret(
-                json.dumps({"direct_url": url, "expires_at": expires.isoformat()}, ensure_ascii=False),
+                json.dumps(
+                    {"direct_url": url, "expires_at": expires.isoformat()}, ensure_ascii=False
+                ),
                 settings.credential_encryption_keys,
             )
             job.download_status = DownloadStatus.DIRECT.value
@@ -105,7 +160,9 @@ class VideoDownloadService:
             return AdapterContext(base_url="", auth={}, options={}, remote_model_id="")
         return AdapterContext(
             base_url=revision.base_url or "",
-            auth=json.loads(decrypt_secret(revision.encrypted_auth_json, settings.credential_encryption_keys)),
+            auth=json.loads(
+                decrypt_secret(revision.encrypted_auth_json, settings.credential_encryption_keys)
+            ),
             options=json.loads(revision.public_options_json or "{}"),
             remote_model_id=revision.remote_model_id,
             template=_custom_template(revision.custom_template_json),

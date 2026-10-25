@@ -121,7 +121,9 @@ def _build_custom_template(custom_template_json: str | None) -> ProtocolTemplate
 
 
 def _fingerprint(payload: dict[str, Any]) -> str:
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
 
 
 def _asset_ids(spec: VideoBrief) -> list[tuple[str, str, int]]:
@@ -151,21 +153,31 @@ class VideoJobService:
         self._revisions = VideoApiConfigRevisionRepository(session)
         self._downloader: VideoDownloadService | None = None
 
-    async def create(self, user_id: str, command: CreateVideoCommand, idempotency_key: str) -> tuple[VideoJob, bool]:
+    async def create(
+        self, user_id: str, command: CreateVideoCommand, idempotency_key: str
+    ) -> tuple[VideoJob, bool]:
         existing = await self._repo.get_by_idempotency(user_id, idempotency_key)
         if existing is not None:
             saved = json.loads(existing.request_json or "{}")
             config_id = existing.api_config_id or PLATFORM_CONFIG_ID
-            if (existing.project_id != command.project_id or existing.conversation_id != command.conversation_id
-                or existing.project_version != command.spec_version or config_id != command.api_config_id
-                or existing.mode != command.mode or existing.previous_job_id != command.previous_job_id
-                or saved.get("generation_options") != command.generation_options):
+            if (
+                existing.project_id != command.project_id
+                or existing.conversation_id != command.conversation_id
+                or existing.project_version != command.spec_version
+                or config_id != command.api_config_id
+                or existing.mode != command.mode
+                or existing.previous_job_id != command.previous_job_id
+                or saved.get("generation_options") != command.generation_options
+            ):
                 raise AppError(IDEMPOTENCY_KEY_REUSED)
             return existing, True
         project = await self._load_project(user_id, command)
         self._validate_confirmed(project, command.spec_version)
         version_row, record, target = await reviewed_version(
-            self._session, project, command.spec_version, config_id=command.api_config_id,
+            self._session,
+            project,
+            command.spec_version,
+            config_id=command.api_config_id,
             requested_ids=command.generation_options.get("canvas_source_node_ids"),
             options=command.generation_options,
         )
@@ -180,22 +192,39 @@ class VideoJobService:
         spec = VideoBrief.model_validate(json.loads(version_row.spec_json))
         self._validate_mode(command, spec)
         assets = await self._require_assets(user_id, spec)
-        allowed = set(record["settings"]) | {"canvas_source_node_id", "canvas_source_node_ids", "review_fingerprint"}
+        allowed = set(record["settings"]) | {
+            "canvas_source_node_id",
+            "canvas_source_node_ids",
+            "review_fingerprint",
+        }
         if set(command.generation_options) - allowed:
             raise AppError(VIDEO_OPTION_UNSUPPORTED, "提交中包含未经审理的生成选项，请重新审理。")
         request_json = {
-            **record["wire"], "remote_model_id": remote_model_id, "mode": command.mode,
-            "prompt": record["compiled_prompt"], "generation_target": record["target"],
+            **record["wire"],
+            "remote_model_id": remote_model_id,
+            "mode": command.mode,
+            "prompt": record["compiled_prompt"],
+            "generation_target": record["target"],
             "review_fingerprint": record["fingerprint"],
             "input_url_ttl_seconds": target.profile.input_url_ttl_seconds,
-            "first_frame_asset_id": spec.first_frame_asset_id, "last_frame_asset_id": spec.last_frame_asset_id,
-            "reference_asset_ids": spec.reference_asset_ids, "source_video_asset_id": spec.source_video_asset_id,
-            "audio_asset_id": spec.audio_asset_id, "generation_options": command.generation_options,
+            "first_frame_asset_id": spec.first_frame_asset_id,
+            "last_frame_asset_id": spec.last_frame_asset_id,
+            "reference_asset_ids": spec.reference_asset_ids,
+            "source_video_asset_id": spec.source_video_asset_id,
+            "audio_asset_id": spec.audio_asset_id,
+            "generation_options": command.generation_options,
         }
         if not str(request_json.get("prompt") or "").strip():
-            raise AppError(VIDEO_INPUT_INVALID, "当前方案内容为空，无法生成视频，请先在对话中完善方案")
+            raise AppError(
+                VIDEO_INPUT_INVALID, "当前方案内容为空，无法生成视频，请先在对话中完善方案"
+            )
         fingerprint = _fingerprint(
-            {"project_version": command.spec_version, "api_config_revision": revision_identifier, "mode": command.mode, "request": request_json}
+            {
+                "project_version": command.spec_version,
+                "api_config_revision": revision_identifier,
+                "mode": command.mode,
+                "request": request_json,
+            }
         )
 
         # 平台通道：提交厂商前先检查每日配额（放在幂等命中之后，重复请求不误触发限流）。
@@ -203,18 +232,30 @@ class VideoJobService:
             await self._check_platform_quota(user_id)
 
         # Linearize acceptance against canvas/model edits before the immutable job is inserted.
-        locked = await self._session.execute(update(VideoProject).where(
-            col(VideoProject.id) == project.id, col(VideoProject.canvas_version) == project.canvas_version,
-            col(VideoProject.current_spec_version) == command.spec_version,
-            col(VideoProject.confirmed_spec_version) == command.spec_version,
-        ).values(updated_at=now()).returning(col(VideoProject.id)))
+        locked = await self._session.execute(
+            update(VideoProject)
+            .where(
+                col(VideoProject.id) == project.id,
+                col(VideoProject.canvas_version) == project.canvas_version,
+                col(VideoProject.current_spec_version) == command.spec_version,
+                col(VideoProject.confirmed_spec_version) == command.spec_version,
+            )
+            .values(updated_at=now())
+            .returning(col(VideoProject.id))
+        )
         if locked.first() is None:
             raise AppError(PROJECT_NOT_CONFIRMED, "提交期间画布已变化，请重新审理。")
         if revision is not None:
-            locked_config = await self._session.execute(update(VideoApiConfig).where(
-                col(VideoApiConfig.id) == api_config_id, col(VideoApiConfig.status) == "active",
-                col(VideoApiConfig.current_revision) == target.identity["revision"],
-            ).values(updated_at=col(VideoApiConfig.updated_at)).returning(col(VideoApiConfig.id)))
+            locked_config = await self._session.execute(
+                update(VideoApiConfig)
+                .where(
+                    col(VideoApiConfig.id) == api_config_id,
+                    col(VideoApiConfig.status) == "active",
+                    col(VideoApiConfig.current_revision) == target.identity["revision"],
+                )
+                .values(updated_at=col(VideoApiConfig.updated_at))
+                .returning(col(VideoApiConfig.id))
+            )
             if locked_config.first() is None:
                 raise AppError(PROJECT_NOT_CONFIRMED, "提交期间通道配置已变化，请重新审理。")
 
@@ -235,7 +276,9 @@ class VideoJobService:
             model_profile_version=target.identity["rules_hash"],
             adapter_version=str(target.identity["adapter_version"]),
             template_code=template_code,
-            template_version=str(target.identity["template_version"]) if target.identity["template_version"] else None,
+            template_version=str(target.identity["template_version"])
+            if target.identity["template_version"]
+            else None,
             remote_model_id=remote_model_id,
             mode=command.mode,
             status=VideoJobStatus.CREATED.value,
@@ -244,18 +287,24 @@ class VideoJobService:
         )
         await self._repo.add(job)
         for asset_id, role, position in assets:
-            await self._job_assets.add(VideoJobAsset(video_job_id=job.id, asset_id=asset_id, role=role, position=position))
+            await self._job_assets.add(
+                VideoJobAsset(video_job_id=job.id, asset_id=asset_id, role=role, position=position)
+            )
 
         job.status = VideoJobStatus.SUBMITTING.value
         await self._events.add(
-            VideoJobEvent(video_job_id=job.id, event_type=JobEventType.SUBMIT.value, to_status=job.status)
+            VideoJobEvent(
+                video_job_id=job.id, event_type=JobEventType.SUBMIT.value, to_status=job.status
+            )
         )
         await self._session.commit()
         await self._session.refresh(job)
 
         ctx = self._platform_ctx(job) if is_platform else self._ctx(revision)
         try:
-            result = await get_video_provider(job.protocol_code).submit(self._provider_request(job, assets), ctx)
+            result = await get_video_provider(job.protocol_code).submit(
+                self._provider_request(job, assets), ctx
+            )
             job.provider_task_id = result.provider_task_id
             job.provider_context_id = result.provider_context_id
             job.status = VideoJobStatus.QUEUED.value
@@ -274,7 +323,11 @@ class VideoJobService:
                 job.error_code = exc.code
                 job.error_message = exc.message[:2000]
         await self._events.add(
-            VideoJobEvent(video_job_id=job.id, event_type=JobEventType.STATUS_CHANGE.value, to_status=job.status)
+            VideoJobEvent(
+                video_job_id=job.id,
+                event_type=JobEventType.STATUS_CHANGE.value,
+                to_status=job.status,
+            )
         )
         await self._repo.save(job)
         return job, False
@@ -284,9 +337,16 @@ class VideoJobService:
         if job is None:
             raise AppError(VIDEO_CONFIG_INVALID, "视频任务不存在或无权访问")
         # 双轨：生成成功但还未下载/降级时，在读取时安全触发一次
-        if job.status == VideoJobStatus.SUCCEEDED.value and job.download_status == DownloadStatus.NOT_STARTED.value:
+        if (
+            job.status == VideoJobStatus.SUCCEEDED.value
+            and job.download_status == DownloadStatus.NOT_STARTED.value
+        ):
             await self._trigger_download(job)
-        if allow_refresh and job.status in (VideoJobStatus.QUEUED.value, VideoJobStatus.RUNNING.value) and self._poll_due(job):
+        if (
+            allow_refresh
+            and job.status in (VideoJobStatus.QUEUED.value, VideoJobStatus.RUNNING.value)
+            and self._poll_due(job)
+        ):
             await self._maybe_refresh(job)
         return job
 
@@ -300,7 +360,9 @@ class VideoJobService:
         cursor: str | None = None,
     ) -> tuple[list[VideoJob], str | None]:
         """按 (created_at desc, id desc) 游标分页，返回 (page_rows, next_cursor)。"""
-        rows = await self._repo.list_for_user(user_id, conversation_id, status, download_status, limit, cursor)
+        rows = await self._repo.list_for_user(
+            user_id, conversation_id, status, download_status, limit, cursor
+        )
         has_more = len(rows) > limit if limit else False
         page = rows[:limit] if limit else rows
         next_cursor = encode_cursor(page[-1].created_at, page[-1].id) if page and has_more else None
@@ -310,24 +372,39 @@ class VideoJobService:
         job = await self._repo.get_for_user(job_id, user_id)
         if job is None:
             raise AppError(VIDEO_CONFIG_INVALID, "视频任务不存在或无权访问")
-        if job.status in (VideoJobStatus.SUCCEEDED.value, VideoJobStatus.FAILED.value, VideoJobStatus.CANCELLED.value):
+        if job.status in (
+            VideoJobStatus.SUCCEEDED.value,
+            VideoJobStatus.FAILED.value,
+            VideoJobStatus.CANCELLED.value,
+        ):
             return job  # 幂等返回终态
         is_platform = job.api_config_id is None
         if is_platform:
             ctx = self._platform_ctx(job)
         else:
             revision = (
-                await self._session.exec(select(VideoApiConfigRevision).where(VideoApiConfigRevision.id == job.api_config_revision_id))
+                await self._session.exec(
+                    select(VideoApiConfigRevision).where(
+                        VideoApiConfigRevision.id == job.api_config_revision_id
+                    )
+                )
             ).first()
             ctx = self._ctx(revision)
-        supported = await get_video_provider(job.protocol_code).cancel(job.provider_task_id or "", ctx)
+        supported = await get_video_provider(job.protocol_code).cancel(
+            job.provider_task_id or "", ctx
+        )
         if not supported:
             raise AppError(VIDEO_CANCEL_UNSUPPORTED)
         old = job.status
         job.status = VideoJobStatus.CANCELLED.value
         job.completed_at = now()
         await self._events.add(
-            VideoJobEvent(video_job_id=job.id, event_type=JobEventType.CANCEL.value, from_status=old, to_status=job.status)
+            VideoJobEvent(
+                video_job_id=job.id,
+                event_type=JobEventType.CANCEL.value,
+                from_status=old,
+                to_status=job.status,
+            )
         )
         await self._repo.save(job)
         return job
@@ -336,7 +413,10 @@ class VideoJobService:
         job = await self._repo.get_for_user(job_id, user_id)
         if job is None:
             raise AppError(VIDEO_CONFIG_INVALID, "视频任务不存在或无权访问")
-        if job.status != VideoJobStatus.SUCCEEDED.value or job.download_status != DownloadStatus.FAILED.value:
+        if (
+            job.status != VideoJobStatus.SUCCEEDED.value
+            or job.download_status != DownloadStatus.FAILED.value
+        ):
             raise AppError(VIDEO_DOWNLOAD_FAILED, "仅当生成成功且下载失败时可重试下载")
         if self._downloader is None:
             self._downloader = VideoDownloadService(self._session)
@@ -395,7 +475,11 @@ class VideoJobService:
             template: ProtocolTemplate | None = None
         else:
             revision = (
-                await self._session.exec(select(VideoApiConfigRevision).where(VideoApiConfigRevision.id == job.api_config_revision_id))
+                await self._session.exec(
+                    select(VideoApiConfigRevision).where(
+                        VideoApiConfigRevision.id == job.api_config_revision_id
+                    )
+                )
             ).first()
             ctx = self._ctx(revision)
             template = _build_custom_template(revision.custom_template_json) or get_template(
@@ -423,7 +507,9 @@ class VideoJobService:
         job.progress = status.progress
         if mapped == VideoJobStatus.FAILED.value:
             job.error_code = (status.error_code or "PROVIDER_TASK_FAILED")[:64]
-            job.error_message = (status.error_message or "厂商未返回具体原因，请稍后重试或切换素材。")[:2000]
+            job.error_message = (
+                status.error_message or "厂商未返回具体原因，请稍后重试或切换素材。"
+            )[:2000]
             job.completed_at = now()
         elif mapped in (VideoJobStatus.RUNNING.value, VideoJobStatus.SUCCEEDED.value):
             job.error_code = None
@@ -435,10 +521,18 @@ class VideoJobService:
             job.completed_at = now()
         if mapped != old:
             await self._events.add(
-                VideoJobEvent(video_job_id=job.id, event_type=JobEventType.STATUS_CHANGE.value, from_status=old, to_status=mapped)
+                VideoJobEvent(
+                    video_job_id=job.id,
+                    event_type=JobEventType.STATUS_CHANGE.value,
+                    from_status=old,
+                    to_status=mapped,
+                )
             )
         await self._repo.save(job)
-        if mapped == VideoJobStatus.SUCCEEDED.value and job.download_status == DownloadStatus.NOT_STARTED.value:
+        if (
+            mapped == VideoJobStatus.SUCCEEDED.value
+            and job.download_status == DownloadStatus.NOT_STARTED.value
+        ):
             await self._trigger_download(job)
 
     def _map_status(self, raw: str, template: ProtocolTemplate | None) -> str:
@@ -447,7 +541,9 @@ class VideoJobService:
         return raw
 
     def _ctx(self, revision: Any) -> AdapterContext:
-        auth = json.loads(decrypt_secret(revision.encrypted_auth_json, settings.credential_encryption_keys))
+        auth = json.loads(
+            decrypt_secret(revision.encrypted_auth_json, settings.credential_encryption_keys)
+        )
         options = json.loads(revision.public_options_json or "{}")
         return AdapterContext(
             base_url=revision.base_url or "",
@@ -481,10 +577,14 @@ class VideoJobService:
         await self._redis.incr(key)
         await self._redis.expire(key, _PLATFORM_QUOTA_TTL_SECONDS)
 
-    def _provider_request(self, job: VideoJob, assets: list[tuple[str, str, int]]) -> dict[str, Any]:
+    def _provider_request(
+        self, job: VideoJob, assets: list[tuple[str, str, int]]
+    ) -> dict[str, Any]:
         request = json.loads(job.request_json or "{}")
         for asset_id, role, _pos in assets:
-            ttl = max(settings.signed_url_ttl_seconds, int(request.get("input_url_ttl_seconds") or 0))
+            ttl = max(
+                settings.signed_url_ttl_seconds, int(request.get("input_url_ttl_seconds") or 0)
+            )
             token, _ = sign_provider_asset(asset_id, job.id, role, settings.app_secret, ttl)
             url = f"{settings.app_base_url.rstrip('/')}/api/v1/provider-assets/{token}"
             if role == "first_frame":
@@ -513,7 +613,9 @@ class VideoJobService:
             raise AppError(VIDEO_INPUT_INVALID, "项目不存在或不属于当前用户")
         return project
 
-    async def _active_config(self, user_id: str, config_id: str) -> tuple[Any, VideoApiConfigRevision]:
+    async def _active_config(
+        self, user_id: str, config_id: str
+    ) -> tuple[Any, VideoApiConfigRevision]:
         config = await self._configs.get_for_user(config_id, user_id)
         if config is None or config.status in ("deleted", "disabled"):
             raise AppError(VIDEO_CONFIG_INVALID, "视频接口配置不存在、停用或已删除")
@@ -525,14 +627,19 @@ class VideoJobService:
         return config, revision
 
     def _validate_confirmed(self, project: VideoProject, spec_version: int) -> None:
-        if spec_version != project.current_spec_version or spec_version != project.confirmed_spec_version:
+        if (
+            spec_version != project.current_spec_version
+            or spec_version != project.confirmed_spec_version
+        ):
             raise AppError(PROJECT_NOT_CONFIRMED)
 
     def _validate_mode(self, command: CreateVideoCommand, spec: VideoBrief) -> None:
         if spec.mode is not None and spec.mode.value != command.mode:
             raise AppError(VIDEO_MODE_UNSUPPORTED, "生成模式与方案版本不一致")
         if spec.duration_seconds is not None and not (1 <= spec.duration_seconds <= 15):
-            raise AppError(VIDEO_OPTION_UNSUPPORTED, "每次生成的视频时长必须为 1–15 秒，请调整方案时长")
+            raise AppError(
+                VIDEO_OPTION_UNSUPPORTED, "每次生成的视频时长必须为 1–15 秒，请调整方案时长"
+            )
 
     async def _require_assets(self, user_id: str, spec: VideoBrief) -> list[tuple[str, str, int]]:
         rows = _asset_ids(spec)
@@ -540,7 +647,13 @@ class VideoJobService:
             asset = await self._assets.get_for_user(asset_id, user_id)
             if asset is None or asset.status != "ready":
                 raise AppError(ASSET_NOT_FOUND, "任务引用的素材不存在或无权访问")
-            expected_kind = "image" if _role in ("first_frame", "last_frame", "reference") else "video" if _role == "source_video" else "audio"
+            expected_kind = (
+                "image"
+                if _role in ("first_frame", "last_frame", "reference")
+                else "video"
+                if _role == "source_video"
+                else "audio"
+            )
             if asset.kind != expected_kind:
                 raise AppError(VIDEO_INPUT_INVALID, "素材类型与审理角色不一致。")
         return rows
@@ -548,7 +661,11 @@ class VideoJobService:
     async def to_view(self, job: VideoJob) -> VideoJobView:
         request = json.loads(job.request_json or "{}")
         revision = (
-            await self._session.exec(select(VideoApiConfigRevision).where(VideoApiConfigRevision.id == job.api_config_revision_id))
+            await self._session.exec(
+                select(VideoApiConfigRevision).where(
+                    VideoApiConfigRevision.id == job.api_config_revision_id
+                )
+            )
         ).first()
         error = None
         if job.error_code:
@@ -561,9 +678,15 @@ class VideoJobService:
         result_expires_at = None
         if job.download_status == DownloadStatus.DIRECT.value and job.encrypted_result_ref_json:
             try:
-                ref = json.loads(decrypt_secret(job.encrypted_result_ref_json, settings.credential_encryption_keys))
+                ref = json.loads(
+                    decrypt_secret(
+                        job.encrypted_result_ref_json, settings.credential_encryption_keys
+                    )
+                )
                 result_direct_url = ref.get("direct_url")
-                result_expires_at = datetime.fromisoformat(ref["expires_at"]) if ref.get("expires_at") else None
+                result_expires_at = (
+                    datetime.fromisoformat(ref["expires_at"]) if ref.get("expires_at") else None
+                )
             except Exception:
                 pass
         return VideoJobView(
@@ -585,7 +708,14 @@ class VideoJobService:
             result_direct_url=result_direct_url,
             result_expires_at=result_expires_at,
             error=error,
-            poll_after_seconds=3 if job.status in (VideoJobStatus.QUEUED.value, VideoJobStatus.RUNNING.value, VideoJobStatus.SUBMITTING.value) else None,
+            poll_after_seconds=3
+            if job.status
+            in (
+                VideoJobStatus.QUEUED.value,
+                VideoJobStatus.RUNNING.value,
+                VideoJobStatus.SUBMITTING.value,
+            )
+            else None,
             submitted_at=job.submitted_at,
             completed_at=job.completed_at,
             created_at=job.created_at,

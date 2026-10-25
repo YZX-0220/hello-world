@@ -53,7 +53,9 @@ def _parse_sse(text: str) -> list[dict[str, str]]:
     return events
 
 
-async def _read_sse(client: httpx.AsyncClient, method: str, url: str, json: dict, headers: dict) -> str:
+async def _read_sse(
+    client: httpx.AsyncClient, method: str, url: str, json: dict, headers: dict
+) -> str:
     """用 httpx stream 方式读取 SSE 响应体并返回全文。"""
     body = b""
     async with client.stream(method, url, json=json, headers=headers) as resp:
@@ -68,7 +70,9 @@ async def test_create_conversation_and_send_message(client: httpx.AsyncClient) -
     await _register(client)
 
     # 创建对话（登录后写接口需 CSRF）
-    conv = await client.post("/api/v1/conversations", json={"title": "雨夜古城宣传片"}, headers=_csrf_headers(client))
+    conv = await client.post(
+        "/api/v1/conversations", json={"title": "雨夜古城宣传片"}, headers=_csrf_headers(client)
+    )
     assert conv.status_code == 201
     conversation_id = conv.json()["conversation"]["id"]
 
@@ -117,7 +121,9 @@ async def test_delete_conversation(client: httpx.AsyncClient) -> None:
 async def test_confirm_project_and_manual_patch(client: httpx.AsyncClient) -> None:
     await _register(client)
     headers = _csrf_headers(client)
-    conv = await client.post("/api/v1/conversations", json={"title": "手动改方案测试"}, headers=headers)
+    conv = await client.post(
+        "/api/v1/conversations", json={"title": "手动改方案测试"}, headers=headers
+    )
     cid = conv.json()["conversation"]["id"]
 
     # 先发消息让方案版本>=1
@@ -132,7 +138,10 @@ async def test_confirm_project_and_manual_patch(client: httpx.AsyncClient) -> No
     # 手动改方案：改时长和画幅，乐观锁用当前版本
     patched = await client.patch(
         f"/api/v1/conversations/{cid}/project",
-        json={"expected_spec_version": v, "patch": {"duration_seconds": 12, "aspect_ratio": "9:16"}},
+        json={
+            "expected_spec_version": v,
+            "patch": {"duration_seconds": 12, "aspect_ratio": "9:16"},
+        },
         headers=headers,
     )
     assert patched.status_code == 200
@@ -192,7 +201,11 @@ async def test_search_tool_records_citations(client: httpx.AsyncClient, monkeypa
                 )
             return TextResult(
                 reply="好的，我核实一下资料并附上来源。",
-                structured={"reply": "好的，我核实一下资料并附上来源。", "state_patch": {}, "search_requests": ["故宫 夜景 宣传片"]},
+                structured={
+                    "reply": "好的，我核实一下资料并附上来源。",
+                    "state_patch": {},
+                    "search_requests": ["故宫 夜景 宣传片"],
+                },
                 model="fake-model",
             )
 
@@ -206,7 +219,11 @@ async def test_search_tool_records_citations(client: httpx.AsyncClient, monkeypa
 
     msg = await client.post(
         f"/api/v1/conversations/{cid}/messages",
-        json={"content": "帮我查一下故宫夜景宣传片的资料", "client_request_id": str(uuid.uuid4()), "web_search_enabled": True},
+        json={
+            "content": "帮我查一下故宫夜景宣传片的资料",
+            "client_request_id": str(uuid.uuid4()),
+            "web_search_enabled": True,
+        },
         headers=headers,
     )
     assert msg.status_code == 201
@@ -264,7 +281,11 @@ async def test_agent_run_and_tool_execution_persist(client, db_engine, monkeypat
 
     msg = await client.post(
         f"/api/v1/conversations/{cid}/messages",
-        json={"content": "帮我查一故宫夜景宣传片的资料", "client_request_id": str(uuid.uuid4()), "web_search_enabled": True},
+        json={
+            "content": "帮我查一故宫夜景宣传片的资料",
+            "client_request_id": str(uuid.uuid4()),
+            "web_search_enabled": True,
+        },
         headers=headers,
     )
     assert msg.status_code == 201
@@ -272,7 +293,9 @@ async def test_agent_run_and_tool_execution_persist(client, db_engine, monkeypat
     assistant_msg_id = msg.json()["assistant_message"]["id"]
 
     # 直接读取库表验证落库与关联
-    async with async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)() as session:
+    async with async_sessionmaker(
+        db_engine, class_=AsyncSession, expire_on_commit=False
+    )() as session:
         runs = (await session.exec(select(AgentRun))).all()
         assert len(runs) == 1
         run = runs[0]
@@ -293,7 +316,9 @@ async def test_agent_run_and_tool_execution_persist(client, db_engine, monkeypat
         assert all(c.tool_execution_id == tool.id for c in cites)
 
 
-async def test_search_refine_failure_keeps_original_reply(client: httpx.AsyncClient, monkeypatch) -> None:
+async def test_search_refine_failure_keeps_original_reply(
+    client: httpx.AsyncClient, monkeypatch
+) -> None:
     """联网搜索二次生成失败时：保留初版 reply 作为正文，不丢消息、不报错，引用仍结构化落库。"""
     from app.providers.text.base import (
         TextCapabilities,
@@ -331,12 +356,18 @@ async def test_search_refine_failure_keeps_original_reply(client: httpx.AsyncCli
 
     await _register(client)
     headers = _csrf_headers(client)
-    conv = await client.post("/api/v1/conversations", json={"title": "搜索失败回退"}, headers=headers)
+    conv = await client.post(
+        "/api/v1/conversations", json={"title": "搜索失败回退"}, headers=headers
+    )
     cid = conv.json()["conversation"]["id"]
 
     msg = await client.post(
         f"/api/v1/conversations/{cid}/messages",
-        json={"content": "帮我查一下故宫夜景宣传片资料", "client_request_id": str(uuid.uuid4()), "web_search_enabled": True},
+        json={
+            "content": "帮我查一下故宫夜景宣传片资料",
+            "client_request_id": str(uuid.uuid4()),
+            "web_search_enabled": True,
+        },
         headers=headers,
     )
     assert msg.status_code == 201
@@ -395,7 +426,9 @@ async def test_messages_cursor_pagination_no_dup_no_missing(client, db_engine) -
 
     # 第 1 页无 cursor：返回最前 limit 条，且 next_cursor 非空
     limit = 3
-    first = (await client.get(f"/api/v1/conversations/{cid}/messages", params={"limit": limit})).json()
+    first = (
+        await client.get(f"/api/v1/conversations/{cid}/messages", params={"limit": limit})
+    ).json()
     assert len(first["items"]) == limit
     assert first["items"][0]["id"] == canonical_ids[0]
     assert first["items"][1]["id"] == canonical_ids[1]
@@ -575,7 +608,9 @@ async def test_long_conversation_generates_summary_and_compresses(
 
     await _register(client)
     headers = _csrf_headers(client)
-    conv = await client.post("/api/v1/conversations", json={"title": "长对话摘要测试"}, headers=headers)
+    conv = await client.post(
+        "/api/v1/conversations", json={"title": "长对话摘要测试"}, headers=headers
+    )
     cid = conv.json()["conversation"]["id"]
 
     # 先造 5 条较早历史：总消息数因此超过阈值(3)
@@ -590,7 +625,9 @@ async def test_long_conversation_generates_summary_and_compresses(
     assert r1.status_code == 201
 
     # a) 摘要已生成且边界正确：summarize 了最早 4 条（paging-0..3），边界 = 第 4 条插入消息
-    async with async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)() as session:
+    async with async_sessionmaker(
+        db_engine, class_=AsyncSession, expire_on_commit=False
+    )() as session:
         ctx = await session.get(ConversationContext, cid)
         assert ctx is not None
         assert ctx.summary_text == "【摘要】已压缩历史要点"
@@ -629,7 +666,9 @@ async def test_send_message_stream_events_and_persist(client: httpx.AsyncClient)
     且随后 GET /messages 能查到 user + assistant 各 1 条（落库与同步端点一致）。"""
     await _register(client)
     headers = _csrf_headers(client)
-    conv = await client.post("/api/v1/conversations", json={"title": "SSE 流式测试"}, headers=headers)
+    conv = await client.post(
+        "/api/v1/conversations", json={"title": "SSE 流式测试"}, headers=headers
+    )
     cid = conv.json()["conversation"]["id"]
 
     text = await _read_sse(
@@ -674,11 +713,23 @@ async def test_send_message_stream_idempotent_replay(client: httpx.AsyncClient) 
     rid = str(uuid.uuid4())
     payload = {"content": "主体是雨夜古城门", "client_request_id": rid}
 
-    first = await _read_sse(client, "POST", f"/api/v1/conversations/{cid}/messages/stream", json=payload, headers=headers)
+    first = await _read_sse(
+        client,
+        "POST",
+        f"/api/v1/conversations/{cid}/messages/stream",
+        json=payload,
+        headers=headers,
+    )
     first_types = [e["event"] for e in _parse_sse(first)]
     assert first_types[-1] == "run_completed"
 
-    second = await _read_sse(client, "POST", f"/api/v1/conversations/{cid}/messages/stream", json=payload, headers=headers)
+    second = await _read_sse(
+        client,
+        "POST",
+        f"/api/v1/conversations/{cid}/messages/stream",
+        json=payload,
+        headers=headers,
+    )
     second_events = _parse_sse(second)
     second_types = [e["event"] for e in second_events]
     assert second_types[0] == "run_started"
@@ -714,7 +765,11 @@ async def test_send_message_stream_search_event(client: httpx.AsyncClient, monke
                 )
             return TextResult(
                 reply="好的，我核实一下资料并附上来源。",
-                structured={"reply": "好的，我核实一下资料并附上来源。", "state_patch": {}, "search_requests": ["故宫 夜景 宣传片"]},
+                structured={
+                    "reply": "好的，我核实一下资料并附上来源。",
+                    "state_patch": {},
+                    "search_requests": ["故宫 夜景 宣传片"],
+                },
                 model="fake-model",
             )
 
@@ -729,7 +784,11 @@ async def test_send_message_stream_search_event(client: httpx.AsyncClient, monke
         client,
         "POST",
         f"/api/v1/conversations/{cid}/messages/stream",
-        json={"content": "帮我查一下故宫夜景宣传片的资料", "client_request_id": str(uuid.uuid4()), "web_search_enabled": True},
+        json={
+            "content": "帮我查一下故宫夜景宣传片的资料",
+            "client_request_id": str(uuid.uuid4()),
+            "web_search_enabled": True,
+        },
         headers=headers,
     )
     events = _parse_sse(text)
@@ -759,9 +818,13 @@ async def test_sync_endpoint_idempotent_replay(client: httpx.AsyncClient) -> Non
     cid = conv.json()["conversation"]["id"]
     rid = str(uuid.uuid4())
     payload = {"content": "雨夜古城门", "client_request_id": rid}
-    first = await client.post(f"/api/v1/conversations/{cid}/messages", json=payload, headers=headers)
+    first = await client.post(
+        f"/api/v1/conversations/{cid}/messages", json=payload, headers=headers
+    )
     assert first.status_code == 201
-    second = await client.post(f"/api/v1/conversations/{cid}/messages", json=payload, headers=headers)
+    second = await client.post(
+        f"/api/v1/conversations/{cid}/messages", json=payload, headers=headers
+    )
     assert second.status_code == 201
     assert second.json()["run_id"] == first.json()["run_id"]
     listed = (await client.get(f"/api/v1/conversations/{cid}/messages")).json()
@@ -810,17 +873,25 @@ async def test_search_persists_retrieval_notes(client, db_engine, monkeypatch) -
 
     await _register(client)
     headers = _csrf_headers(client)
-    conv = await client.post("/api/v1/conversations", json={"title": "检索依据落库"}, headers=headers)
+    conv = await client.post(
+        "/api/v1/conversations", json={"title": "检索依据落库"}, headers=headers
+    )
     cid = conv.json()["conversation"]["id"]
 
     msg = await client.post(
         f"/api/v1/conversations/{cid}/messages",
-        json={"content": "帮我查一下故宫夜景宣传片资料", "client_request_id": str(uuid.uuid4()), "web_search_enabled": True},
+        json={
+            "content": "帮我查一下故宫夜景宣传片资料",
+            "client_request_id": str(uuid.uuid4()),
+            "web_search_enabled": True,
+        },
         headers=headers,
     )
     assert msg.status_code == 201
 
-    async with async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)() as session:
+    async with async_sessionmaker(
+        db_engine, class_=AsyncSession, expire_on_commit=False
+    )() as session:
         ctx = await session.get(ConversationContext, cid)
         assert ctx is not None
         assert ctx.retrieval_notes is not None
@@ -886,13 +957,19 @@ async def test_next_turn_sees_retrieval_notes(client, db_engine, monkeypatch) ->
 
     await _register(client)
     headers = _csrf_headers(client)
-    conv = await client.post("/api/v1/conversations", json={"title": "检索依据跨轮"}, headers=headers)
+    conv = await client.post(
+        "/api/v1/conversations", json={"title": "检索依据跨轮"}, headers=headers
+    )
     cid = conv.json()["conversation"]["id"]
 
     # 第 1 轮：联网搜索 → 依据入库，正文为 refine 结果
     r1 = await client.post(
         f"/api/v1/conversations/{cid}/messages",
-        json={"content": "帮我查一下故宫夜景宣传片资料", "client_request_id": str(uuid.uuid4()), "web_search_enabled": True},
+        json={
+            "content": "帮我查一下故宫夜景宣传片资料",
+            "client_request_id": str(uuid.uuid4()),
+            "web_search_enabled": True,
+        },
         headers=headers,
     )
     assert r1.status_code == 201
@@ -965,19 +1042,27 @@ async def test_retrieval_notes_dedup_same_query(client, db_engine, monkeypatch) 
 
     await _register(client)
     headers = _csrf_headers(client)
-    conv = await client.post("/api/v1/conversations", json={"title": "检索依据去重"}, headers=headers)
+    conv = await client.post(
+        "/api/v1/conversations", json={"title": "检索依据去重"}, headers=headers
+    )
     cid = conv.json()["conversation"]["id"]
 
     # 两轮都触发同一查询的联网搜索
     for i in range(2):
         resp = await client.post(
             f"/api/v1/conversations/{cid}/messages",
-            json={"content": f"再查一次故宫夜景宣传片（第{i + 1}轮）", "client_request_id": str(uuid.uuid4()), "web_search_enabled": True},
+            json={
+                "content": f"再查一次故宫夜景宣传片（第{i + 1}轮）",
+                "client_request_id": str(uuid.uuid4()),
+                "web_search_enabled": True,
+            },
             headers=headers,
         )
         assert resp.status_code == 201
 
-    async with async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)() as session:
+    async with async_sessionmaker(
+        db_engine, class_=AsyncSession, expire_on_commit=False
+    )() as session:
         ctx = await session.get(ConversationContext, cid)
         assert ctx is not None
         assert ctx.retrieval_notes is not None

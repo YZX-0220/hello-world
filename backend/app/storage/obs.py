@@ -46,6 +46,7 @@ class ObsStorage(Storage):
             access_key_id=self._ak,
             secret_access_key=self._sk,
             server=server,
+            timeout=300,  # 针对服务器 3M 较慢上行大文件增加超时（秒）
         )
 
     def write_stream(self, data: bytes, key: str, *, final_key: str) -> StoredFile:

@@ -60,8 +60,10 @@ async def migrate_local_to_obs() -> None:
             try:
                 # 检查 OBS 是否已有该文件
                 if not obs.exists(target_key):
-                    data = local_path.read_bytes()
-                    obs.write_stream(data, target_key, final_key=target_key)
+                    # 大文件使用 putFile 流式上传，避免一次性读入超大内存
+                    resp = obs._client.putFile(obs._bucket, target_key, file_path=str(local_path))
+                    if resp.status >= 300:
+                        raise Exception(f"OBS 写入失败: {resp.errorCode} {resp.errorMessage}")
                     print(f"已上传: {asset.id} -> {target_key}")
                 else:
                     print(f"云端已存在: {target_key}")

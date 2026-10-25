@@ -32,14 +32,14 @@ from app.schemas.material_library import (
     PatchLibraryItem,
 )
 from app.services.asset_service import AssetService, _detect_kind_mime
-from app.storage import LocalStorage, StorageError
+from app.storage import LocalStorage, ObsStorage, Storage, StorageError, get_storage
 
 
 class MaterialLibraryService:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, storage: Storage | None = None) -> None:
         self._session = session
         self._repo = MaterialLibraryRepository(session)
-        self._storage = LocalStorage(settings.storage_root)
+        self._storage = storage or get_storage()
 
     async def upload(
         self, user_id: str, file: UploadFile, kind: Literal["video", "image"]
@@ -97,10 +97,14 @@ class MaterialLibraryService:
             or (owner_id is not None and asset.user_id != owner_id)
         ):
             raise AppError(LIBRARY_ASSET_INVALID)
-        try:
-            self._storage.open_read_path(asset.storage_key)
-        except StorageError as exc:
-            raise AppError(LIBRARY_ASSET_INVALID, "示例文件尚未完整存储或已丢失") from exc
+        if getattr(asset, "storage_provider", None) == "obs":
+            if not self._storage.exists(asset.storage_key):
+                raise AppError(LIBRARY_ASSET_INVALID, "示例文件尚未完整存储或已丢失")
+        else:
+            try:
+                self._storage.open_read_path(asset.storage_key)
+            except StorageError as exc:
+                raise AppError(LIBRARY_ASSET_INVALID, "示例文件尚未完整存储或已丢失") from exc
         return asset
 
     async def create(self, user_id: str, request: CreateLibraryItem) -> LibraryItemView:
@@ -210,13 +214,13 @@ class MaterialLibraryService:
 
     async def open_content(
         self, item_id: str, role: Literal["video", "cover"], *, admin: bool = False
-    ) -> tuple[Asset, Path]:
+    ) -> tuple[Asset, str]:
         item = await self._item(item_id, admin=admin)
         asset_id = item.video_asset_id if role == "video" else item.cover_asset_id
         if asset_id is None:
             raise AppError(LIBRARY_MEDIA_UNAVAILABLE)
         try:
             asset = await self._asset(asset_id, "video" if role == "video" else "image")
-            return asset, self._storage.open_read_path(asset.storage_key)
+            return asset, asset.storage_key
         except (AppError, StorageError) as exc:
             raise AppError(LIBRARY_MEDIA_UNAVAILABLE) from exc

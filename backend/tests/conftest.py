@@ -26,6 +26,7 @@ settings.text_provider = "fake"  # 测试用假文本模型，绝不真调外部
 settings.search_provider = "fake"  # 测试用假搜索，绝不真调外部搜索 API
 settings.credential_encryption_keys = generate_fernet_key()
 settings.video_poll_interval_seconds = 0  # 测试内快速推进轮询状态
+settings.huawei_cloud_obs_bucket = ""  # 测试默认使用 LocalStorage，避免把真实/未配置的 OBS 带入单测
 
 
 @pytest_asyncio.fixture

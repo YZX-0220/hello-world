@@ -22,7 +22,7 @@ MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isommp42" + b"\x00\x00\x00\x0cmd
 
 
 def _headers(client: httpx.AsyncClient) -> dict[str, str]:
-    return {"X-CSRF-Token": client.cookies.get("hw_csrf", ""), "Origin": "http://127.0.0.1:5173"}
+    return {"X-CSRF-Token": client.cookies.get("hw_csrf") or "", "Origin": "http://127.0.0.1:5173"}
 
 
 async def _register(client: httpx.AsyncClient) -> str:

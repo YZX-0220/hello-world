@@ -26,8 +26,14 @@ def _csrf(client: AsyncClient) -> dict[str, str]:
 
 
 @pytest.fixture
-def mock_obs():
+def mock_obs(monkeypatch):
     from unittest.mock import MagicMock, patch
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "huawei_cloud_obs_bucket", "mock-bucket")
+    monkeypatch.setattr(settings, "huawei_cloud_obs_endpoint", "obs.cn-east-5.myhuaweicloud.com")
+    monkeypatch.setattr(settings, "huawei_cloud_obs_access_key", "mock-ak")
+    monkeypatch.setattr(settings, "huawei_cloud_obs_secret_key", "mock-sk")
 
     with patch("app.storage.obs.ObsClient") as mock_cls:
         client = MagicMock()

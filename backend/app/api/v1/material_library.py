@@ -2,12 +2,13 @@
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, Response, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import db_session, get_material_library_admin, require_csrf
 from app.core.errors import ErrorResponse
+from app.db.models.asset import Asset
 from app.db.models.user import User
 from app.schemas.asset import AssetView
 from app.schemas.material_library import (
@@ -18,6 +19,25 @@ from app.schemas.material_library import (
     PatchLibraryItem,
 )
 from app.services.material_library_service import MaterialLibraryService
+from app.storage import ObsStorage, get_storage
+
+
+def _serve_asset_response(asset: Asset, storage_key: str) -> Response:
+    storage = get_storage()
+    if isinstance(storage, ObsStorage) and asset.storage_provider == "obs":
+        direct_url = storage.generate_presigned_download_url(
+            storage_key, filename=asset.original_name
+        )
+        return RedirectResponse(url=direct_url, status_code=302)
+
+    path = storage.open_read_path(storage_key)
+    return FileResponse(
+        path,
+        media_type=asset.mime_type,
+        filename=asset.original_name or None,
+        content_disposition_type="inline",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 async def _library_csrf(
@@ -64,25 +84,15 @@ async def get_library_item(
     return await MaterialLibraryService(session).get(item_id)
 
 
-def _file_response(asset, path) -> FileResponse:
-    return FileResponse(
-        path,
-        media_type=asset.mime_type,
-        filename=asset.original_name or None,
-        content_disposition_type="inline",
-        headers={"Cache-Control": "private, no-store"},
-    )
-
-
-@router.get("/material-library/{item_id}/{role}", response_class=FileResponse)
-@router.head("/material-library/{item_id}/{role}", response_class=FileResponse)
+@router.get("/material-library/{item_id}/{role}")
+@router.head("/material-library/{item_id}/{role}")
 async def read_library_media(
     item_id: str,
     role: Literal["video", "cover"],
     session: AsyncSession = Depends(db_session),
 ):
-    asset, path = await MaterialLibraryService(session).open_content(item_id, role)
-    return _file_response(asset, path)
+    asset, storage_key = await MaterialLibraryService(session).open_content(item_id, role)
+    return _serve_asset_response(asset, storage_key)
 
 
 @admin_router.post("/material-library/uploads", response_model=AssetView, status_code=201)
@@ -140,10 +150,10 @@ async def delete_library_item(
     await MaterialLibraryService(session).delete(item_id, expected_version)
 
 
-@admin_router.get("/material-library/{item_id}/{role}", response_class=FileResponse)
-@admin_router.head("/material-library/{item_id}/{role}", response_class=FileResponse)
+@admin_router.get("/material-library/{item_id}/{role}")
+@admin_router.head("/material-library/{item_id}/{role}")
 async def read_admin_library_media(
     item_id: str, role: Literal["video", "cover"], session: AsyncSession = Depends(db_session)
 ):
-    asset, path = await MaterialLibraryService(session).open_content(item_id, role, admin=True)
-    return _file_response(asset, path)
+    asset, storage_key = await MaterialLibraryService(session).open_content(item_id, role, admin=True)
+    return _serve_asset_response(asset, storage_key)

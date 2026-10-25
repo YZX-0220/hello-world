@@ -116,13 +116,12 @@ def generate_presigned_download_url(
 ### 4.3 接口层改造 (`app/api/v1/assets.py` & `material_library.py`)
 
 #### 1. 用户素材读取接口：`GET /api/v1/assets/{asset_id}/content`
-- **新增 Query 参数**：
-  `thumbnail: Literal["small", "medium", "raw"] = Query(default="raw")`
+- **Query 参数**：
+  `thumbnail: Literal["small", "medium", "raw"] = Query(default="small")`
 - **处理逻辑**：
-  - 校验权限后，读取 `asset` 元数据；
-  - 若 `asset.kind == "image"` 且 `thumbnail in ("small", "medium")`：
-    选取对应规格，签署带处理参数的预签名直链；
-  - 返回 `302 Found`（同时带上响应头 `Cache-Control: private, max-age=600`，使客户端 10 分钟内免二次请求）。
+  - 默认采用 `small` 缩略图模式（最大宽 320px 的 WebP），在未显式指定大小参数时自动走轻量模式，大幅节省流量并提升卡片加载速度；
+  - 若 `asset.kind == "video"` 或 `"audio"`，自动忽略该参数走原流；
+  - 若需要原图（如放大查看、送入 AI 视频模型生成），前端显式传递 `thumbnail=raw`。
 
 #### 2. 平台素材库封面接口：`GET /api/v1/material-library/{item_id}/cover`
 - **新增 Query 参数**：

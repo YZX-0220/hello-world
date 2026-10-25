@@ -111,7 +111,7 @@ async def get_asset(
 async def read_asset_content(
     asset_id: str,
     thumbnail: Literal["small", "medium", "raw"] = Query(
-        default="raw", description="缩略图规格：small(320px WebP)、medium(800px WebP)、raw(原图)"
+        default="small", description="缩略图规格：small(320px WebP，默认)、medium(800px WebP)、raw(原图)"
     ),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(db_session),
@@ -120,7 +120,7 @@ async def read_asset_content(
     asset, storage_key = await AssetService(session).open_content(user.id, asset_id)
     storage = get_storage()
     if isinstance(storage, ObsStorage):
-        # 仅对图片格式且指定缩略图规则时生效
+        # 仅对图片格式且指定缩略图规则时生效（非图片格式自动忽略该参数走原流）
         process_rule = (
             thumbnail if (asset.kind == "image" and thumbnail in ("small", "medium")) else None
         )

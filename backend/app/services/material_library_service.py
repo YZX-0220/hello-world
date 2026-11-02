@@ -189,7 +189,7 @@ class MaterialLibraryService:
                 width=asset.width,
                 height=asset.height,
                 duration_ms=asset.duration_ms,
-                content_url=f"{settings.app_base_url.rstrip('/')}{prefix}/{item_id}/{role}",
+                content_url=f"{prefix}/{item_id}/{role}",
             )
 
         result = []

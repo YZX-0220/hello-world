@@ -81,7 +81,7 @@ async def test_draft_publish_shared_video_and_unpublish(admin):
     item_id = item["id"]
     assert item["status"] == "draft" and item["version"] == 1
     assert item["cover"]["width"] == 8
-    assert item["video"]["content_url"].endswith(f"{ADMIN}/{item_id}/video")
+    assert item["video"]["content_url"] == f"{ADMIN}/{item_id}/video"
     assert (await admin.get(LIBRARY)).json()["items"] == []
     for endpoint in (
         f"{LIBRARY}/{item_id}",
@@ -101,7 +101,7 @@ async def test_draft_publish_shared_video_and_unpublish(admin):
     await _register(admin)
     shared = await admin.get(f"{LIBRARY}/{item_id}")
     assert shared.status_code == 200 and shared.json()["description"].startswith("##")
-    assert shared.json()["video"]["content_url"].endswith(f"{LIBRARY}/{item_id}/video")
+    assert shared.json()["video"]["content_url"] == f"{LIBRARY}/{item_id}/video"
     response = await admin.get(f"{LIBRARY}/{item_id}/video")
     assert response.status_code == 200 and response.content == MP4
     assert response.headers["content-disposition"].startswith("inline")

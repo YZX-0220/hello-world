@@ -130,8 +130,8 @@ def _inspect(data: bytes, suggested_kind: str) -> InspectedFile:
 
 
 def _content_url(asset_id: str) -> str:
-    """本站受控读取地址（不是厂商签名地址）。"""
-    return f"{settings.app_base_url}/api/v1/assets/{asset_id}/content"
+    """本站受控读取相对路径（不含域名）。"""
+    return f"/api/v1/assets/{asset_id}/content"
 
 
 class AssetService:

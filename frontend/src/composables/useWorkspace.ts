@@ -275,7 +275,8 @@ export function useWorkspace() {
       const session = store.sessions.get(id);
       const target = session?.document.nodes.find(n => n.id === nodeId);
       if (target && session) {
-        target.url = asset.content_url; target.asset_id = asset.id;
+        target.asset_id = asset.id;
+        target.url = asset.content_url || `/api/v1/assets/${asset.id}/content`;
         store.edit(id, session.document); await store.flush(id);
       }
     } catch (err: any) { notice.value = err.message || '图片上传失败，原图已保留'; }
@@ -394,10 +395,14 @@ export function useWorkspace() {
   function materializeJob(id: string, job: VideoJobView) {
     const session = store?.sessions.get(id);
     if (!session || job.status !== 'succeeded' || session.document.dismissed_job_ids.includes(job.id)) return;
-    const url = job.result_asset_id ? `/api/v1/assets/${job.result_asset_id}/content` : job.result_direct_url;
+    const url = job.result_asset_id ? `/api/v1/assets/${job.result_asset_id}/content` : (job.result_direct_url || '');
     if (!url) return;
     let node = session.document.nodes.find(n => n.job_id === job.id || n.id === `video_${job.id}`);
-    if (node) { if (node.url !== url) { node.url = url; store?.edit(id, session.document); } return; }
+    if (node) {
+      if (job.result_asset_id) node.asset_id = job.result_asset_id;
+      if (node.url !== url) { node.url = url; store?.edit(id, session.document); }
+      return;
+    }
     const source = session.document.nodes.find(n => n.id === job.generation_options.canvas_source_node_id);
     node = {
       id: `video_${job.id}`, job_id: job.id, type: 'video', title: '生成视频结果',

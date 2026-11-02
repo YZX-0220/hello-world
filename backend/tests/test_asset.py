@@ -61,7 +61,7 @@ async def test_upload_png_and_read_content(client: httpx.AsyncClient) -> None:
     assert body["kind"] == "image"
     assert body["width"] == 4 and body["height"] == 4
     assert body["status"] == "ready"
-    assert body["content_url"].endswith(f"/api/v1/assets/{body['id']}/content")
+    assert body["content_url"] == f"/api/v1/assets/{body['id']}/content"
 
     content = await client.get(f"/api/v1/assets/{body['id']}/content", follow_redirects=False)
     assert content.status_code in (200, 302)

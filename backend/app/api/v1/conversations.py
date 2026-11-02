@@ -47,6 +47,11 @@ _LIMIT_MAX = 100
 def _project_view(project: VideoProject, suggested_prompt: str | None = None) -> VideoProjectView:
     spec = json.loads(project.current_spec_json or "{}")
     canvas = json.loads(project.canvas_data_json) if project.canvas_data_json else None
+    if canvas and isinstance(canvas.get("nodes"), list):
+        for node in canvas["nodes"]:
+            # 兼容处理：确保有 asset_id 的节点具有正确的相对路径 url
+            if node.get("asset_id") and (not node.get("url") or "://" in str(node.get("url", ""))):
+                node["url"] = f"/api/v1/assets/{node['asset_id']}/content"
     confirmed = project.confirmed_spec_version
     return VideoProjectView(
         id=project.id,

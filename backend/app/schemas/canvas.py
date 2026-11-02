@@ -15,6 +15,7 @@ class CanvasNode(BaseModel):
     y: float = 0
     content: str | None = Field(default=None, max_length=100000)
     url: str | None = None
+    asset_id: str | None = None
 
 
 class CanvasConnection(BaseModel):

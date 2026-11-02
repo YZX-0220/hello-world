@@ -1,6 +1,6 @@
 <template>
   <div class="workspace-layout">
-  <!-- 手机端专用全屏阻断提示 -->
+    <!-- 手机端专用全屏阻断提示 -->
     <div class="mobile-block-overlay">
       <div class="mobile-block-card">
         <div class="mobile-device-icon">💻</div>
@@ -12,7 +12,8 @@
         <div class="mobile-actions-group">
           <router-link to="/" class="mobile-btn home-btn">
             <svg class="mobile-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
             </svg>
             <span>返回品牌首页</span>
           </router-link>
@@ -34,8 +35,8 @@
       </div>
     </div>
     <!-- 顶部导航栏 -->
-   <!-- 顶部导航栏 -->
-   <!-- 顶部导航栏 -->
+    <!-- 顶部导航栏 -->
+    <!-- 顶部导航栏 -->
     <header class="top-nav">
       <div class="nav-left">
         <router-link to="/" class="brand-link" title="点击返回品牌首页">
@@ -53,8 +54,10 @@
               <path d="M7 3L11.5 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
               <path d="M17 3L12.5 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
               <rect x="2.5" y="7.5" width="19" height="13.5" rx="3" stroke="currentColor" stroke-width="1.8" />
-              <path d="M6 11.5H14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.8" />
-              <path d="M6 14.5H11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.4" />
+              <path d="M6 11.5H14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+                stroke-opacity="0.8" />
+              <path d="M6 14.5H11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+                stroke-opacity="0.4" />
               <circle cx="18" cy="11.5" r="1.1" fill="currentColor" />
               <circle cx="18" cy="15.5" r="1.1" fill="currentColor" />
             </svg>
@@ -156,6 +159,13 @@
 
           <!-- 左侧居中悬浮工具栏：素材库与国际传播指导 -->
           <div class="floating-left-bar">
+            <button class="side-tool-btn" @click="goToEditor" title="视频剪辑">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243zm0-5.758a3 3 0 10-4.242-4.242 3 3 0 004.242 4.242z" />
+              </svg>
+              <span class="tool-tip">视频剪辑</span>
+            </button>
             <button class="side-tool-btn" @click="openAssetsDrawer" title="素材库">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -174,11 +184,8 @@
           </div>
 
           <!-- 画布缩放/平移内容层 -->
-         <div 
-  class="canvas-plane" 
-  :class="{ 'is-panning': isPanning }"
-  :style="{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }"
->
+          <div class="canvas-plane" :class="{ 'is-panning': isPanning }"
+            :style="{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }">
             <div v-if="selectionBox.visible" class="selection-box" :style="{
               left: selectionBox.x + 'px',
               top: selectionBox.y + 'px',
@@ -435,14 +442,15 @@
                 <h3 class="spec-quick-header">把选中的小框生成视频</h3>
                 <p class="generation-help">选中一个或多个小框，AI 会先给出可直接生成的最终方案，再提供可选建议。缺少的创作细节会补全并注明。</p>
                 <div class="generation-source-list">当前选中：{{videoSourceNodes.map(n => n.title).join('、') || '请先在画布选中小框'
-                  }}</div>
+                }}</div>
                 <small class="generation-help">Ctrl 点击或拖动画布框选可选择多个小框。</small>
                 <p v-if="videoSourceNodes.some(n => n.pending_ai)" class="generation-help">部分小框有尚未采用的 AI
                   正文。视频只使用小框当前文字；需要采用时，请先回到“AI 协作”写入。</p>
                 <div class="spec-field-mini"><label for="video-api">视频生成通道</label>
                   <select id="video-api" v-model="selectedApiConfigId" :disabled="isSubmittingJob">
                     <option value="platform">平台体验通道（每日限 1 次）</option>
-                    <option v-for="cfg in apiConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.display_name }} ({{ cfg.remote_model_id }})</option>
+                    <option v-for="cfg in apiConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.display_name }} ({{
+                      cfg.remote_model_id }})</option>
                   </select>
                 </div>
                 <p v-if="targetLoading" class="generation-help" role="status">正在读取模型能力…</p>
@@ -461,15 +469,19 @@
                 <p class="generation-help">{{ videoModeHelp }}</p>
                 <div v-if="canvas.video_mode === 'first_last_frame_to_video'" class="video-generation-settings">
                   <div class="spec-field-mini"><label for="video-first-frame">首帧图片</label>
-                    <select id="video-first-frame" v-model="canvas.video_input_roles.first_frame_node_id" :disabled="isSubmittingJob">
+                    <select id="video-first-frame" v-model="canvas.video_input_roles.first_frame_node_id"
+                      :disabled="isSubmittingJob">
                       <option value="">按画布顺序使用第一张图片</option>
-                      <option v-for="image in videoImageNodes" :key="image.id" :value="image.id">{{ image.title }}</option>
+                      <option v-for="image in videoImageNodes" :key="image.id" :value="image.id">{{ image.title }}
+                      </option>
                     </select>
                   </div>
                   <div class="spec-field-mini"><label for="video-last-frame">尾帧图片</label>
-                    <select id="video-last-frame" v-model="canvas.video_input_roles.last_frame_node_id" :disabled="isSubmittingJob">
+                    <select id="video-last-frame" v-model="canvas.video_input_roles.last_frame_node_id"
+                      :disabled="isSubmittingJob">
                       <option value="">按画布顺序使用第二张；仅一张时沿用首帧（模型支持时）</option>
-                      <option v-for="image in videoImageNodes" :key="image.id" :value="image.id">{{ image.title }}</option>
+                      <option v-for="image in videoImageNodes" :key="image.id" :value="image.id">{{ image.title }}
+                      </option>
                     </select>
                   </div>
                 </div>
@@ -478,16 +490,18 @@
                     <select v-if="selectedGenerationTarget?.profile?.image_constraints" id="video-duration"
                       v-model="canvas.video_duration_seconds" required :disabled="isSubmittingJob">
                       <option disabled :value="null">请选择时长</option>
-                      <option v-for="duration in videoDurationOptions" :key="duration" :value="duration">{{ duration }} 秒</option>
+                      <option v-for="duration in videoDurationOptions" :key="duration" :value="duration">{{ duration }}
+                        秒</option>
                     </select>
-                    <input v-else id="video-duration" v-model="videoDurationInput" type="number" min="1" max="15" step="1"
-                      required placeholder="填写 1–15 秒" :disabled="isSubmittingJob" />
+                    <input v-else id="video-duration" v-model="videoDurationInput" type="number" min="1" max="15"
+                      step="1" required placeholder="填写 1–15 秒" :disabled="isSubmittingJob" />
                   </div>
                   <div class="spec-field-mini"><label for="video-resolution">视频清晰度（必选）</label>
                     <select id="video-resolution" v-model="canvas.video_resolution" required
                       :disabled="isSubmittingJob">
                       <option disabled value="">请选择清晰度</option>
-                      <option v-for="resolution in videoResolutionOptions" :key="resolution" :value="resolution">{{ resolution }}</option>
+                      <option v-for="resolution in videoResolutionOptions" :key="resolution" :value="resolution">{{
+                        resolution }}</option>
                     </select>
                   </div>
                 </div>
@@ -502,17 +516,20 @@
                     !videoReviewFresh ? '上次审理结果（内容、模型或设置已变化）' : 'AI审理结果' }}</div>
                   <div class="msg-content" v-html="renderMd(videoReview.content)"></div>
                 </div>
-                <div v-if="project?.compiled_prompt && canvas.generation_source_ids.length && canvas.generation_review?.status === 'ready'"
+                <div
+                  v-if="project?.compiled_prompt && canvas.generation_source_ids.length && canvas.generation_review?.status === 'ready'"
                   class="video-prompt-preview">
                   <div class="prompt-status">{{ videoSelectionReady ? '方案已准备好，可直接生成' : '生成来源或参数已变化，请重新审理方案' }}</div>
                   <div class="prompt-settings">{{ project.current_spec.duration_seconds }} 秒 · {{
-                    project.current_spec.aspect_ratio === 'adaptive' ? '随素材自适应' : project.current_spec.aspect_ratio }} · {{ canvas.generation_settings?.resolution || '清晰度未确认' }} · {{
-                    generationModeLabel }}</div>
+                    project.current_spec.aspect_ratio === 'adaptive' ? '随素材自适应' : project.current_spec.aspect_ratio }} ·
+                    {{ canvas.generation_settings?.resolution || '清晰度未确认' }} · {{
+                      generationModeLabel }}</div>
                   <small>生成使用审理结果中的最终参数。原始小框和上方输入保留；如需修改，请调整后重新审理。</small>
                 </div>
-               <button class="create-video-btn" :disabled="!!videoGenerationDisabledReason || isJobRunning"
+                <button class="create-video-btn" :disabled="!!videoGenerationDisabledReason || isJobRunning"
                   :aria-describedby="videoGenerationDisabledReason ? 'video-generation-reason' : undefined"
-                  @click="submitVideoJob">{{ isSubmittingJob ? '正在提交生成…' : isJobRunning ? '视频生成中…' : '2. 确认并生成视频' }}</button>
+                  @click="submitVideoJob">{{ isSubmittingJob ? '正在提交生成…' : isJobRunning ? '视频生成中…' : '2. 确认并生成视频'
+                  }}</button>
                 <p v-if="videoGenerationDisabledReason" id="video-generation-reason" class="generation-help"
                   role="status">{{ videoGenerationDisabledReason }}</p>
                 <div v-if="activeJob" class="active-job-strip">
@@ -525,9 +542,9 @@
                   </div>
                   <span class="status-txt">{{
                     activeJob.status === 'succeeded' ? '生成完成' :
-                    activeJob.status === 'failed' ? '视频生成失败' :
-                    activeJob.status === 'cancelled' ? '任务已取消' :
-                    '生成中…（厂商未提供进度）'
+                      activeJob.status === 'failed' ? '视频生成失败' :
+                        activeJob.status === 'cancelled' ? '任务已取消' :
+                          '生成中…（厂商未提供进度）'
                   }}</span>
                 </div>
               </div>
@@ -602,6 +619,10 @@ import { renderMd } from '@/utils/markdown';
 import { generationContextMatches, generationMatches, generationSources, videoDurationChoices, videoGenerationBlockReason, videoSettingsBlockReason } from '@/services/generationState';
 
 
+// 2. 初始化 router 实例
+const router = useRouter();
+
+
 import { useRouter, useRoute } from 'vue-router'; // 确保引入了 useRoute
 
 const route = useRoute();
@@ -615,6 +636,9 @@ onMounted(async () => {
     // await switchConversation(conversations.value[0].id);
   }
 });
+function goToEditor() {
+  router.push('/editor');
+}
 const workspace = useWorkspace();
 const {
   canvas, nodes, connections, pan, zoom, conversations, currentConvId, messages, inputContent,
@@ -681,7 +705,7 @@ const videoSelectionReady = computed(() => generationReady.value && !!project.va
   && generationMatches(canvas.value, project.value.current_spec_version, videoSourceIds.value, selectedGenerationTarget.value?.fingerprint));
 const videoReviewFresh = computed(() => !!project.value && !!selectedGenerationTarget.value && !targetLoading.value
   && generationContextMatches(canvas.value, project.value.current_spec_version, videoSourceIds.value, selectedGenerationTarget.value.fingerprint));
-  // 判断当前是否有正在进行中的视频生成任务
+// 判断当前是否有正在进行中的视频生成任务
 const isJobRunning = computed(() =>
   !!activeJob.value && !['succeeded', 'failed', 'cancelled'].includes(activeJob.value.status)
 );
@@ -1296,12 +1320,14 @@ onMounted(async () => {
   border-color: rgba(234, 179, 8, .35);
   background: rgba(234, 179, 8, .06);
 }
+
 /* TV 频道导航交互按钮 */
 /* 新增：左侧包裹容器，使 Logo 与 TV 按钮紧挨在一起 */
 .nav-left {
   display: flex;
   align-items: center;
-  gap: 16px; /* 控制两者之间的间距，如需更紧凑可调整为 12px ~ 14px */
+  gap: 16px;
+  /* 控制两者之间的间距，如需更紧凑可调整为 12px ~ 14px */
 }
 
 /* TV 频道导航交互按钮：删除原有 left: 2vw; */
@@ -2304,7 +2330,8 @@ button:disabled {
   top: 0;
   left: 0;
   transform-origin: 0 0;
-  will-change: transform; /* 开启硬件加速，确保节点多时依然满帧跟手 */
+  will-change: transform;
+  /* 开启硬件加速，确保节点多时依然满帧跟手 */
 }
 
 /* 鼠标拖拽画布时关闭过渡动画，保证实时跟手 */
@@ -3182,6 +3209,7 @@ button:disabled {
   0% {
     left: -35%;
   }
+
   100% {
     left: 100%;
   }
@@ -3466,12 +3494,15 @@ button:disabled {
     transform: rotate(360deg);
   }
 }
+
 /* ================= 移动端暂不支持提示层 ================= */
 .mobile-block-overlay {
-  display: none; /* 桌面端默认完全隐藏 */
+  display: none;
+  /* 桌面端默认完全隐藏 */
 }
 
 @media (max-width: 768px) {
+
   /* 移动端全屏弹层高优先级覆盖 */
   .mobile-block-overlay {
     position: fixed;
@@ -3523,9 +3554,12 @@ button:disabled {
   }
 
   @keyframes iconBounce {
-    0%, 100% {
+
+    0%,
+    100% {
       transform: translateY(0);
     }
+
     50% {
       transform: translateY(-8px);
     }
@@ -3538,6 +3572,7 @@ button:disabled {
   .guide-modal-mask {
     display: none !important;
   }
+
   /* 按钮组合容器 */
   .mobile-actions-group {
     display: flex;

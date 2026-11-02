@@ -33,7 +33,13 @@ const routes = [
     path: '/login',
     name: 'Login',
     component: () => import('@/views/LoginView.vue'),
-  }
+  },
+  {
+  path: '/editor',
+  name: 'Editor',
+  component: () => import('@/views/EditorView.vue'),
+  meta: { requiresAuth: true }
+}
 ];
 
 const router = createRouter({

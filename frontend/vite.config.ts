@@ -4,7 +4,7 @@ import path from 'path';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const apiTarget = env.VITE_API_PROXY_TARGET || 'http://47.99.35.159';
+  const apiTarget = env.VITE_API_PROXY_TARGET || 'https://hello-world.zerohyh.com/';
   return {
   plugins: [vue()],
   resolve: {

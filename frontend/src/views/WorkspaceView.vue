@@ -422,7 +422,10 @@
                 </div>
                 <div v-if="isAgentResponding" class="message-row assistant">
                   <div class="avatar">AI</div>
-                  <div class="bubble thinking"><span class="loading-spinner"></span><span>AI 正在回复，小框原文已保留…</span></div>
+                  <div class="bubble thinking" role="status" aria-live="polite">
+                    <span class="loading-spinner" aria-hidden="true"></span>
+                    <span class="thinking-text">AI 正在回复，小框原文已保留…</span>
+                  </div>
                 </div>
               </div>
               <div class="drawer-input-box">
@@ -500,8 +503,18 @@
                       <option v-for="duration in videoDurationOptions" :key="duration" :value="duration">{{ duration }}
                         秒</option>
                     </select>
-                    <input v-else id="video-duration" v-model="videoDurationInput" type="number" min="1" max="15"
-                      step="1" required placeholder="填写 1–15 秒" :disabled="isSubmittingJob" />
+                    <div v-else class="duration-control">
+                      <input id="video-duration" v-model="videoDurationInput" type="number" min="1" max="15"
+                        step="1" required placeholder="填写 1–15 秒" :disabled="isSubmittingJob" />
+                      <div class="duration-stepper">
+                        <button type="button" aria-label="减少 1 秒" aria-controls="video-duration"
+                          :disabled="isSubmittingJob || (videoDurationInput !== '' && Number(videoDurationInput) <= 1)"
+                          @click="adjustVideoDuration(-1)">−</button>
+                        <button type="button" aria-label="增加 1 秒" aria-controls="video-duration"
+                          :disabled="isSubmittingJob || (videoDurationInput !== '' && Number(videoDurationInput) >= 15)"
+                          @click="adjustVideoDuration(1)">+</button>
+                      </div>
+                    </div>
                   </div>
                   <div class="spec-field-mini"><label for="video-resolution">视频清晰度（必选）</label>
                     <select id="video-resolution" v-model="canvas.video_resolution" required
@@ -730,6 +743,12 @@ const videoDurationInput = computed({
   get: () => canvas.value.video_duration_seconds ?? '',
   set: (value: string | number) => { canvas.value.video_duration_seconds = value === '' ? null : Number(value); },
 });
+function adjustVideoDuration(delta: number) {
+  const value = Number(videoDurationInput.value);
+  videoDurationInput.value = videoDurationInput.value === '' || !Number.isFinite(value)
+    ? 1
+    : Math.max(1, Math.min(15, delta > 0 ? Math.floor(value) + 1 : Math.ceil(value) - 1));
+}
 const videoDurationOptions = computed(() => videoDurationChoices(selectedGenerationTarget.value));
 const videoResolutionOptions = computed(() => {
   const resolutions = selectedGenerationTarget.value?.profile?.resolutions;
@@ -3130,6 +3149,18 @@ button:disabled {
   background: #26334d;
 }
 
+.bubble.thinking {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.thinking-text {
+  min-width: 0;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
 .citations-fold {
   margin-top: 4px;
   font-size: 10px;
@@ -3193,6 +3224,66 @@ button:disabled {
 .video-generation-settings input:focus {
   outline: 2px solid #7484f6;
   outline-offset: 1px;
+}
+
+.video-generation-settings .spec-field-mini {
+  min-width: 0;
+}
+
+.duration-control {
+  position: relative;
+}
+
+.duration-control input[type="number"] {
+  padding-right: 82px;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.duration-control input::-webkit-inner-spin-button,
+.duration-control input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.duration-stepper {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 4px;
+}
+
+.duration-stepper button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #35415a;
+  border-radius: 5px;
+  background: #253047;
+  color: #c7d2fe;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.duration-stepper button:hover:not(:disabled) {
+  background: #354267;
+  border-color: #7484f6;
+}
+
+.duration-stepper button:focus-visible {
+  outline: 2px solid #7484f6;
+  outline-offset: 1px;
+}
+
+.duration-stepper button:disabled {
+  opacity: .4;
+  cursor: not-allowed;
 }
 
 .create-video-btn {
@@ -3530,13 +3621,15 @@ button:disabled {
 }
 
 .loading-spinner {
-  width: 14px;
-  height: 14px;
+  box-sizing: border-box;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
   border: 2px solid #64748b;
   border-top-color: #38bdf8;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
-  display: inline-block;
+  display: block;
 }
 
 @keyframes spin {

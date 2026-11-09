@@ -154,6 +154,7 @@
             </button>
             <button class="glass-pill-btn" @click.stop="addNode('text')">添加文本</button>
             <button class="glass-pill-btn" @click.stop="addNode('image')">添加图片</button>
+            <button class="glass-pill-btn image-generate-entry" @click.stop="openImageGeneration()">✧ AI 生图</button>
             <span class="canvas-project-title">{{ activeConversation?.title || '新创作工作流' }}</span>
           </div>
 
@@ -286,6 +287,7 @@
 
               <!-- 图片节点 -->
               <div v-else-if="node.type === 'image'" class="node-body image-body">
+                <button class="image-generate-node" @mousedown.stop @click.stop="openImageGeneration(node)">✧ AI 生图</button>
                 <label class="image-upload-hover-pill" @click.stop>
                   <input type="file" accept="image/*" class="hidden-file-input" :disabled="uploading.includes(node.id)"
                     @change="handleImageUpload($event, node)" />
@@ -303,6 +305,7 @@
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                         d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
+                    <p class="empty-image-portrait-note" @pointerdown.stop @mousedown.stop @click.stop>人像素材请使用 AI 生图，参见<button type="button" @click.stop="portraitNoticeOpen = true">人像素材须知</button>。</p>
                   </div>
                 </div>
               </div>
@@ -371,8 +374,11 @@
             </div>
             <div class="drawer-tabs" role="tablist" aria-label="创作步骤">
               <button role="tab" :aria-selected="agentTab === 'chat'" @click="agentTab = 'chat'">AI 协作</button>
+              <button role="tab" :aria-selected="agentTab === 'image'" @click="openImageGeneration()">素材生图</button>
               <button role="tab" :aria-selected="agentTab === 'video'" @click="agentTab = 'video'">生成视频</button>
             </div>
+
+            <ImageGenerationPanel embedded :open="imageGenerationOpen" :account-id="accountId" :conversation-id="currentConvId" :nodes="nodes" :canvas-busy="loading" :source-node-id="imageSourceNodeId" @close="isAgentDrawerOpen = false" @insert="insertGeneratedImage" @portrait-notice="portraitNoticeOpen = true" />
 
             <div v-show="agentTab === 'chat'" class="drawer-conversation">
               <div class="ai-target-picker">
@@ -385,7 +391,7 @@
                       node.title }}</option>
                   </select>
                 </div>
-                <small>自由讨论不会改动小框。点击“确定并写入小框”后，待写入正文才会替换小框文字，可撤销。</small>
+                <small>选中图片可请 AI 看图，拖入小框可固定参考。自由讨论不会改动小框。点击“确定并写入小框”后，待写入正文才会替换小框文字，可撤销。</small>
               </div>
               <div v-if="referencedNodes.length" class="node-binding-banner">
                 <div class="banner-tags"><span class="banner-label">参考：</span><span v-for="node in referencedNodes"
@@ -398,13 +404,13 @@
                 <div v-for="msg in messages" :key="msg.id" :class="['message-row', msg.role]">
                   <div class="avatar">{{ msg.role === 'user' ? '你' : 'AI' }}</div>
                   <div class="bubble">
-                    <div v-if="msg.model_name === 'local-preview'" class="message-source">历史模拟回复 · 江南旅行示例</div>
+                    <div v-if="msg.model_name === 'local-preview'" class="message-source">历史示例回复</div>
                     <div v-else-if="msg.model_name" class="message-source">{{ msg.model_name }}</div>
                     <div class="msg-content" v-html="renderMd(msg.content)"></div>
                     <div v-if="aiTargetNode?.pending_ai?.message_id === msg.id" class="pending-content-card">
                       <div class="pending-content-title">待写入正文 · {{ aiTargetNode.title }}</div>
                       <p v-if="aiTargetNode.pending_ai.source_model === 'local-preview'" class="proposal-help">
-                        这是之前的模拟测试内容。发送消息后，真实 AI 会为你重新创作。</p>
+                        这是历史示例内容。发送新的创作要求，即可获得 AI 回复。</p>
                       <p v-else class="proposal-help">下方正文是点击“确定并写入小框”后实际写入的内容，聊天中的解释不会写入。</p>
                       <div class="msg-content" v-html="renderMd(aiTargetNode.pending_ai.content)"></div>
                       <p v-if="aiTargetNode.pending_ai.original !== undefined && aiTargetNode.pending_ai.original !== (aiTargetNode.content || '')"
@@ -443,9 +449,10 @@
                 <p class="generation-help">选中一个或多个小框，AI 会先给出可直接生成的最终方案，再提供可选建议。缺少的创作细节会补全并注明。</p>
                 <div class="generation-source-list">当前选中：{{videoSourceNodes.map(n => n.title).join('、') || '请先在画布选中小框'
                 }}</div>
-                <small class="generation-help">Ctrl 点击或拖动画布框选可选择多个小框。</small>
+                <small class="generation-help">Ctrl 点击或拖动画布框选可选择多个小框；选中的图片及连线图片会供 AI 看图审理。</small>
                 <p v-if="videoSourceNodes.some(n => n.pending_ai)" class="generation-help">部分小框有尚未采用的 AI
                   正文。视频只使用小框当前文字；需要采用时，请先回到“AI 协作”写入。</p>
+                <p class="generation-help portrait-channel-help" @mousedown.stop>使用人像素材时，图片生成通道需与视频生成通道配套同源。<button type="button" @click.stop="portraitNoticeOpen = true">人像素材须知</button></p>
                 <div class="spec-field-mini"><label for="video-api">视频生成通道</label>
                   <select id="video-api" v-model="selectedApiConfigId" :disabled="isSubmittingJob">
                     <option value="platform">平台体验通道（每日限 1 次）</option>
@@ -509,7 +516,7 @@
                 <p class="generation-help">AI 会按当前模型与设置审理，说明必要的参数调整和图片处理。点击生成即采用审理结果，画布原图保留。修改内容、通道、模式或参数后需重新审理。</p>
                 <button class="prepare-video-btn"
                   :disabled="!videoSourceNodes.length || !!videoSettingsReason || targetLoading || isPreparingVideo || isAgentResponding || isSubmittingJob || isConfirming"
-                  @click="prepareVideo">{{ isPreparingVideo ? 'AI 正在审理…' : 'AI审理方案' }}</button>
+                  @click="prepareVideo">{{ isPreparingVideo ? 'AI 正在审理…' : '1. AI审理方案' }}</button>
                 <div v-if="videoReview" class="video-review-feedback" :class="videoReview.kind" role="status"
                   aria-live="polite">
                   <div class="review-heading">{{ videoReview.kind === 'loading' ? 'AI审理中' :
@@ -532,6 +539,7 @@
                   }}</button>
                 <p v-if="videoGenerationDisabledReason" id="video-generation-reason" class="generation-help"
                   role="status">{{ videoGenerationDisabledReason }}</p>
+                <p v-if="videoSubmissionError" class="video-failure-detail" role="status">{{ videoSubmissionError }}</p>
                 <div v-if="activeJob" class="active-job-strip">
                   <div class="progress-bar-bg">
                     <div class="progress-bar-inner" :class="{
@@ -546,6 +554,7 @@
                         activeJob.status === 'cancelled' ? '任务已取消' :
                           '生成中…（厂商未提供进度）'
                   }}</span>
+                  <p v-if="activeJob.error?.message" class="video-failure-detail">{{ activeJob.error.message }}</p>
                 </div>
               </div>
             </div>
@@ -553,6 +562,18 @@
         </div>
       </Transition>
     </div>
+
+    <PortraitMaterialNotice :open="portraitNoticeOpen" @close="portraitNoticeOpen = false" />
+    <Teleport to="body">
+      <div v-if="portraitFailure" class="portrait-failure-mask" @click.self="portraitFailure = null" @keydown.esc.prevent="portraitFailure = null" @keydown.tab.prevent="portraitClose?.focus()">
+        <section class="portrait-failure-dialog" role="alertdialog" aria-modal="true" aria-labelledby="portrait-failure-title" aria-describedby="portrait-failure-description">
+          <h3 id="portrait-failure-title">人像图片未通过生成要求</h3>
+          <p id="portrait-failure-description">{{ portraitFailureMessage }}</p>
+          <p v-if="portraitFailure.message" class="portrait-vendor-detail">{{ portraitFailure.message }}</p>
+          <button ref="portraitClose" @click="portraitFailure = null">知道了</button>
+        </section>
+      </div>
+    </Teleport>
 
     <!-- ================= 国际传播指引弹窗 ================= -->
     <div v-if="showGuideModal" class="guide-modal-mask" @click.self="closeGuideModal">
@@ -614,17 +635,17 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import { useWorkspace, newId } from '@/composables/useWorkspace';
+import PortraitMaterialNotice from '@/components/PortraitMaterialNotice.vue';
+import ImageGenerationPanel from '@/components/ImageGenerationPanel.vue';
+import { collaborationReferenceIds, portraitFailureMessage } from '@/services/workspaceFeedback';
+import { createImageNode } from '@/services/imageGeneration';
+import type { ImageJob } from '@/types/imageGeneration';
 import type { FlowNode, FlowConnection } from '@/types/canvas';
 import { renderMd } from '@/utils/markdown';
 import { generationContextMatches, generationMatches, generationSources, videoDurationChoices, videoGenerationBlockReason, videoSettingsBlockReason } from '@/services/generationState';
+import { useRouter, useRoute } from 'vue-router';
 
-
-// 2. 初始化 router 实例
 const router = useRouter();
-
-
-import { useRouter, useRoute } from 'vue-router'; // 确保引入了 useRoute
-
 const route = useRoute();
 
 onMounted(async () => {
@@ -641,10 +662,10 @@ function goToEditor() {
 }
 const workspace = useWorkspace();
 const {
-  canvas, nodes, connections, pan, zoom, conversations, currentConvId, messages, inputContent,
+  canvas, nodes, connections, pan, zoom, conversations, currentConvId, accountId, messages, inputContent,
   project, apiConfigs, selectedApiConfigId, isSubmittingJob, isConfirming, isAgentResponding,
   selectedGenerationTarget, targetLoading, targetError,
-  isCreatingConv, isAgentDrawerOpen, referencedNodeIds, aiTargetNodeId, activeJob,
+  isCreatingConv, isAgentDrawerOpen, referencedNodeIds, aiTargetNodeId, activeJob, portraitFailure, videoSubmissionError,
   generationReady, isPreparingVideo, videoReview, initialized, loading, notice, saveState, saveLabel, uploading,
   switchConversation, createNewConversation, backToProjectSpace, retrySave, resolveConflict,
   restoreBeforeAi, handleLogout,
@@ -652,9 +673,33 @@ const {
 const viewportRef = ref<HTMLElement | null>(null);
 const messagesContainerRef = ref<HTMLElement | null>(null);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
-const agentTab = ref<'chat' | 'video'>('chat');
+const portraitNoticeOpen = ref(false);
+watch(currentConvId, () => { portraitNoticeOpen.value = false; });
+const portraitClose = ref<HTMLButtonElement | null>(null);
+let portraitPreviousFocus: HTMLElement | null = null;
+watch(portraitFailure, async value => {
+  if (value) { portraitPreviousFocus = document.activeElement as HTMLElement; await nextTick(); portraitClose.value?.focus(); }
+  else if (portraitPreviousFocus?.isConnected) portraitPreviousFocus.focus();
+});
+const agentTab = ref<'chat' | 'image' | 'video'>('chat');
 const isAgentExpanded = ref(false);
 const activeNodeId = ref('');
+const imageGenerationOpen = computed(() => isAgentDrawerOpen.value && agentTab.value === 'image');
+const imageSourceNodeId = ref('');
+function openImageGeneration(node?: FlowNode) {
+  if (loading.value || !currentConvId.value) return;
+  imageSourceNodeId.value = node?.id || '';
+  agentTab.value = 'image'; isAgentDrawerOpen.value = true;
+}
+function insertGeneratedImage(job: ImageJob) {
+  if (loading.value || job.conversation_id !== currentConvId.value) return;
+  const source = nodes.value.find(n => n.id === imageSourceNodeId.value);
+  const node = createImageNode(nodes.value, job, newId(), source);
+  if (!node) return;
+  nodes.value.push(node); activeNodeId.value = node.id;
+  notice.value = '图片已插入画布，可用作参考图或首帧。';
+}
+watch(currentConvId, () => { imageSourceNodeId.value = ''; });
 const editingNodeId = ref('');
 const nodeEditors = new Map<string, HTMLTextAreaElement>();
 function setNodeEditor(id: string, element: unknown) {
@@ -742,7 +787,8 @@ const deletedNode = ref<{ node: FlowNode; connections: FlowConnection[] } | null
 const vAutofocus = { mounted: (element: HTMLInputElement) => { element.focus({ preventScroll: true }); element.select(); } };
 
 const referencedNodes = computed(() => {
-  const ids = referencedNodeIds.value.length ? referencedNodeIds.value : [...selectedNodeIds.value, activeNodeId.value];
+  const fallback = referencedNodeIds.value.length ? referencedNodeIds.value : [...selectedNodeIds.value, activeNodeId.value];
+  const ids = collaborationReferenceIds(nodes.value, fallback, [...selectedNodeIds.value, activeNodeId.value], aiTargetNodeId.value);
   return nodes.value.filter(n => ids.includes(n.id));
 });
 function clearReferencedNodes() { referencedNodeIds.value = []; selectedNodeIds.value = []; activeNodeId.value = ''; }
@@ -2698,6 +2744,10 @@ button:disabled {
   z-index: 10;
 }
 
+.image-generate-entry { color: #c7c8ff; border-color: #605e9666; }
+.image-generate-node { position: absolute; right: 9px; bottom: 9px; z-index: 12; border: 1px solid #7874b788; border-radius: 7px; background: #24253ce8; color: #d0ceff; font-size: 11px; padding: 6px 9px; cursor: pointer; box-shadow: 0 3px 10px #0004; }
+.image-generate-node:hover { background: #44416a; }
+
 .image-upload-hover-pill svg {
   width: 14px;
   height: 14px;
@@ -3640,4 +3690,22 @@ button:disabled {
     box-shadow: 0 0 6px #ef4444;
   }
 }
+</style>
+
+<style scoped>
+.video-failure-detail{color:#fca5a5;font-size:12px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0}
+.portrait-failure-mask{position:fixed;inset:0;z-index:1800;display:flex;align-items:center;justify-content:center;background:#020617b8;backdrop-filter:blur(4px);padding:24px}
+.portrait-failure-dialog{width:min(460px,100%);padding:26px;background:#151b29;border:1px solid #3b465f;border-radius:15px;color:#e2e8f0;box-shadow:0 24px 90px #0009}
+.portrait-failure-dialog h3{margin:0 0 16px;font-size:18px}
+.portrait-failure-dialog p{line-height:1.8;font-size:14px;overflow-wrap:anywhere}
+.portrait-failure-dialog .portrait-vendor-detail{color:#94a3b8;font-size:12px;white-space:pre-wrap}
+.portrait-failure-dialog button{display:block;margin:22px 0 0 auto;border:1px solid #818cf8;border-radius:7px;background:#6366f1;padding:10px 22px;color:white;cursor:pointer}
+</style>
+
+<style scoped>
+.image-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 16px 20px}
+.empty-image-portrait-note{max-width:180px;margin:12px 0 0;text-align:center;font-size:10px;line-height:1.7;color:#78869e;cursor:default}
+.empty-image-portrait-note button,.portrait-channel-help button{display:inline;border:0;background:none;padding:0;color:#a5b4fc;font:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.portrait-channel-help button{margin-left:5px;white-space:nowrap}
+.empty-image-portrait-note button:focus-visible,.portrait-channel-help button:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px;border-radius:2px}
 </style>

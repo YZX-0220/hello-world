@@ -6,7 +6,7 @@
         <div class="brand">
           <div class="brand-avatar">H</div>
           <span class="brand-name">Hello World</span>
-          <span class="sub-badge desktop-only">视频 API 接口配置中心</span>
+          <span class="sub-badge desktop-only">API 接口配置中心</span>
         </div>
       </router-link>
       <!-- 返回工作台：直接定位至 B 页面（网格节点视图） -->
@@ -42,9 +42,11 @@
             </svg>
             <span>已有 API</span>
           </a>
+          <a class="menu-item" :class="{ active: activeTab === 'image' }" @click="switchTab('image')"><span>✧</span><span>图片 API</span></a>
         </nav>
       </aside>
 
+      <main class="content-panel" v-if="activeTab === 'image'"><ImageApiConfigPanel /></main>
       <!-- 选项卡 1：账户信息面板 -->
       <main class="content-panel" v-if="activeTab === 'account'">
         <div class="panel-header">
@@ -91,7 +93,7 @@
 
           <div class="logout-action-box">
             <div class="logout-hint">
-              退出登录后将清除本地会话与跨站凭证，下次使用需重新验证。
+              退出后，下次使用需要重新登录。
             </div>
             <button class="logout-action-btn" :disabled="isLoggingOut" @click="handleLogout">
               {{ isLoggingOut ? '正在注销...' : '退出登录' }}
@@ -113,7 +115,7 @@
               d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
               clip-rule="evenodd" />
           </svg>
-          <span>当前页面仅配置视频生成底模。首期文本叙事 Agent 由服务器环境变量统一托管。</span>
+          <span>在此配置视频生成服务。图片生成服务请前往「图片 API」设置。</span>
         </div>
 
         <!-- 卡片 1：基本信息与协议 -->
@@ -201,7 +203,7 @@
               <span>{{ testMessage || '建议在保存前进行轻量无付费连通性校验。' }}</span>
             </div>
             <button type="button" class="secondary-btn" :disabled="isTesting" @click="handleTest">
-              {{ isTesting ? '测试中...' : '无付费检测连通性' }}
+              {{ isTesting ? '检测中…' : '无付费检测连通性' }}
             </button>
           </div>
         </section>
@@ -313,16 +315,17 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import request from '@/utils/request';
+import ImageApiConfigPanel from '@/components/ImageApiConfigPanel.vue';
 
 const router = useRouter();
 const route = useRoute();
 
 // 选项卡状态：支持 account / byok / existing
-const activeTab = ref<'account' | 'byok' | 'existing'>(
+const activeTab = ref<'account' | 'byok' | 'existing' | 'image'>(
   (route.query.tab as any) || 'byok'
 );
 
-function switchTab(tab: 'account' | 'byok' | 'existing') {
+function switchTab(tab: 'account' | 'byok' | 'existing' | 'image') {
   activeTab.value = tab;
   if (tab === 'existing') {
     fetchExistingConfigs();
@@ -332,7 +335,7 @@ function switchTab(tab: 'account' | 'byok' | 'existing') {
 watch(
   () => route.query.tab,
   (newTab) => {
-    if (newTab === 'account' || newTab === 'byok' || newTab === 'existing') {
+    if (newTab === 'account' || newTab === 'byok' || newTab === 'existing' || newTab === 'image') {
       activeTab.value = newTab;
       if (newTab === 'existing') fetchExistingConfigs();
     }

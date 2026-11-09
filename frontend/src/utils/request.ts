@@ -56,7 +56,7 @@ service.interceptors.response.use(
         request_id: error.response.headers['x-request-id'] || ''
       };
       
-      return Promise.reject(serverError);
+      return Promise.reject({ ...serverError, status });
     }
     
     return Promise.reject({

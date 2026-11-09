@@ -7,6 +7,8 @@ import { CanvasPersistence, type CanvasSession } from '../services/canvasPersist
 import { copy, createCanvas } from '../services/canvasState';
 import { generationMatches, savedVideoReview, videoSettingsBlockReason } from '../services/generationState';
 
+import { collaborationReferenceIds, portraitFailureGate } from '../services/workspaceFeedback';
+
 type Page<T> = { items: T[]; next_cursor: string | null };
 type MessageResult = { user_message: MessageView | null; assistant_message: MessageView | null; project: VideoProjectView; run_status: string };
 
@@ -21,6 +23,7 @@ export function useWorkspace() {
   const route = useRoute();
   const canvas = ref<CanvasDocument>(createCanvas(''));
   const currentConvId = ref('');
+  const accountId = ref('');
   const conversations = ref<ConversationView[]>([]);
   const messages = ref<MessageView[]>([]);
   const project = ref<VideoProjectView | null>(null);
@@ -31,6 +34,18 @@ export function useWorkspace() {
   let targetSequence = 0;
   const submissionKeys = new Map<string, string>();
   const jobs = ref<VideoJobView[]>([]);
+  const portraitFailure = ref<{ message: string } | null>(null);
+  const videoSubmissionError = ref('');
+  const claimPortraitFailure = portraitFailureGate();
+  watch(currentConvId, () => { portraitFailure.value = null; videoSubmissionError.value = ''; }, { flush: 'sync' });
+  watch(jobs, values => {
+    let latest: { message: string } | null = null;
+    for (const job of values) {
+      if (claimPortraitFailure(currentConvId.value, job.conversation_id, `job:${job.id}`, job.error?.code) && !latest)
+        latest = { message: job.error?.message || '' };
+    }
+    if (latest) portraitFailure.value = latest;
+  }, { deep: true });
   const loading = ref(false);
   const initialized = ref(false);
   const isCreatingConv = ref(false);
@@ -220,7 +235,7 @@ export function useWorkspace() {
       });
       const response = await request.post<MessageResult, MessageResult>(`/conversations/${id}/messages`, {
         content: instruction, client_request_id: requestId, web_search_enabled: true,
-        canvas_collaboration: { target_node_id: targetId, reference_node_ids: referenceIds, apply_mode: 'replace' },
+        canvas_collaboration: { target_node_id: targetId, reference_node_ids: collaborationReferenceIds(nodes.value, referenceIds, [], targetId), apply_mode: 'replace' },
       });
       store.acceptRemote(id, response.project);
       void store.flush(id);
@@ -275,7 +290,8 @@ export function useWorkspace() {
       const session = store.sessions.get(id);
       const target = session?.document.nodes.find(n => n.id === nodeId);
       if (target && session) {
-        target.url = asset.content_url; target.asset_id = asset.id;
+        target.asset_id = asset.id;
+        target.url = asset.content_url || `/api/v1/assets/${asset.id}/content`;
         store.edit(id, session.document); await store.flush(id);
       }
     } catch (err: any) { notice.value = err.message || '图片上传失败，原图已保留'; }
@@ -358,7 +374,7 @@ export function useWorkspace() {
       && store.sessions.get(id)?.document.generation_review?.fingerprint === fingerprint
       && generationMatches(store.sessions.get(id)!.document, snapshot.current_spec_version, ids,
         selectedGenerationTarget.value?.fingerprint);
-    isSubmittingJob.value = true;
+    isSubmittingJob.value = true; videoSubmissionError.value = '';
     try {
       const target = await loadGenerationTarget(configId);
       if (target.error || target.fingerprint !== document.generation_target?.fingerprint || !stillMatches()) {
@@ -386,18 +402,27 @@ export function useWorkspace() {
         notice.value = '已采用审理区展示的方案与参数并提交生成。';
       }
     } catch (err: any) {
-      notice.value = err.message || '视频任务提交失败';
-      if (currentConvId.value === id) { await refreshProject(id, false); await loadGenerationTarget(configId).catch(() => {}); }
+      if (currentConvId.value === id) {
+        notice.value = err.message || '视频任务提交失败';
+        videoSubmissionError.value = notice.value;
+        if (claimPortraitFailure(currentConvId.value, id, `submission:${err.request_id || fingerprint}`, err.code))
+          portraitFailure.value = { message: err.message || '' };
+        await refreshProject(id, false); await loadGenerationTarget(configId).catch(() => {});
+      }
     } finally { isSubmittingJob.value = false; }
   }
 
   function materializeJob(id: string, job: VideoJobView) {
     const session = store?.sessions.get(id);
     if (!session || job.status !== 'succeeded' || session.document.dismissed_job_ids.includes(job.id)) return;
-    const url = job.result_asset_id ? `/api/v1/assets/${job.result_asset_id}/content` : job.result_direct_url;
+    const url = job.result_asset_id ? `/api/v1/assets/${job.result_asset_id}/content` : (job.result_direct_url || '');
     if (!url) return;
     let node = session.document.nodes.find(n => n.job_id === job.id || n.id === `video_${job.id}`);
-    if (node) { if (node.url !== url) { node.url = url; store?.edit(id, session.document); } return; }
+    if (node) {
+      if (job.result_asset_id) node.asset_id = job.result_asset_id;
+      if (node.url !== url) { node.url = url; store?.edit(id, session.document); }
+      return;
+    }
     const source = session.document.nodes.find(n => n.id === job.generation_options.canvas_source_node_id);
     node = {
       id: `video_${job.id}`, job_id: job.id, type: 'video', title: '生成视频结果',
@@ -488,6 +513,7 @@ export function useWorkspace() {
     try {
       const user = await request.get<UserView, UserView>('/users/me');
       if (disposed) return;
+      accountId.value = user.id;
       store = new CanvasPersistence(user.id, {
         getItem: key => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value), removeItem: key => localStorage.removeItem(key),
       }, {
@@ -518,9 +544,9 @@ export function useWorkspace() {
   });
 
   return {
-    canvas, nodes, connections, pan, zoom, currentConvId, conversations, messages, project, apiConfigs, selectedGenerationTarget, targetLoading, targetError,
+    canvas, nodes, connections, pan, zoom, currentConvId, accountId, conversations, messages, project, apiConfigs, selectedGenerationTarget, targetLoading, targetError,
     inputContent, referencedNodeIds, aiTargetNodeId, selectedApiConfigId, isAgentResponding, isCreatingConv, isSubmittingJob,
-    isConfirming, isPreparingVideo, videoReview, isAgentDrawerOpen, activeJob, generationReady, initialized, loading, notice, saveState, saveLabel, uploading,
+    isConfirming, isPreparingVideo, videoReview, isAgentDrawerOpen, activeJob, portraitFailure, videoSubmissionError, generationReady, initialized, loading, notice, saveState, saveLabel, uploading,
     switchConversation, createNewConversation, backToProjectSpace, deleteConversation, sendMessage, uploadImage,
     confirmSpec, prepareVideo, submitVideoJob, retrySave, resolveConflict, restoreBeforeAi, handleLogout, loadConversations, loadGenerationTarget
   };

@@ -142,13 +142,17 @@ class ObsStorage(Storage):
         filename: str | None = None,
         image_process: str | None = None,
         download: bool = False,
+        content_type: str | None = None,
     ) -> str:
         """生成供浏览器直接播放/查看/下载的预签名 GET URL。
 
         支持 image_process 参数（可传预设别名如 small/medium 或完整 OBS 图像处理规则）。
+        content_type 用于覆盖对象默认的 binary/octet-stream，供外部下载方按图片类型识别。
         """
         clean_key = object_key.lstrip("/")
         queryParams: dict[str, Any] = {}
+        if content_type:
+            queryParams["response-content-type"] = content_type
         if filename:
             from urllib.parse import quote
 

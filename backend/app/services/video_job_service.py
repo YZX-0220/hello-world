@@ -35,6 +35,7 @@ from app.core.errors import (
 from app.core.ids import new_id
 from app.core.security import decrypt_secret
 from app.core.time import now
+from app.db.models.asset import Asset
 from app.db.models.project import VideoProject
 from app.db.models.video_api_config import VideoApiConfig, VideoApiConfigRevision
 from app.db.models.video_job import VideoJob, VideoJobAsset, VideoJobEvent
@@ -55,6 +56,7 @@ from app.schemas.video_job import CreateVideoCommand, ErrorInfo, VideoJobEventVi
 from app.services.canvas_video_service import reviewed_version
 from app.services.provider_asset_url import sign_provider_asset
 from app.services.video_download_service import VideoDownloadService
+from app.storage import ObsStorage, get_asset_storage
 from app.video_registry import get_template
 from app.video_registry.models import EndpointSpec, ProtocolTemplate
 
@@ -65,6 +67,9 @@ _ERROR_MAP = {
     "VIDEO_PROTOCOL_UNSUPPORTED": VIDEO_PROTOCOL_UNSUPPORTED,
     "UNSAFE_BASE_URL": VIDEO_PROTOCOL_UNSUPPORTED,
 }
+
+# 厂商可能排队后才取图，OBS 直链有效期不短于 30 分钟。
+_INPUT_URL_MIN_TTL_SECONDS = 1800
 
 # 平台自有通道（保留字）：无需用户视频接口配置，直接用 settings.video_platform_* 提交。
 # 每用户每天限 1 次，计数存 Redis：plat_quota:{user_id}:{YYYY-MM-DD}。
@@ -303,7 +308,7 @@ class VideoJobService:
         ctx = self._platform_ctx(job) if is_platform else self._ctx(revision)
         try:
             result = await get_video_provider(job.protocol_code).submit(
-                self._provider_request(job, assets), ctx
+                await self._provider_request(job, assets), ctx
             )
             job.provider_task_id = result.provider_task_id
             job.provider_context_id = result.provider_context_id
@@ -577,7 +582,7 @@ class VideoJobService:
         await self._redis.incr(key)
         await self._redis.expire(key, _PLATFORM_QUOTA_TTL_SECONDS)
 
-    def _provider_request(
+    async def _provider_request(
         self, job: VideoJob, assets: list[tuple[str, str, int]]
     ) -> dict[str, Any]:
         request = json.loads(job.request_json or "{}")
@@ -585,8 +590,7 @@ class VideoJobService:
             ttl = max(
                 settings.signed_url_ttl_seconds, int(request.get("input_url_ttl_seconds") or 0)
             )
-            token, _ = sign_provider_asset(asset_id, job.id, role, settings.app_secret, ttl)
-            url = f"{settings.app_base_url.rstrip('/')}/api/v1/provider-assets/{token}"
+            url = await self._input_url(asset_id, job.id, role, ttl)
             if role == "first_frame":
                 request["first_frame_url"] = url
             elif role == "last_frame":
@@ -598,6 +602,20 @@ class VideoJobService:
             elif role == "audio":
                 request["audio_url"] = url
         return request
+
+    async def _input_url(self, asset_id: str, job_id: str, role: str, ttl: int) -> str:
+        """OBS 素材直接给对象预签名地址，厂商无需访问本站域名，也不必跟随 302 跳转。"""
+        asset = await self._session.get(Asset, asset_id)
+        if asset is not None:
+            storage = get_asset_storage(asset)
+            if isinstance(storage, ObsStorage):
+                return storage.generate_presigned_download_url(
+                    asset.storage_key,
+                    expires=max(ttl, _INPUT_URL_MIN_TTL_SECONDS),
+                    content_type=asset.mime_type or None,
+                )
+        token, _ = sign_provider_asset(asset_id, job_id, role, settings.app_secret, ttl)
+        return f"{settings.app_base_url.rstrip('/')}/api/v1/provider-assets/{token}"
 
     async def _load_project(self, user_id: str, command: CreateVideoCommand) -> VideoProject:
         project = (

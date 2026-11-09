@@ -7,7 +7,6 @@ import io
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
-from urllib.parse import urlsplit
 
 import pytest
 from app.core.config import settings
@@ -153,13 +152,13 @@ async def test_video_review_checks_and_serves_obs_derived_image(
     )
     response = await submit(client, cid, headers, reviewed)
     assert response.status_code == 202, response.text
-    served = await client.get(urlsplit(requests[0]["first_frame_url"]).path)
-    assert served.status_code == 302
-    assert served.headers["location"].endswith(derived.storage_key)
+    first_url = requests[0]["first_frame_url"]
+    assert first_url.startswith("https://obs.example.invalid/")
+    assert first_url.endswith(derived.storage_key)
+    query = obs_memory.sdk.createSignedUrl.call_args.kwargs["queryParams"]
+    assert query["response-content-type"] == derived.mime_type
     # Provider receives the original object, never an OBS thumbnail transformation.
-    assert "x-image-process" not in (
-        obs_memory.sdk.createSignedUrl.call_args.kwargs["queryParams"] or {}
-    )
+    assert "x-image-process" not in query
     obs_memory.objects[derived.storage_key] = b"tampered image"
     assert (await confirm(client, cid, headers, reviewed)).status_code == 409
 

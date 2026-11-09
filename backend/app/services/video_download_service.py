@@ -115,6 +115,7 @@ class VideoDownloadService:
             purpose="result",
             original_name=f"video-{job.id[:8]}.mp4",
             storage_key=storage_key,
+            storage_provider="obs" if isinstance(self._storage, ObsStorage) else "local",
             mime_type="video/mp4",
             size_bytes=stored.size_bytes,
             sha256=stored.sha256,

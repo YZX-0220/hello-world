@@ -17,7 +17,7 @@ from app.core.errors import ASSET_NOT_FOUND, AppError
 from app.db.models.asset import Asset
 from app.db.redis import get_redis
 from app.services.provider_asset_url import ProviderAssetUrlService
-from app.storage import LocalStorage, ObsStorage, get_storage
+from app.storage import ObsStorage, get_asset_storage
 
 router = APIRouter()
 
@@ -37,15 +37,12 @@ async def provider_asset(
     if row is None:
         raise AppError(ASSET_NOT_FOUND)
 
-    storage = get_storage()
-    if isinstance(storage, ObsStorage) and (
-        row.storage_provider == "obs"
-        or not LocalStorage(settings.storage_root).exists(row.storage_key)
-    ):
+    storage = get_asset_storage(row)
+    if isinstance(storage, ObsStorage):
         direct_url = storage.generate_presigned_download_url(
             row.storage_key, expires=1800, filename=row.original_name
         )
         return RedirectResponse(url=direct_url, status_code=302)
 
-    path = LocalStorage(settings.storage_root).open_read_path(row.storage_key)
+    path = storage.open_read_path(row.storage_key)
     return FileResponse(path, media_type=row.mime_type, filename=row.original_name or None)

@@ -35,6 +35,17 @@ class Storage(ABC):
     def open_read_path(self, key: str) -> Path:
         """返回可用于 FileResponse 的最终路径；先做越界校验与存在性检查。"""
 
+    def read_bytes(self, key: str, *, max_bytes: int) -> bytes:
+        """Read original bytes with a hard bound; remote drivers override this method."""
+        try:
+            with self.open_read_path(key).open("rb") as stream:
+                data = stream.read(max_bytes + 1)
+        except OSError as exc:
+            raise StorageError("素材文件无法读取") from exc
+        if len(data) > max_bytes:
+            raise StorageError("素材文件超过读取大小限制")
+        return data
+
     @abstractmethod
     def exists(self, key: str) -> bool:
         """判定 storage_key 是否已存在（需通过越界校验）。"""

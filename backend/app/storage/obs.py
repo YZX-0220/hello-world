@@ -70,6 +70,29 @@ class ObsStorage(Storage):
         """OBS 对象为云端文件，不支持本地文件系统直接 open_read_path。"""
         raise StorageError("OBS 对象不支持本地路径访问，请使用预签名读取链接")
 
+    def read_bytes(self, key: str, *, max_bytes: int) -> bytes:
+        """Read the original object, without thumbnail processing or a public URL."""
+        stream = None
+        try:
+            response = self._client.getObject(
+                self._bucket, key.lstrip("/"), loadStreamInMemory=False
+            )
+            body = getattr(response, "body", None)
+            stream = getattr(body, "response", None)
+            if response.status >= 300 or stream is None:
+                raise StorageError("OBS 素材不存在或无法读取")
+            data = stream.read(max_bytes + 1)
+            if len(data) > max_bytes:
+                raise StorageError("素材文件超过读取大小限制")
+            return data
+        except StorageError:
+            raise
+        except Exception as exc:
+            raise StorageError("OBS 素材读取失败") from exc
+        finally:
+            if stream is not None:
+                stream.close()
+
     def exists(self, key: str) -> bool:
         object_key = key.lstrip("/")
         try:
@@ -118,6 +141,7 @@ class ObsStorage(Storage):
         expires: int = 3600,
         filename: str | None = None,
         image_process: str | None = None,
+        download: bool = False,
     ) -> str:
         """生成供浏览器直接播放/查看/下载的预签名 GET URL。
 
@@ -129,7 +153,10 @@ class ObsStorage(Storage):
             from urllib.parse import quote
 
             encoded = quote(filename)
-            queryParams["response-content-disposition"] = f"inline; filename*=utf-8''{encoded}"
+            disposition = "attachment" if download else "inline"
+            queryParams["response-content-disposition"] = (
+                f"{disposition}; filename*=utf-8''{encoded}"
+            )
 
         # 处理图片缩略图/格式转换参数
         process_rule = (

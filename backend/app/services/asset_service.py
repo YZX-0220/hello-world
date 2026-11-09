@@ -37,7 +37,7 @@ from app.schemas.asset import (
     AssetUploadIntentResponse,
     AssetView,
 )
-from app.storage import ObsStorage, Storage, StorageError, get_storage
+from app.storage import ObsStorage, Storage, StorageError, get_asset_storage, get_storage
 
 # 可上传用途 -> 应检测到的 kind（用于限制与伪装检测）
 _UPLOAD_KIND_BY_PURPOSE = {
@@ -179,6 +179,7 @@ class AssetService:
             purpose=purpose,
             original_name=original_name[:500],
             storage_key=storage_key,
+            storage_provider="obs" if isinstance(self._storage, ObsStorage) else "local",
             mime_type=inspected.mime,
             size_bytes=stored.size_bytes,
             sha256=stored.sha256,
@@ -328,8 +329,9 @@ class AssetService:
         if asset is None or asset.status != "ready":
             raise AppError(ASSET_CONTENT_INVALID, "素材不存在或尚未就绪")
 
-        if isinstance(self._storage, ObsStorage):
-            return self._storage.generate_presigned_download_url(
+        storage = get_asset_storage(asset)
+        if isinstance(storage, ObsStorage):
+            return storage.generate_presigned_download_url(
                 asset.storage_key, expires=3600, filename=asset.original_name
             )
         return _content_url(asset.id)
@@ -341,7 +343,7 @@ class AssetService:
 
     async def open_content(self, user_id: str, asset_id: str) -> tuple[Asset, str]:
         asset = await self._repo.get_for_user(asset_id, user_id)
-        if asset is None:
+        if asset is None or asset.status != "ready":
             raise AppError(ASSET_CONTENT_INVALID, "素材不存在或无权访问")
         return asset, asset.storage_key
 
@@ -374,7 +376,11 @@ class AssetService:
 
     def _to_view(self, asset: Asset) -> AssetView:
         direct_url = None
-        if asset.status == "ready" and isinstance(self._storage, ObsStorage):
+        if (
+            asset.status == "ready"
+            and asset.storage_provider != "local"
+            and isinstance(self._storage, ObsStorage)
+        ):
             with suppress(Exception):
                 direct_url = self._storage.generate_presigned_download_url(
                     asset.storage_key, filename=asset.original_name

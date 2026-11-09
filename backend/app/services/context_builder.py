@@ -95,9 +95,14 @@ VIDEO_REVIEW_SYSTEM_PROMPT = """你是「Hello World」视频生成流水线中�
   },
   "assumptions": ["采用的默认值或补全细节，最多 5 条"],
   "suggestions": ["不影响直接生成的可选改进建议，最多 3 条"],
+  "contains_portrait": <本轮实际附带图片中是否明显可见人脸或人物，严格 JSON 布尔值 true/false>,
   "missing_fields": [], "ready_for_generation": true
 }
 state_patch 必须完整，subject、scene、camera、motion、lighting、visual_style 均为非空字符串。
+contains_portrait 仅根据本轮真实附带的图片判断：照片或 AI 写实人物中明显可见的人脸或人物均应为 true。
+没有附带图片时必须为 false。不得根据正文、节点标题、文件名或素材标签猜测；不判断人物身份或图片来源，
+也无法验证生成图片与视频通道是否属于同一账号或订阅。该标记只放在 contains_portrait，不写入 state_patch、
+创作提示词或 assumptions/suggestions；是否出现提醒由系统处理，不影响方案能否生成。
 所有创作细节直接写入这些字段；系统从这些展示给用户的字段编译视频提示词，不另拼接自由提示词。
 只有这些字段可用：objective / audience / language / duration_seconds / aspect_ratio /
 visual_style / subject / scene / camera / motion / lighting / narration / negative_prompt。

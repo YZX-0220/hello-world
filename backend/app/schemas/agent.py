@@ -3,7 +3,7 @@
 对应《实施计划》6.1 / 4.4 节。既有用于 AI 输出的完整定义，也有 PATCH 用的部分定义。
 """
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from app.core.enums import VideoMode
 
@@ -71,6 +71,7 @@ class AgentOutput(BaseModel):
     state_patch: VideoBriefPatch = Field(default_factory=VideoBriefPatch)
     missing_fields: list[str] = Field(default_factory=list)
     ready_for_generation: bool = False
+    contains_portrait: StrictBool = False  # 本轮实际参考图中是否明显可见人脸或人物
     suggested_prompt: str | None = None
     assumptions: list[str] = Field(default_factory=list)
     suggestions: list[str] = Field(default_factory=list)

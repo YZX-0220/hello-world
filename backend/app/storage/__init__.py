@@ -18,4 +18,19 @@ def get_storage() -> Storage:
     return LocalStorage(settings.storage_root)
 
 
-__all__ = ["LocalStorage", "ObsStorage", "Storage", "StorageError", "StoredFile", "get_storage"]
+def get_asset_storage(asset) -> Storage:
+    """Read existing assets from their recorded backend, independently of new-upload policy."""
+    if asset.storage_provider == "local":
+        return LocalStorage(settings.storage_root)
+    return get_storage()
+
+
+__all__ = [
+    "LocalStorage",
+    "ObsStorage",
+    "Storage",
+    "StorageError",
+    "StoredFile",
+    "get_asset_storage",
+    "get_storage",
+]

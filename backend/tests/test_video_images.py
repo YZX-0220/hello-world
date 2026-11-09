@@ -26,6 +26,15 @@ from test_model_bound_review import confirm, prepare, save, submit
 RULES = get_profile("ark_seedance_v1", "doubao-seedance-2-5").image_constraints
 
 
+@pytest.fixture(autouse=True)
+def mocked_review_vision(monkeypatch):
+    from app.services import agent_service
+
+    monkeypatch.setattr(
+        agent_service, "get_vision_provider", lambda: agent_service.get_text_provider()
+    )
+
+
 def picture(size, fmt="PNG", **kwargs):
     out = io.BytesIO()
     Image.new("RGB", size, (220, 30, 10)).save(out, format=fmt, **kwargs)

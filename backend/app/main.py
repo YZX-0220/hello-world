@@ -6,7 +6,8 @@
 - /api/v1：业务路由（本批次为空，后继批次加入）。
 """
 
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -40,8 +41,17 @@ async def lifespan(_: FastAPI):
     setup_logging()
     settings.ensure_secure()  # 生产环境密钥校验，不通过则拒绝启动
     _ensure_directories()
-    yield
-    await engine.dispose()
+    from app.workers.image_worker import image_worker
+
+    worker = asyncio.create_task(image_worker()) if settings.image_worker_enabled else None
+    try:
+        yield
+    finally:
+        if worker:
+            worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await worker
+        await engine.dispose()
 
 
 def create_app() -> FastAPI:

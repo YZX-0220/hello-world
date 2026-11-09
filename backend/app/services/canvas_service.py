@@ -15,10 +15,12 @@ from app.core.time import now, parse_iso8601
 from app.repositories.projects import ProjectRepository
 from app.schemas.agent import VideoBrief
 from app.schemas.canvas import CanvasCollaboration
+from app.services.canvas_images import load_canvas_images
 
 
 class CanvasService:
     def __init__(self, session: AsyncSession) -> None:
+        self._session = session
         self._repo = ProjectRepository(session)
 
     async def recover_expired(self, user_id: str, conversation_id: str) -> None:
@@ -64,7 +66,7 @@ class CanvasService:
         conversation_id: str,
         request_id: str,
         collaboration: CanvasCollaboration,
-    ) -> tuple[str, str, dict]:
+    ) -> tuple[str, str, dict, list[dict]]:
         """Capture the target/reference content at request time and persist a running marker."""
         await self.recover_expired(user_id, conversation_id)
         for _ in range(5):
@@ -80,6 +82,13 @@ class CanvasService:
                 raise AppError(CANVAS_NODE_INVALID)
             if any(node.get("ai_running") for node in nodes):
                 raise AppError(CONVERSATION_BUSY, "这个项目正在执行 AI 协作，请等回复完成后再发送")
+            selected_ids = set(collaboration.reference_node_ids)
+            if not selected_ids.issubset({node.get("id") for node in nodes}):
+                raise AppError(CANVAS_NODE_INVALID, "参考小框已变化，请重新选择。")
+            # Validate/read before persisting ai_running: failed reads cannot leave a lock behind.
+            images = await load_canvas_images(
+                self._session, user_id, [node for node in nodes if node.get("id") in selected_ids]
+            )
             original = target.get("content") or ""
             parts = [f"协作目标【{target.get('title', '文本节点')}】：\n{original[:12000]}"]
             candidate = target.get("pending_ai") or {}
@@ -114,7 +123,7 @@ class CanvasService:
                 await self._repo.save_canvas(
                     project, json.dumps(data, ensure_ascii=False), project.canvas_version
                 )
-                return original, "\n\n".join(parts)[:30000], base
+                return original, "\n\n".join(parts)[:30000], base, images
             except AppError as exc:
                 if exc.code != CANVAS_VERSION_CONFLICT:
                     raise

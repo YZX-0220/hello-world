@@ -146,8 +146,9 @@ class ConversationService:
         model_content = content
         canvas_service = CanvasService(self._session)
         canvas_brief = None
+        canvas_images = []
         if canvas_collaboration is not None:
-            original, canvas_context, canvas_brief = await canvas_service.begin(
+            original, canvas_context, canvas_brief, canvas_images = await canvas_service.begin(
                 user_id, conversation_id, client_request_id, canvas_collaboration
             )
             model_content = (
@@ -199,6 +200,7 @@ class ConversationService:
                 else summary_through_message_id,
                 retrieval_notes="" if canvas_collaboration else retrieval_notes,
                 brief_override=canvas_brief,
+                images=canvas_images,
             )
             agent_run_id = output.agent_run_id
 
@@ -258,6 +260,7 @@ class ConversationService:
                     if canvas_collaboration
                     else summary_through_message_id,
                     brief_override=canvas_brief,
+                    images=canvas_images,
                 )
                 yield (
                     "searched",
@@ -357,6 +360,7 @@ class ConversationService:
         summary_text: str = "",
         summary_through_message_id: str | None = None,
         brief_override: dict | None = None,
+        images: list[dict] | None = None,
     ) -> int:
         """执行搜索、保存来源引用，并把检索结果回流给模型二次生成最终回复。
 
@@ -461,6 +465,7 @@ class ConversationService:
                 summary_text=summary_text,
                 summary_through_message_id=summary_through_message_id,
                 brief_override=brief_override,
+                images=images,
             )
             if final_reply:
                 assistant_message.content = final_reply

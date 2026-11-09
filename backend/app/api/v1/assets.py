@@ -19,7 +19,7 @@ from app.schemas.asset import (
 )
 from app.schemas.conversation import Page
 from app.services.asset_service import AssetService
-from app.storage import ObsStorage, get_storage
+from app.storage import ObsStorage, get_asset_storage
 
 router = APIRouter()
 
@@ -110,22 +110,26 @@ async def get_asset(
 @router.api_route("/assets/{asset_id}/content", methods=["GET", "HEAD"])
 async def read_asset_content(
     asset_id: str,
+    download: bool = Query(default=False),
     thumbnail: Literal["small", "medium", "raw"] = Query(
-        default="small", description="缩略图规格：small(320px WebP，默认)、medium(800px WebP)、raw(原图)"
+        default="small",
+        description="缩略图规格：small(320px WebP，默认)、medium(800px WebP)、raw(原图)",
     ),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(db_session),
 ):
     """读取素材：若为 OBS 存储直接 302 重定向到预签名直链，完全不耗服务器下行带宽。"""
     asset, storage_key = await AssetService(session).open_content(user.id, asset_id)
-    storage = get_storage()
+    storage = get_asset_storage(asset)
     if isinstance(storage, ObsStorage):
         # 仅对图片格式且指定缩略图规则时生效（非图片格式自动忽略该参数走原流）
         process_rule = (
-            thumbnail if (asset.kind == "image" and thumbnail in ("small", "medium")) else None
+            thumbnail
+            if (not download and asset.kind == "image" and thumbnail in ("small", "medium"))
+            else None
         )
         direct_url = storage.generate_presigned_download_url(
-            storage_key, filename=asset.original_name, image_process=process_rule
+            storage_key, filename=asset.original_name, image_process=process_rule, download=download
         )
         return RedirectResponse(
             url=direct_url,
@@ -134,7 +138,12 @@ async def read_asset_content(
         )
 
     path = storage.open_read_path(storage_key)
-    return FileResponse(path, media_type=asset.mime_type, filename=asset.original_name or None)
+    return FileResponse(
+        path,
+        media_type=asset.mime_type,
+        filename=asset.original_name or None,
+        content_disposition_type="attachment" if download else "inline",
+    )
 
 
 @router.delete("/assets/{asset_id}", status_code=204)

@@ -16,7 +16,7 @@ import json
 import httpx
 import pytest
 import respx
-from app.core.ssrf import CheckedBaseUrl
+from app.core.ssrf import CheckedBaseUrl, validate_public_host
 from app.providers.video.ark_seedance_v1 import ArkSeedanceProvider
 from app.providers.video.base import AdapterContext, VideoProviderError
 from app.providers.video.dashscope_async_v1 import DashScopeAsyncV1Provider
@@ -49,6 +49,14 @@ def _no_dns(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     monkeypatch.setattr("app.providers.video.ark_seedance_v1.check_base_url", _fake)
+
+    def _public_test_host(host: str) -> str:
+        assert host == "cdn.example.com", f"Unexpected media hostname in contract test: {host}"
+        return validate_public_host(host, resolver=lambda _: ["1.1.1.1"])
+
+    monkeypatch.setattr(
+        "app.providers.video.ark_seedance_v1.validate_public_host", _public_test_host
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -157,6 +165,26 @@ async def test_submit_text_only_has_only_text_content() -> None:
 
     body = json.loads(route.calls.last.request.content)
     assert body["content"] == [{"type": "text", "text": "一只猫在草地上奔跑"}]
+
+
+@pytest.mark.parametrize(
+    "addresses", [["127.0.0.1"], ["10.0.0.1"], ["169.254.169.254"], ["1.1.1.1", "192.168.1.1"]]
+)
+@respx.mock
+async def test_submit_refuses_private_media_dns_before_sending(monkeypatch, addresses) -> None:
+    # Exercise the real validator with deterministic DNS results, including mixed public/private DNS.
+    monkeypatch.setattr(
+        "app.providers.video.ark_seedance_v1.validate_public_host",
+        lambda host: validate_public_host(host, resolver=lambda _: addresses),
+    )
+    route = respx.post(SUBMIT_URL).mock(
+        return_value=httpx.Response(201, json={"id": "must-not-submit"})
+    )
+    with pytest.raises(VideoProviderError) as raised:
+        await ArkSeedanceProvider().submit(_request(), _ctx())
+    assert raised.value.code == "VIDEO_INPUT_UNREACHABLE"
+    assert raised.value.retryable is False
+    assert not route.called
 
 
 @respx.mock

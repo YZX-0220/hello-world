@@ -4,7 +4,6 @@
 logging_filter 拦截日志记录的 dict 参数与 message，将敏感键替换为掩码。
 """
 
-import contextlib
 import logging
 import re
 
@@ -48,15 +47,16 @@ class SensitiveFilter(logging.Filter):
         # Third-party loggers (e.g. httpx during real AI requests) have no request context.
         if not hasattr(record, "request_id"):
             record.request_id = "-"
-        # message 里的敏感键名值替换
-        if isinstance(record.msg, str):
-            with contextlib.suppress(re.error):
-                record.msg = re.sub(
-                    r"((?:password|api_key|apikey|token|secret|code|auth|signature|credential)[^:=]*[:=]\s*)[^\s,}]+",
-                    r"\1***REDACTED***",
-                    record.msg,
-                    flags=re.IGNORECASE,
-                )
+        # Render positional/mapping args first: httpx logs signed URLs via %s.
+        # Clear args after rendering so handlers cannot reinsert the original secrets.
+        message = record.getMessage()
+        record.msg = re.sub(
+            r"((?:password|api_key|apikey|token|secret|code|auth|signature|credential)[^:=&]*[:=]\s*)[^\s,}&\"']+",
+            r"\1***REDACTED***",
+            message,
+            flags=re.IGNORECASE,
+        )
+        record.args = ()
         return True
 
 

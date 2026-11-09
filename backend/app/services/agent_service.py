@@ -20,7 +20,9 @@ from app.db.models.agent import AgentRun
 from app.db.models.conversation import Message
 from app.providers.text import get_text_provider
 from app.providers.text.base import TextProvider, TextProviderError
+from app.providers.text.vision import get_vision_provider
 from app.schemas.agent import AgentOutput, VideoBrief, VideoBriefPatch
+from app.services.canvas_images import VISION_NOT_CONFIGURED, attach_canvas_images
 from app.services.context_builder import (
     MAX_SUMMARY_LENGTH,
     VIDEO_REVIEW_SYSTEM_PROMPT,
@@ -128,13 +130,18 @@ class AgentService:
                 state_patch=patch,
                 missing_fields=missing,
                 ready_for_generation=bool(structured.get("ready_for_generation", False)),
+                contains_portrait=structured.get("contains_portrait") is True,
                 suggested_prompt=structured.get("suggested_prompt"),
                 assumptions=self._review_notes(structured.get("assumptions"), 5),
                 suggestions=self._review_notes(structured.get("suggestions"), 3),
                 search_requests=[str(x) for x in (structured.get("search_requests") or [])],
             )
         patch = self._best_effort_patch(structured)
-        return AgentOutput(reply=fallback_reply, state_patch=patch)
+        return AgentOutput(
+            reply=fallback_reply,
+            state_patch=patch,
+            contains_portrait=structured.get("contains_portrait") is True,
+        )
 
     @staticmethod
     def _review_notes(value: object, limit: int) -> list[str]:
@@ -156,6 +163,7 @@ class AgentService:
         summary_through_message_id: str | None = None,
         retrieval_notes: str = "",
         brief_override: dict | None = None,
+        images: list[dict] | None = None,
     ) -> AgentOutput:
         """执行一轮对话，返回结构与用户回复，并把本轮 AgentRun 落库。
 
@@ -196,13 +204,17 @@ class AgentService:
         await self._session.refresh(agent_run)
 
         try:
-            result = await self._provider.generate(context, structured=True)
+            provider = get_vision_provider() if images else self._provider
+            agent_run.provider_code = provider.code
+            result = await provider.generate(attach_canvas_images(context, images), structured=True)
         except TextProviderError as exc:
             agent_run.status = AgentRunStatus.FAILED.value
             agent_run.error_code = exc.code
             agent_run.error_message = exc.message[:2000]
             agent_run.completed_at = now()
             await self._session.commit()
+            if exc.code == "VISION_NOT_CONFIGURED":
+                raise AppError(VISION_NOT_CONFIGURED, exc.message) from exc
             if exc.code == "TEXT_PROVIDER_TIMEOUT":
                 raise AppError(TEXT_PROVIDER_TIMEOUT, exc.message) from exc
             raise AppError(TEXT_PROVIDER_UNAVAILABLE, exc.message) from exc
@@ -230,6 +242,7 @@ class AgentService:
         summary_text: str = "",
         summary_through_message_id: str | None = None,
         brief_override: dict | None = None,
+        images: list[dict] | None = None,
     ) -> str | None:
         """第二阶段：把检索结果回流给模型，让它基于检索结果重写最终回复。
 
@@ -262,7 +275,7 @@ class AgentService:
             summary_through_message_id=summary_through_message_id,
         )
         messages: list[dict[str, str]] = [
-            *context,
+            *attach_canvas_images(context, images),
             {
                 "role": "user",
                 "content": "请依据以下检索结果，简洁地给出最终回复。不要把检索到的来源标题、链接或完整依据复述出来——它们仅供参考，你的回答应聚焦视频创作内容本身。",
@@ -271,27 +284,38 @@ class AgentService:
             {"role": "assistant", "content": f"【检索结果】\n{search_results_text}"},
         ]
         try:
-            result = await self._provider.generate(messages, structured=False)
+            provider = get_vision_provider() if images else self._provider
+            result = await provider.generate(messages, structured=False)
         except TextProviderError:
             return None
         reply = (result.reply or "").strip()
         return reply or None
 
-    async def prepare_video(self, brief: VideoBrief, content: str) -> AgentOutput:
+    async def prepare_video(
+        self, brief: VideoBrief, content: str, *, images: list[dict] | None = None
+    ) -> AgentOutput:
         """Deliver a complete plan in one pass; chat clarification rules do not apply here."""
         try:
-            result = await self._provider.generate(
-                build_context(brief, [], content, system_prompt=VIDEO_REVIEW_SYSTEM_PROMPT),
+            provider = get_vision_provider() if images else self._provider
+            result = await provider.generate(
+                attach_canvas_images(
+                    build_context(brief, [], content, system_prompt=VIDEO_REVIEW_SYSTEM_PROMPT),
+                    images,
+                ),
                 structured=True,
             )
         except TextProviderError as exc:
+            if exc.code == "VISION_NOT_CONFIGURED":
+                raise AppError(VISION_NOT_CONFIGURED, exc.message) from exc
             code = (
                 TEXT_PROVIDER_TIMEOUT
                 if exc.code == "TEXT_PROVIDER_TIMEOUT"
                 else TEXT_PROVIDER_UNAVAILABLE
             )
             raise AppError(code, exc.message) from exc
-        return self._parse_output(result.structured, result.reply)
+        output = self._parse_output(result.structured, result.reply)
+        output.contains_portrait = bool(images) and output.contains_portrait
+        return output
 
     async def bind_assistant_message(self, agent_run_id: str, assistant_message_id: str) -> None:
         """把本轮生成的 assistant 消息 id 写回 AgentRun（在其创建完成后调用）。"""

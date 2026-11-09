@@ -4,6 +4,11 @@ from app.schemas.agent import AgentOutput, VideoBrief
 
 REVIEW_CLOSING = "如果不再修改，那么可以根据我给出的方案进行生成视频。"
 REQUIRED_REVIEW_FIELDS = ("subject", "scene", "camera", "motion", "lighting", "visual_style")
+PORTRAIT_REFERENCE_NOTICE = (
+    "参考素材中含有人像元素。请确认图片由与所选视频通道同一方舟账号下的配套图片模型生成；"
+    "使用订阅 API 时，也需使用该账号内配套的订阅通道。来源不匹配可能导致审核失败。"
+    "使用自备视频 API 时，请搭配自己的图片 API 生成人像素材。"
+)
 
 
 def review_markdown(
@@ -17,7 +22,7 @@ def review_markdown(
     material_notices: list[str] | None = None,
 ) -> str:
     if issues:
-        return "\n".join(
+        content = "\n".join(
             [
                 "### 当前方案需要调整",
                 *[f"- {issue}" for issue in issues],
@@ -26,6 +31,7 @@ def review_markdown(
                 "请完成上述操作后重新点击“AI审理方案”。本次不会提交视频生成。",
             ]
         )
+        return f"{content}\n\n{PORTRAIT_REFERENCE_NOTICE}" if output.contains_portrait else content
     fields = [
         ("subject", "主体"),
         ("scene", "场景与分镜"),
@@ -65,4 +71,6 @@ def review_markdown(
         lines.extend(["", "### 本次采用的假设", *[f"- {note}" for note in output.assumptions]])
     suggestions = output.suggestions or ["需要调整画面、时长或画幅时，编辑小框并重新审理即可。"]
     lines.extend(["", "### 可选建议", *[f"- {note}" for note in suggestions], "", REVIEW_CLOSING])
+    if output.contains_portrait:
+        lines.extend(["", PORTRAIT_REFERENCE_NOTICE])
     return "\n".join(lines)

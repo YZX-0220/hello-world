@@ -1,9 +1,11 @@
 """Prepare a video brief from a fixed selection without modifying the source boxes."""
 
+import asyncio
 import json
 from contextlib import suppress
 from typing import Any
 
+from anyio import CancelScope
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.errors import (
@@ -17,6 +19,7 @@ from app.repositories.projects import ProjectRepository
 from app.schemas.agent import AgentOutput, VideoBrief
 from app.schemas.canvas import CanvasGenerationSettings
 from app.services.agent_service import AgentService
+from app.services.canvas_images import load_canvas_images
 from app.services.video_review import REQUIRED_REVIEW_FIELDS, review_markdown
 
 
@@ -177,6 +180,7 @@ async def restore_review_metadata(session, project, data):
                 "status": record["status"],
                 "fingerprint": record["fingerprint"],
                 "issues": record["issues"],
+                "contains_portrait": record.get("contains_portrait") is True,
             },
         )
     else:
@@ -295,16 +299,18 @@ class CanvasVideoService:
         except BaseException:
             # Staged files must not survive a cancelled or stale review. Never delete
             # an asset that did commit (including an uncertain commit response).
-            from app.core.config import settings
             from app.repositories.assets import AssetRepository
-            from app.storage import LocalStorage
+            from app.storage import get_asset_storage
 
-            with suppress(Exception):
-                await self._session.rollback()
-            for image in pending_images:
+            with CancelScope(shield=True):
                 with suppress(Exception):
-                    if await AssetRepository(self._session).get(image.id) is None:
-                        LocalStorage(settings.storage_root).delete(image.storage_key)
+                    await self._session.rollback()
+                for image in pending_images:
+                    with suppress(Exception):
+                        if await AssetRepository(self._session).get(image.id) is None:
+                            await asyncio.to_thread(
+                                get_asset_storage(image).delete, image.storage_key
+                            )
             raise
 
     async def _prepare(
@@ -404,8 +410,22 @@ class CanvasVideoService:
             )
             issues.extend(material_issues)
         output = AgentOutput()
+        contains_portrait = False
         spec = asset_spec
         if not issues:
+            from app.services.video_image_service import image_refs
+
+            visual_bindings = materials or [
+                {"source_asset_id": aid, "asset_id": aid, "role": role}
+                for aid, role, _position in image_refs(asset_spec)
+            ]
+            images = await load_canvas_images(
+                self._session,
+                user_id,
+                snapshot,
+                bindings=visual_bindings,
+                pending_assets=pending_images,
+            )
             instruction = (
                 "【整理选中小框的视频方案】这些小框共同用于生成一个视频。"
                 "以当前正文为准，整合为连贯可执行的方案；保留主体、场景、运镜限制，区分镜头与主体动作。"
@@ -417,6 +437,9 @@ class CanvasVideoService:
                 "所有动作时间线必须处于最终总时长内。不在创作字段重复技术参数，禁止承诺其他画幅。"
                 "suggestions 仅为可选建议，不作为生成前提。素材 ID、生成模式由系统固定。"
                 "创作字段尽量精炼，中文合计尽量控制在 500 字内；不要输出 --rt、--dur 等 API 参数指令。"
+                f"本轮实际附带 {len(images)} 张图片。根据这些图片输出 contains_portrait 严格布尔值；"
+                "仅当真实图片中人脸或人物明显可见时为 true（含照片和 AI 写实人物），无图必须 false。"
+                "不要根据文字、文件名或标签猜人像，不判断身份或来源；不把此标记和素材来源提醒写进创作字段。"
                 "\n【模型及模式规则】"
                 + json.dumps(target.view(), ensure_ascii=False, default=str)
                 + "\n【本次参数调整】"
@@ -431,7 +454,8 @@ class CanvasVideoService:
             assumptions = []
             suggestions = []
             for _attempt in range(2):
-                output = await agent.prepare_video(asset_spec, instruction)
+                output = await agent.prepare_video(asset_spec, instruction, images=images)
+                contains_portrait = contains_portrait or (bool(images) and output.contains_portrait)
                 assumptions.extend(output.assumptions)
                 suggestions.extend(output.suggestions)
                 patch.update(output.state_patch.model_dump(exclude_unset=True))
@@ -477,6 +501,7 @@ class CanvasVideoService:
                 output.assumptions.append(f"尾帧使用小框【{title}】的图片。")
             if not requested_ratio and effective["aspect_ratio"] != "adaptive":
                 output.assumptions.append(f"本次默认画幅为 {effective['aspect_ratio']}。")
+        output.contains_portrait = contains_portrait
         spec = apply_image_bindings(spec, materials)
         if target.profile and target.profile.image_constraints and resolution == "1080p":
             output.assumptions.append(
@@ -506,6 +531,7 @@ class CanvasVideoService:
         )
         record = {
             "status": status,
+            "contains_portrait": contains_portrait,
             "target": target.snapshot(),
             "sources": snapshot,
             "source_ids": node_ids,
@@ -533,6 +559,7 @@ class CanvasVideoService:
                 "status": status,
                 "fingerprint": record["fingerprint"],
                 "issues": issues,
+                "contains_portrait": contains_portrait,
             },
             generation_requested_settings=requested,
             generation_settings=effective,

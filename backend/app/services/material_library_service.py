@@ -32,7 +32,7 @@ from app.schemas.material_library import (
     PatchLibraryItem,
 )
 from app.services.asset_service import AssetService, _detect_kind_mime
-from app.storage import Storage, StorageError, get_storage
+from app.storage import Storage, StorageError, get_asset_storage, get_storage
 
 
 class MaterialLibraryService:
@@ -40,6 +40,7 @@ class MaterialLibraryService:
         self._session = session
         self._repo = MaterialLibraryRepository(session)
         self._storage = storage or get_storage()
+        self._storage_override = storage
 
     async def upload(
         self, user_id: str, file: UploadFile, kind: Literal["video", "image"]
@@ -97,14 +98,9 @@ class MaterialLibraryService:
             or (owner_id is not None and asset.user_id != owner_id)
         ):
             raise AppError(LIBRARY_ASSET_INVALID)
-        if getattr(asset, "storage_provider", None) == "obs":
-            if not self._storage.exists(asset.storage_key):
-                raise AppError(LIBRARY_ASSET_INVALID, "示例文件尚未完整存储或已丢失")
-        else:
-            try:
-                self._storage.open_read_path(asset.storage_key)
-            except StorageError as exc:
-                raise AppError(LIBRARY_ASSET_INVALID, "示例文件尚未完整存储或已丢失") from exc
+        storage = self._storage_override or get_asset_storage(asset)
+        if not storage.exists(asset.storage_key):
+            raise AppError(LIBRARY_ASSET_INVALID, "示例文件尚未完整存储或已丢失")
         return asset
 
     async def create(self, user_id: str, request: CreateLibraryItem) -> LibraryItemView:

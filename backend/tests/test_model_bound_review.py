@@ -12,6 +12,15 @@ from PIL import Image
 from test_canvas import ControlledProvider, create_project, preparation, reviewed_options
 
 
+@pytest.fixture(autouse=True)
+def mocked_review_vision(monkeypatch):
+    from app.services import agent_service
+
+    monkeypatch.setattr(
+        agent_service, "get_vision_provider", lambda: agent_service.get_text_provider()
+    )
+
+
 async def save(client, cid, headers, project, document):
     result = await client.put(
         f"/api/v1/conversations/{cid}/canvas",
@@ -91,6 +100,7 @@ async def test_image_review_persists_adaptive_plan_and_real_ark_body_has_no_rati
             data={"purpose": "reference"},
         )
         assert uploaded.status_code == 201, uploaded.text
+        asset_id = uploaded.json()["id"]
         document["nodes"].append(
             {
                 "id": f"image{i}",
@@ -98,7 +108,9 @@ async def test_image_review_persists_adaptive_plan_and_real_ark_body_has_no_rati
                 "title": f"图{i}",
                 "x": 0,
                 "y": 0,
-                "asset_id": uploaded.json()["id"],
+                "asset_id": asset_id,
+                # 项目视图会把带 asset_id 的节点归一化为相对读取地址。
+                "url": f"/api/v1/assets/{asset_id}/content",
             }
         )
         document["connections"].append({"id": f"link{i}", "from": "target", "to": f"image{i}"})

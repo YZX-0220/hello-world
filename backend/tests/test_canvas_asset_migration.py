@@ -1,5 +1,4 @@
-import pytest
-from app.schemas.canvas import CanvasNode, CanvasDocument
+from app.schemas.canvas import CanvasDocument, CanvasNode
 
 
 def test_canvas_node_asset_id_and_url():

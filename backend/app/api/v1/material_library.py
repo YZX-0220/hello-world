@@ -19,14 +19,14 @@ from app.schemas.material_library import (
     PatchLibraryItem,
 )
 from app.services.material_library_service import MaterialLibraryService
-from app.storage import ObsStorage, get_storage
+from app.storage import ObsStorage, get_asset_storage
 
 
 def _serve_asset_response(
     asset: Asset, storage_key: str, *, image_process: str | None = None
 ) -> Response:
-    storage = get_storage()
-    if isinstance(storage, ObsStorage) and asset.storage_provider == "obs":
+    storage = get_asset_storage(asset)
+    if isinstance(storage, ObsStorage):
         # 仅对图片格式且指定缩略图规则时生效
         process_rule = image_process if (asset.kind == "image" and image_process) else None
         direct_url = storage.generate_presigned_download_url(

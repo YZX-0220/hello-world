@@ -9,6 +9,7 @@
 """
 
 import json
+from typing import Any
 
 import httpx
 
@@ -42,28 +43,44 @@ def _parse_structured(content: str) -> dict:
 class OpenAICompatibleTextProvider(TextProvider):
     code = "openai_compatible"
 
+    def __init__(
+        self, *, base_url=None, api_key=None, model=None, timeout=None, supports_vision=False
+    ):
+        self._base_url = base_url
+        self._api_key = api_key
+        self._model = model
+        self._timeout = timeout
+        self._supports_vision = supports_vision
+
     @property
     def capabilities(self) -> TextCapabilities:
         return TextCapabilities(
-            supports_structured_output=True, supports_tool_call=True, supports_native_search=False
+            supports_structured_output=True,
+            supports_tool_call=True,
+            supports_native_search=False,
+            supports_vision=self._supports_vision,
         )
 
-    async def _post(self, messages: list[dict[str, str]], structured: bool) -> tuple[str, dict]:
-        base_url = settings.text_base_url.rstrip("/")
+    async def _post(self, messages: list[dict[str, Any]], structured: bool) -> tuple[str, dict]:
+        base_url = (
+            self._base_url if self._base_url is not None else settings.text_base_url
+        ).rstrip("/")
         url = f"{base_url}/chat/completions"
         payload: dict = {
-            "model": settings.text_model,
+            "model": self._model if self._model is not None else settings.text_model,
             "messages": messages,
             "temperature": 0.7,
         }
         if structured:
             payload["response_format"] = {"type": "json_object"}
         headers = {
-            "Authorization": f"Bearer {settings.text_api_key}",
+            "Authorization": f"Bearer {self._api_key if self._api_key is not None else settings.text_api_key}",
             "Content-Type": "application/json",
         }
         try:
-            async with httpx.AsyncClient(timeout=settings.text_timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=self._timeout if self._timeout is not None else settings.text_timeout
+            ) as client:
                 resp = await client.post(url, json=payload, headers=headers)
         except httpx.TimeoutException as exc:
             raise TextProviderError(
@@ -97,7 +114,7 @@ class OpenAICompatibleTextProvider(TextProvider):
         return content, data
 
     async def generate(
-        self, messages: list[dict[str, str]], *, structured: bool = False
+        self, messages: list[dict[str, Any]], *, structured: bool = False
     ) -> TextResult:
         content, data = await self._post(messages, structured)
 

@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     text_api_key: str = ""
     text_model: str = ""
     text_timeout: int = 60
+    text_supports_vision: bool = False
+    vision_base_url: str = ""
+    vision_api_key: str = ""
+    vision_model: str = ""
+    vision_timeout: int = 90
     search_enabled: bool = False
     search_provider: str = "fake"  # fake / configured
     search_base_url: str = ""
@@ -97,6 +102,18 @@ class Settings(BaseSettings):
     video_platform_model: str = ""  # 平台通道使用的模型/接入点（如 ep-…）
     video_platform_protocol: str = "ark_seedance_v1"
     video_platform_profile_code: str = ""  # ep-* 等接入点必须显式绑定已登记能力
+
+    # ---- 生图：方舟普通/订阅 API，产物原样保存到本地 ----
+    image_provider: Literal["ark", "ark_plan", "fake"] = "ark"
+    image_platform_api_key: str = ""
+    image_platform_model: str = "doubao-seedream-5.0-pro"
+    image_response_format: Literal["url", "b64_json"] = "url"
+    image_platform_account_label: str = "平台生图通道"
+    image_worker_enabled: bool = True
+    image_timeout_seconds: int = 600
+    image_max_result_bytes: int = 30_000_000
+    image_max_pending_per_user: int = 3
+    image_platform_daily_limit: int = 10
 
     # ---- 华为云 OBS 对象存储 ----
     huawei_cloud_obs_endpoint: str = ""
@@ -136,6 +153,8 @@ class Settings(BaseSettings):
         """
         if not self.is_production:
             return
+        if self.image_provider == "fake":
+            raise RuntimeError("生产环境禁止使用模拟生图通道")
         if not self.app_secret or self.app_secret.startswith("dev-"):
             raise RuntimeError("生产环境 APP_SECRET 缺失或仍为示例值，拒绝启动")
         if not self.credential_encryption_keys:

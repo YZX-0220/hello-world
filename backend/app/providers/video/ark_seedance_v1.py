@@ -43,6 +43,48 @@ _STATUS_MAP = {
 }
 
 
+def _portrait_rejected(code: str, detail: str) -> bool:
+    """Match actual face/real-person input restrictions, never a quoted portrait prompt."""
+    compact = re.sub(r"[^a-z]", "", code.lower())
+    if any(
+        part in compact
+        for part in (
+            "humanfacedetected",
+            "realpersondetected",
+            "realpersonnotsupported",
+            "realpersonnotallowed",
+            "humanfacerejected",
+            "portraitpermissiondenied",
+            "faceauditfailed",
+            "faceverificationfailed",
+        )
+    ):
+        return True
+    if any(word in compact for word in ("balance", "quota", "ratelimit", "overdue")):
+        return False
+    for sentence in re.split(r"[。.!?\n]", detail.lower()):
+        # A prompt validation error may quote arbitrary creative text, including policy-like text.
+        if re.search(r"\bprompt\b|提示词|描述参数", sentence):
+            continue
+        restricted = re.search(
+            r"not (?:supported|allowed|permitted)|does not support|unsupported|prohibited|"
+            r"permission denied|rejected|未通过|不支持|不允许|禁止|拒绝|准入|审核失败",
+            sentence,
+        )
+        material = re.search(
+            r"(?:input|reference|uploaded|provided|submitted)\s+(?:image|picture|photo|material)s?"
+            r".{0,60}(?:contain|include|detect|recogniz).{0,20}(?:real (?:person|people|human)|human face)|"
+            r"(?:image|picture|photo)s?\s+(?:of|containing)\s+real (?:people|persons?|humans?)"
+            r"\s+(?:are|is)\s+(?:not supported|not allowed|not permitted|prohibited)|"
+            r"(?:输入|参考|上传|素材|图片|图像).{0,30}(?:包含|含有|检测到|识别到).{0,12}(?:真人|人脸|人像)|"
+            r"(?:真人|人脸|人像).{0,12}(?:准入|审核失败|审核未通过|校验失败)",
+            sentence,
+        )
+        if material and (restricted or "inputimagesensitivecontentdetected" in compact):
+            return True
+    return False
+
+
 def _failure(error: Any, fallback="厂商未返回具体原因") -> tuple[str, str]:
     error = error if isinstance(error, dict) else {}
     code = str(error.get("code") or "PROVIDER_TASK_FAILED")[:64]
@@ -50,11 +92,10 @@ def _failure(error: Any, fallback="厂商未返回具体原因") -> tuple[str, s
     detail = re.sub(r"https?://[^\s\"<>]+", "[素材地址]", detail)
     detail = re.sub(r"(?i)Bearer\s+\S+", "Bearer [已隐藏]", detail)[:1200]
     lowered = (code + " " + detail).lower()
-    if any(
-        word in lowered
-        for word in ("real person", "real human", "human face", "portrait", "人脸", "真人")
-    ):
-        hint = "该素材涉及真人人像准入要求；当前普通图片入口尚未接入专用人像通道，请更换素材。"
+    normalized_code = code
+    if _portrait_rejected(code, detail):
+        normalized_code = "VIDEO_PORTRAIT_REJECTED"
+        hint = "图片未通过厂商的人像准入要求，请检查图片来源或更换素材。"
     elif any(word in lowered for word in ("sensitive", "contentpolicy", "moderation")):
         hint = "内容未通过厂商审核，请调整描述或素材后重新审理。"
     elif any(
@@ -67,7 +108,7 @@ def _failure(error: Any, fallback="厂商未返回具体原因") -> tuple[str, s
         hint = "厂商判定的任务类型与本次模式不一致，请调整描述后重新审理。"
     else:
         hint = "请根据厂商原因调整素材或参数后重新审理。"
-    return code, f"{hint}\n厂商原因（{code}）：{detail}"
+    return normalized_code, f"{hint}\n厂商原因（{code}）：{detail}"
 
 
 def _response_failure(resp: httpx.Response) -> tuple[str, str]:

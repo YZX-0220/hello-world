@@ -7,6 +7,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -41,6 +42,7 @@ class TextCapabilities:
     supports_tool_call: bool = False
     supports_native_search: bool = False
     output_token_limit: int = 8192
+    supports_vision: bool = False
 
 
 class TextProvider(ABC):
@@ -58,7 +60,7 @@ class TextProvider(ABC):
 
     @abstractmethod
     async def generate(
-        self, messages: list[dict[str, str]], *, structured: bool = False
+        self, messages: list[dict[str, Any]], *, structured: bool = False
     ) -> TextResult:
         """给定对话消息，返回非流式生成结果。structured=True 时请求结构化输出。
 

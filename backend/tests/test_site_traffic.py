@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from app.core.config import settings
 from app.core.security import token_sha256
 from app.db.models.site_traffic import SiteTrafficTotal, SiteVisit, SiteVisitEvent
@@ -282,6 +284,9 @@ def test_device_classification_is_only_a_coarse_hint(ua, expected):
 
 
 def test_migration_preserves_existing_data_and_has_one_head(tmp_path):
+    heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
+    assert len(heads) == 1, f"Expected one migration head, got {heads}"
+    current_head = heads[0]
     path = tmp_path / "migration.db"
     environment = {
         **os.environ,
@@ -310,6 +315,23 @@ def test_migration_preserves_existing_data_and_has_one_head(tmp_path):
                 "placeholder",
                 "active",
                 "2026-10-19",
+                "2026-10-19",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO assets (id,user_id,kind,purpose,original_name,storage_key,mime_type,size_bytes,sha256,status,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "old-asset",
+                "existing",
+                "image",
+                "reference",
+                "old.png",
+                "existing/old.png",
+                "image/png",
+                10,
+                "a" * 64,
+                "ready",
                 "2026-10-19",
             ),
         )
@@ -345,12 +367,21 @@ def test_migration_preserves_existing_data_and_has_one_head(tmp_path):
             == "existing@example.test"
         )
         assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [
-            ("b3c4d5e6f7a8",)
+            (current_head,)
         ]
-        for table in ("site_visits", "site_visit_events", "site_traffic_totals"):
+        for table in (
+            "site_visits",
+            "site_visit_events",
+            "site_traffic_totals",
+            "image_api_configs",
+            "image_jobs",
+        ):
             assert connection.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
             ).fetchone()
+        assert connection.execute(
+            "SELECT storage_key,sha256,storage_provider FROM assets WHERE id='old-asset'"
+        ).fetchone() == ("existing/old.png", "a" * 64, "local")
         assert connection.execute("SELECT total_visits FROM site_traffic_totals").fetchone()[0] == 1
         for table in ("site_visits", "site_visit_events"):
             assert connection.execute(
@@ -359,5 +390,14 @@ def test_migration_preserves_existing_data_and_has_one_head(tmp_path):
     migrate("a2b3c4d5e6f7", "downgrade")
     migrate("head")
     with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [
+            (current_head,)
+        ]
         assert connection.execute("SELECT total_visits FROM site_traffic_totals").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM site_visits").fetchone()[0] == 1
+        assert (
+            connection.execute("SELECT COUNT(*) FROM assets WHERE id='old-asset'").fetchone()[0]
+            == 1
+        )
+        for table in ("image_api_configs", "image_jobs"):
+            assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0

@@ -8,7 +8,9 @@ import asyncio
 import hashlib
 import io
 import math
+from contextlib import suppress
 
+from anyio import CancelScope
 from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlmodel import select
 
@@ -18,7 +20,7 @@ from app.core.ids import new_id
 from app.db.models.asset import Asset
 from app.repositories.assets import AssetRepository
 from app.schemas.agent import VideoBrief
-from app.storage import LocalStorage, StorageError
+from app.storage import ObsStorage, StorageError, get_asset_storage, get_storage
 from app.video_registry.models import ImageConstraints
 
 
@@ -135,21 +137,21 @@ def adapt_image(data: bytes, rules: ImageConstraints):
         return encoded, meta, actions
 
 
-def _read_asset(asset, storage):
-    path = storage.open_read_path(asset.storage_key)
-    if path.stat().st_size != asset.size_bytes or path.stat().st_size >= 30_000_000:
+def _read_asset(asset):
+    # Resolve each asset independently: historical local originals may coexist with OBS copies.
+    if not 0 < asset.size_bytes < 30_000_000:
+        raise ValueError("素材文件大小超出处理范围，请重新上传")
+    data = get_asset_storage(asset).read_bytes(asset.storage_key, max_bytes=29_999_999)
+    if len(data) != asset.size_bytes:
         raise ValueError("素材文件大小已变化或超出处理范围，请重新上传")
-    data = path.read_bytes()
     if hashlib.sha256(data).hexdigest() != asset.sha256:
         raise ValueError("素材文件内容已变化，请重新上传")
     return data
 
 
-def _cached_matches(asset, storage, meta):
+def _cached_matches(asset, meta):
     try:
-        return all(getattr(asset, k) == v for k, v in meta.items()) and bool(
-            _read_asset(asset, storage)
-        )
+        return all(getattr(asset, k) == v for k, v in meta.items()) and bool(_read_asset(asset))
     except (OSError, ValueError, StorageError):
         return False
 
@@ -163,7 +165,7 @@ async def prepare_images(session, user_id, profile, spec, titles, pending=None):
     rules = profile.image_constraints if profile else None
     if rules is None:
         return [], [], [], []
-    storage = LocalStorage(settings.storage_root)
+    storage = get_storage()
     repo = AssetRepository(session)
     bindings, notices, issues, cache = [], [], [], {}
     if pending is None:
@@ -175,8 +177,18 @@ async def prepare_images(session, user_id, profile, spec, titles, pending=None):
                 source = await repo.get_for_user(source_id, user_id)
                 if source is None or source.status != "ready" or source.kind != "image":
                     raise ValueError("素材不存在、未就绪或无权使用，请重新上传")
-                data = await asyncio.to_thread(_read_asset, source, storage)
-                encoded, meta, actions = await asyncio.to_thread(adapt_image, data, rules)
+                data = await asyncio.to_thread(_read_asset, source)
+                if source.purpose == "generated_image":
+                    # Provenance depends on unchanged original bytes, not on the display thumbnail.
+                    meta = await asyncio.to_thread(_inspect_bytes, data)
+                    if image_issues(meta, rules):
+                        issues.append(
+                            f"图片【{title}】的生成原图不符合当前模型要求；为保留原始产物不会自动改图，请重新生图或更换模式。"
+                        )
+                        continue
+                    encoded, actions = data, []
+                else:
+                    encoded, meta, actions = await asyncio.to_thread(adapt_image, data, rules)
                 prepared = source
                 if any(getattr(source, k) != v for k, v in meta.items()):
                     # Reuse identical derived bytes owned by this user; never infer cross-user files.
@@ -191,14 +203,13 @@ async def prepare_images(session, user_id, profile, spec, titles, pending=None):
                         )
                     ).first()
                     if prepared is None or not await asyncio.to_thread(
-                        _cached_matches, prepared, storage, meta
+                        _cached_matches, prepared, meta
                     ):
                         aid = new_id()
                         ext = {"image/png": "png", "image/webp": "webp"}.get(
                             meta["mime_type"], "jpg"
                         )
                         key = f"{user_id}/generation-input/{aid}.{ext}"
-                        await asyncio.to_thread(storage.write_stream, encoded, key, final_key=key)
                         prepared = Asset(
                             id=aid,
                             user_id=user_id,
@@ -207,10 +218,26 @@ async def prepare_images(session, user_id, profile, spec, titles, pending=None):
                             purpose="generation_input",
                             original_name="生成用适配图片.jpg",
                             storage_key=key,
+                            storage_provider="obs" if isinstance(storage, ObsStorage) else "local",
                             status="ready",
                             **meta,
                         )
                         # Do not hold a database write lock while the text AI is running.
+                        write = asyncio.create_task(
+                            asyncio.to_thread(storage.write_stream, encoded, key, final_key=key)
+                        )
+                        try:
+                            await asyncio.shield(write)
+                        except asyncio.CancelledError:
+                            # Wait for a remote upload before the caller cleans staged assets.
+                            with CancelScope(shield=True), suppress(Exception):
+                                await write
+                            pending.append(prepared)
+                            raise
+                        except Exception:
+                            with suppress(Exception):
+                                await asyncio.to_thread(storage.delete, key)
+                            raise
                         pending.append(prepared)
                 cache[source_id] = source, prepared, meta, actions
                 if actions:
@@ -260,7 +287,7 @@ async def validate_review_images(session, user_id, profile, spec, bindings):
     actual = [(b["asset_id"], b["role"], b["position"]) for b in bindings]
     if actual != expected:
         raise AppError(PROJECT_NOT_CONFIRMED, "生成素材未绑定本次审理，请重新审理。")
-    repo, storage = AssetRepository(session), LocalStorage(settings.storage_root)
+    repo = AssetRepository(session)
     checked = set()
     for binding in bindings:
         try:
@@ -272,7 +299,7 @@ async def validate_review_images(session, user_id, profile, spec, bindings):
                 if row is None or row.status != "ready" or row.kind != "image" or row.sha256 != sha:
                     raise ValueError("素材已变化")
                 if aid not in checked:
-                    data = await asyncio.to_thread(_read_asset, row, storage)
+                    data = await asyncio.to_thread(_read_asset, row)
                     checked.add(aid)
                 else:
                     data = None

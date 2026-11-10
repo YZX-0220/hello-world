@@ -70,13 +70,16 @@ export function videoGenerationBlockReason(document: CanvasDocument, version: nu
 
 export function videoSettingsBlockReason(document: CanvasDocument, target?: GenerationTarget | null) {
   if (!Number.isInteger(document.video_duration_seconds) || !document.video_duration_seconds
-    || document.video_duration_seconds < 1) return '请填写视频时长（大于等于 1 的整数秒）。';
+    || document.video_duration_seconds < 1 || document.video_duration_seconds > 15) return '请填写视频时长（1–15 秒的整数）。';
   if (!['480p', '720p', '1080p'].includes(document.video_resolution)) return '请选择视频清晰度。';
-  if (target?.profile?.image_constraints
-    && !target.profile.resolutions.includes(document.video_resolution)) return '请选择当前模型支持的视频清晰度。';
+  if (target?.profile?.image_constraints) {
+    const durations = videoDurationChoices(target);
+    if (!durations.includes(document.video_duration_seconds)) return '请手动选择当前模型支持的视频时长（4–15 秒的整数）。';
+    if (!target.profile.resolutions.includes(document.video_resolution)) return '请选择当前模型支持的视频清晰度。';
+  }
   return '';
 }
 
 export function videoDurationChoices(target?: GenerationTarget | null): number[] {
-  return (target?.profile?.duration?.allowed_values || []).filter(value => value >= 1);
+  return (target?.profile?.duration?.allowed_values || []).filter(value => value >= 1 && value <= 15);
 }

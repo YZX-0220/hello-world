@@ -497,17 +497,21 @@
                 </div>
                 <div class="video-generation-settings">
                   <div class="spec-field-mini"><label for="video-duration">视频时长（秒，必填）</label>
-                    <div class="duration-control">
-                      <input id="video-duration" v-model="videoDurationInput" type="number"
-                        :min="videoDurationBounds.min" :max="videoDurationBounds.max" step="1" required
-                        :placeholder="`填写 ${videoDurationBounds.min}–${videoDurationBounds.max} 秒`"
-                        :disabled="isSubmittingJob" />
+                    <select v-if="selectedGenerationTarget?.profile?.image_constraints" id="video-duration"
+                      v-model="canvas.video_duration_seconds" required :disabled="isSubmittingJob">
+                      <option disabled :value="null">请选择时长</option>
+                      <option v-for="duration in videoDurationOptions" :key="duration" :value="duration">{{ duration }}
+                        秒</option>
+                    </select>
+                    <div v-else class="duration-control">
+                      <input id="video-duration" v-model="videoDurationInput" type="number" min="1" max="15"
+                        step="1" required placeholder="填写 1–15 秒" :disabled="isSubmittingJob" />
                       <div class="duration-stepper">
                         <button type="button" aria-label="减少 1 秒" aria-controls="video-duration"
-                          :disabled="isSubmittingJob || (videoDurationInput !== '' && Number(videoDurationInput) <= videoDurationBounds.min)"
+                          :disabled="isSubmittingJob || (videoDurationInput !== '' && Number(videoDurationInput) <= 1)"
                           @click="adjustVideoDuration(-1)">−</button>
                         <button type="button" aria-label="增加 1 秒" aria-controls="video-duration"
-                          :disabled="isSubmittingJob || (videoDurationInput !== '' && Number(videoDurationInput) >= videoDurationBounds.max)"
+                          :disabled="isSubmittingJob || (videoDurationInput !== '' && Number(videoDurationInput) >= 15)"
                           @click="adjustVideoDuration(1)">+</button>
                       </div>
                     </div>
@@ -740,18 +744,12 @@ const videoDurationInput = computed({
   set: (value: string | number) => { canvas.value.video_duration_seconds = value === '' ? null : Number(value); },
 });
 function adjustVideoDuration(delta: number) {
-  const { min, max } = videoDurationBounds.value;
   const value = Number(videoDurationInput.value);
   videoDurationInput.value = videoDurationInput.value === '' || !Number.isFinite(value)
-    ? min
-    : Math.max(min, Math.min(max, delta > 0 ? Math.floor(value) + 1 : Math.ceil(value) - 1));
+    ? 1
+    : Math.max(1, Math.min(15, delta > 0 ? Math.floor(value) + 1 : Math.ceil(value) - 1));
 }
-const videoDurationBounds = computed(() => {
-  const choices = videoDurationChoices(selectedGenerationTarget.value);
-  return choices.length
-    ? { min: Math.min(...choices), max: Math.max(...choices) }
-    : { min: 1, max: 15 };
-});
+const videoDurationOptions = computed(() => videoDurationChoices(selectedGenerationTarget.value));
 const videoResolutionOptions = computed(() => {
   const resolutions = selectedGenerationTarget.value?.profile?.resolutions;
   return resolutions?.length ? resolutions.filter(value => ['480p', '720p', '1080p'].includes(value)) : ['480p', '720p', '1080p'];

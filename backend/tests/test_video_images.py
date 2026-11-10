@@ -262,7 +262,7 @@ async def test_image_preparation_does_not_lock_canvas_during_text_ai(client, mon
 
 
 @pytest.mark.parametrize("duration", [1, 2, 3])
-async def test_seedance_duration_requires_manual_valid_choice_before_ai(
+async def test_seedance_duration_outside_model_range_is_reported_before_ai(
     client, monkeypatch, duration
 ):
     cid, headers, _ = await create_project(client)
@@ -270,8 +270,10 @@ async def test_seedance_duration_requires_manual_valid_choice_before_ai(
     monkeypatch.setattr("app.services.agent_service.get_text_provider", lambda: provider)
     project = (await client.get(f"/api/v1/conversations/{cid}/project")).json()
     reviewed = await prepare(client, cid, headers, project, duration_seconds=duration)
+    content = reviewed["canvas_data"]["generation_review"]["content"]
     assert reviewed["canvas_data"]["generation_review"]["status"] == "blocked"
-    assert "手动选择" in reviewed["canvas_data"]["generation_review"]["content"]
+    assert "时长校验" in content
+    assert f"{duration} 秒，不支持" in content
     assert not provider.calls
 
 

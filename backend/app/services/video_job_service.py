@@ -654,9 +654,9 @@ class VideoJobService:
     def _validate_mode(self, command: CreateVideoCommand, spec: VideoBrief) -> None:
         if spec.mode is not None and spec.mode.value != command.mode:
             raise AppError(VIDEO_MODE_UNSUPPORTED, "生成模式与方案版本不一致")
-        if spec.duration_seconds is not None and not (1 <= spec.duration_seconds <= 15):
+        if spec.duration_seconds is not None and not (1 <= spec.duration_seconds <= 120):
             raise AppError(
-                VIDEO_OPTION_UNSUPPORTED, "每次生成的视频时长必须为 1–15 秒，请调整方案时长"
+                VIDEO_OPTION_UNSUPPORTED, "每次生成的视频时长必须为 1–120 秒，请调整方案时长"
             )
 
     async def _require_assets(self, user_id: str, spec: VideoBrief) -> list[tuple[str, str, int]]:

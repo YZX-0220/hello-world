@@ -520,11 +520,6 @@ class CanvasVideoService:
         if current_target.fingerprint != target.fingerprint:
             raise AppError(CANVAS_VERSION_CONFLICT, "审理期间模型配置已更新，请重新审理。")
         status = "blocked" if issues else "ready"
-        duration_check = {
-            "model": target.profile.display_name if target.profile else "",
-            "supported": list(target.profile.durations_seconds) if target.profile else [],
-            "selected": requested.get("duration_seconds"),
-        }
         content = review_markdown(
             spec,
             output,
@@ -533,7 +528,6 @@ class CanvasVideoService:
             changes=changes,
             issues=issues,
             material_notices=material_notices,
-            duration_check=duration_check,
         )
         record = {
             "status": status,

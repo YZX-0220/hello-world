@@ -11,33 +11,6 @@ PORTRAIT_REFERENCE_NOTICE = (
 )
 
 
-def _duration_text(values: list[int]) -> str:
-    ordered = sorted({int(value) for value in values})
-    if not ordered:
-        return "该模型未声明时长限制"
-    if ordered == list(range(ordered[0], ordered[-1] + 1)):
-        return f"{ordered[0]}–{ordered[-1]} 秒（连续可选）"
-    return "、".join(str(value) for value in ordered) + " 秒"
-
-
-def _duration_section(duration_check: dict | None) -> list[str]:
-    if not duration_check:
-        return []
-    supported = [int(value) for value in duration_check.get("supported") or []]
-    selected = duration_check.get("selected")
-    model = duration_check.get("model") or ""
-    lines = ["### 时长校验"]
-    if model:
-        lines.append(f"- **当前模型**：{model}")
-    lines.append(f"- **模型支持时长**：{_duration_text(supported)}")
-    if isinstance(selected, int) and selected > 0:
-        supported_now = selected in supported if supported else True
-        lines.append(f"- **本次选择**：{selected} 秒，{'支持' if supported_now else '不支持'}")
-        if not supported_now:
-            lines.append("- 请把时长调整为上述可选值后重新审理。")
-    return lines
-
-
 def review_markdown(
     spec: VideoBrief,
     output: AgentOutput,
@@ -47,19 +20,17 @@ def review_markdown(
     changes: list | None = None,
     issues: list[str] | None = None,
     material_notices: list[str] | None = None,
-    duration_check: dict | None = None,
 ) -> str:
-    duration_lines = _duration_section(duration_check)
     if issues:
-        blocks = [
-            "### 当前方案需要调整",
-            *[f"- {issue}" for issue in issues],
-            *[f"- 已完成处理：{note}" for note in material_notices or []],
-        ]
-        if duration_lines:
-            blocks.extend(["", *duration_lines])
-        blocks.extend(["", "请完成上述操作后重新点击“AI审理方案”。本次不会提交视频生成。"])
-        content = "\n".join(blocks)
+        content = "\n".join(
+            [
+                "### 当前方案需要调整",
+                *[f"- {issue}" for issue in issues],
+                *[f"- 已完成处理：{note}" for note in material_notices or []],
+                "",
+                "请完成上述操作后重新点击“AI审理方案”。本次不会提交视频生成。",
+            ]
+        )
         return f"{content}\n\n{PORTRAIT_REFERENCE_NOTICE}" if output.contains_portrait else content
     fields = [
         ("subject", "主体"),
@@ -78,8 +49,6 @@ def review_markdown(
     if target:
         lines.append(f"**生成通道**：{target['label']} · {target['remote_model_id']}")
     lines.extend([f"**生成参数**：{spec.duration_seconds} 秒 · {ratio} · {resolution}", ""])
-    if duration_lines:
-        lines.extend([*duration_lines, ""])
     lines.extend(f"- **{label}**：{getattr(spec, key) or '未填写'}" for key, label in fields)
     if material_notices:
         lines.extend(["", "### 图片处理说明", *[f"- {note}" for note in material_notices]])

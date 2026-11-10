@@ -741,6 +741,8 @@ async def test_video_parameters_are_required_and_the_confirmed_values_reach_the_
         {"resolution": "720p"},
         {"duration_seconds": 7.5, "resolution": "720p"},
         {"duration_seconds": 0, "resolution": "720p"},
+        {"duration_seconds": 16, "resolution": "720p"},
+        {"duration_seconds": 120, "resolution": "720p"},
         {"duration_seconds": True, "resolution": "720p"},
         {"duration_seconds": 8, "resolution": "invalid"},
     ]:
@@ -977,31 +979,3 @@ async def test_expired_ai_marker_recovers_after_server_restart(client, monkeypat
         f"/api/v1/conversations/{cid}/messages", json=collaboration(), headers=headers
     )
     assert retry.status_code == 201
-
-
-async def test_duration_outside_model_range_is_reported_in_review_section(client, monkeypatch):
-    from dataclasses import replace
-
-    from app.video_registry import registry
-
-    profile_key = ("ark_seedance_v1", "doubao-seedance-2-5")
-    monkeypatch.setitem(
-        registry._PROFILES,
-        profile_key,
-        replace(registry._PROFILES[profile_key], durations_seconds=tuple(range(1, 16))),
-    )
-    cid, headers, _ = await create_project(client)
-    provider = ControlledProvider()
-    monkeypatch.setattr("app.services.agent_service.get_text_provider", lambda: provider)
-    response = await client.post(
-        f"/api/v1/conversations/{cid}/canvas/prepare-video",
-        json=preparation(["target"], version=1, duration=16, resolution="720p"),
-        headers=headers,
-    )
-    assert response.status_code == 200, response.text
-    review = response.json()["canvas_data"]["generation_review"]
-    assert review["status"] == "blocked"
-    assert "时长校验" in review["content"]
-    assert "16 秒，不支持" in review["content"]
-    assert "1–15 秒（连续可选）" in review["content"]
-    assert not provider.calls

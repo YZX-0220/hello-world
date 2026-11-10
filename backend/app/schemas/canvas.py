@@ -70,7 +70,7 @@ class ConfirmCanvasPlanRequest(BaseModel):
 
 class CanvasGenerationSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    duration_seconds: int = Field(ge=1, le=120, strict=True)
+    duration_seconds: int = Field(ge=1, le=15, strict=True)
     resolution: Literal["480p", "720p", "1080p"]
 
 

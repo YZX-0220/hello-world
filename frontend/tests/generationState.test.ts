@@ -18,7 +18,7 @@ function prepared() {
   return document;
 }
 
-test('audited model duration choices intersect the platform limit and require a manual valid choice', () => {
+test('model duration choices are no longer capped and support is reported by the review', () => {
   const document = prepared();
   const target = {
     ...document.generation_target!,
@@ -28,12 +28,12 @@ test('audited model duration choices intersect the platform limit and require a 
       image_constraints: { min_width: 300 },
     },
   };
-  assert.deepEqual(videoDurationChoices(target), Array.from({ length: 12 }, (_, index) => index + 4));
-  for (const duration of [1, 2, 3]) {
+  assert.deepEqual(videoDurationChoices(target), Array.from({ length: 27 }, (_, index) => index + 4));
+  for (const duration of [1, 2, 3, 40]) {
     document.video_duration_seconds = duration;
-    assert.match(videoSettingsBlockReason(document, target), /手动选择/);
+    assert.equal(videoSettingsBlockReason(document, target), '');
   }
-  for (const duration of [4, 7, 15]) {
+  for (const duration of [4, 7, 15, 30]) {
     document.video_duration_seconds = duration;
     assert.equal(videoSettingsBlockReason(document, target), '');
     assert.equal(document.video_duration_seconds, duration);
@@ -132,11 +132,9 @@ test('duration and resolution require a manual choice and changing either invali
   assert.match(videoGenerationBlockReason(document, 3, ids, state), /填写视频时长/);
   document.video_duration_seconds = 7.5;
   assert.match(videoGenerationBlockReason(document, 3, ids, state), /整数/);
-  for (const duration of [0, 16, 120]) {
-    document.video_duration_seconds = duration;
-    assert.match(videoGenerationBlockReason(document, 3, ids, state), /1–15/);
-  }
-  for (const duration of [1, 15]) {
+  document.video_duration_seconds = 0;
+  assert.match(videoGenerationBlockReason(document, 3, ids, state), /大于等于 1/);
+  for (const duration of [1, 16, 120]) {
     document.video_duration_seconds = duration;
     document.generation_settings = { duration_seconds: duration, resolution: '1080p' };
     document.generation_requested_settings = { duration_seconds: duration, resolution: '1080p' };

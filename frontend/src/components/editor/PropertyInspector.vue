@@ -27,7 +27,7 @@
       <p class="select-hint">在下方时间轴点击任意片段以展开对应属性</p>
     </div>
 
-    <!-- 2. 选中文本片段时：字体、大小、颜色、透明度 -->
+    <!-- 2. 选中文本片段时：实时响应文字、字号、颜色、背景、位置、透明度 -->
     <div v-else-if="activeClip.type === 'text'" class="inspector-content">
       <div class="group-title">文本与字幕样式</div>
       
@@ -42,11 +42,15 @@
       </div>
 
       <div class="prop-field">
-        <label>字号大小 ({{ (activeClip as any).font_size }}px)</label>
+        <div class="field-title-row">
+          <label>字号大小</label>
+          <span class="val-pill">{{ (activeClip as any).font_size || 26 }} px</span>
+        </div>
         <input 
           type="range" 
           min="12" 
-          max="72" 
+          max="96" 
+          step="1"
           v-model.number="(activeClip as any).font_size" 
           class="range-slider"
         />
@@ -65,7 +69,7 @@
             @click="(activeClip as any).align = 'left'"
           >左</button>
           <button 
-            :class="{ active: (activeClip as any).align === 'center' }" 
+            :class="{ active: !(activeClip as any).align || (activeClip as any).align === 'center' }" 
             @click="(activeClip as any).align = 'center'"
           >中</button>
           <button 
@@ -76,7 +80,25 @@
       </div>
 
       <div class="prop-field">
-        <label>不透明度 ({{ Math.round(((activeClip as any).opacity ?? 1) * 100) }}%)</label>
+        <div class="field-title-row">
+          <label>垂直位置微调 (Y)</label>
+          <span class="val-pill">{{ (activeClip as any).position_y ?? 0 }} px</span>
+        </div>
+        <input 
+          type="range" 
+          min="-800" 
+          max="300" 
+          step="5" 
+          v-model.number="(activeClip as any).position_y" 
+          class="range-slider"
+        />
+      </div>
+
+      <div class="prop-field">
+        <div class="field-title-row">
+          <label>不透明度</label>
+          <span class="val-pill">{{ Math.round(((activeClip as any).opacity ?? 1) * 100) }}%</span>
+        </div>
         <input 
           type="range" 
           min="0.1" 
@@ -88,11 +110,10 @@
       </div>
     </div>
 
-    <!-- 3. 选中视频片段时（含图片转视频）：缩放、位置拖动、倍速、音量 -->
+    <!-- 3. 选中视频片段时：缩放、位置拖动、倍速、音量、淡入淡出 -->
     <div v-else-if="activeClip.type === 'video'" class="inspector-content">
       <div class="group-title">画面变换与自由拖拽</div>
 
-      <!-- 画面缩放滑块 -->
       <div class="prop-field">
         <div class="field-title-row">
           <label>画面缩放</label>
@@ -102,13 +123,13 @@
           type="range" 
           min="0.2" 
           max="3.0" 
-          step="0.05" 
-          v-model.number="(activeClip as any).scale" 
+          step="0.02" 
+          :value="(activeClip as any).scale ?? 1.0"
+          @input="(activeClip as any).scale = parseFloat(($event.target as HTMLInputElement).value)"
           class="range-slider"
         />
       </div>
 
-      <!-- X 轴位置微调 -->
       <div class="prop-field">
         <div class="field-title-row">
           <label>水平位置 (X)</label>
@@ -116,15 +137,15 @@
         </div>
         <input 
           type="range" 
-          min="-600" 
-          max="600" 
+          min="-960" 
+          max="960" 
           step="5" 
-          v-model.number="(activeClip as any).position_x" 
+          :value="(activeClip as any).position_x ?? 0"
+          @input="(activeClip as any).position_x = parseFloat(($event.target as HTMLInputElement).value)"
           class="range-slider"
         />
       </div>
 
-      <!-- Y 轴位置微调 -->
       <div class="prop-field">
         <div class="field-title-row">
           <label>垂直位置 (Y)</label>
@@ -132,15 +153,15 @@
         </div>
         <input 
           type="range" 
-          min="-800" 
-          max="800" 
+          min="-960" 
+          max="960" 
           step="5" 
-          v-model.number="(activeClip as any).position_y" 
+          :value="(activeClip as any).position_y ?? 0"
+          @input="(activeClip as any).position_y = parseFloat(($event.target as HTMLInputElement).value)"
           class="range-slider"
         />
       </div>
 
-      <!-- 一键重置画面变换 -->
       <div class="prop-row">
         <button class="reset-transform-btn" @click="resetVideoTransform(activeClip)">
           ↺ 重置画面缩放与位置
@@ -151,14 +172,17 @@
 
       <div class="group-title">视频播放属性</div>
 
-      <div class="prop-field">
-        <label>播放倍速 ({{ (activeClip as any).playback_rate ?? 1 }}x)</label>
+      <div class="prop-field" v-if="!(activeClip as any).is_image_source">
+        <div class="field-title-row">
+          <label>播放倍速</label>
+          <span class="val-pill">{{ (activeClip as any).playback_rate ?? 1 }}x</span>
+        </div>
         <div class="speed-presets">
           <button 
             v-for="rate in [0.5, 1.0, 1.5, 2.0]" 
             :key="rate" 
-            :class="{ active: (activeClip as any).playback_rate === rate }"
-            @click="(activeClip as any).playback_rate = rate"
+            :class="{ active: ((activeClip as any).playback_rate ?? 1) === rate }"
+            @click="applyPlaybackRate(activeClip, rate)"
           >
             {{ rate }}x
           </button>
@@ -168,17 +192,21 @@
           min="0.2" 
           max="4.0" 
           step="0.1" 
-          v-model.number="(activeClip as any).playback_rate" 
+          :value="(activeClip as any).playback_rate ?? 1.0"
+          @input="applyPlaybackRate(activeClip, parseFloat(($event.target as HTMLInputElement).value))"
           class="range-slider"
         />
       </div>
 
       <div class="prop-field" v-if="!(activeClip as any).is_image_source">
-        <label>素材原始音量 ({{ Math.round(((activeClip as any).volume ?? 1) * 100) }}%)</label>
+        <div class="field-title-row">
+          <label>素材原始音量</label>
+          <span class="val-pill">{{ Math.round(((activeClip as any).volume ?? 1) * 100) }}%</span>
+        </div>
         <input 
           type="range" 
           min="0" 
-          max="2.0" 
+          max="1.0" 
           step="0.05" 
           v-model.number="(activeClip as any).volume" 
           class="range-slider"
@@ -186,7 +214,10 @@
       </div>
 
       <div class="prop-field">
-        <label>画面不透明度 ({{ Math.round(((activeClip as any).opacity ?? 1) * 100) }}%)</label>
+        <div class="field-title-row">
+          <label>画面不透明度</label>
+          <span class="val-pill">{{ Math.round(((activeClip as any).opacity ?? 1) * 100) }}%</span>
+        </div>
         <input 
           type="range" 
           min="0.1" 
@@ -198,16 +229,19 @@
       </div>
     </div>
 
-    <!-- 4. 选中音频片段时：音量、淡入淡出 -->
+    <!-- 4. 选中音频片段时：音量增益、淡入时长、淡出时长 -->
     <div v-else-if="activeClip.type === 'audio'" class="inspector-content">
       <div class="group-title">音频通道属性</div>
 
       <div class="prop-field">
-        <label>音频音量增益 ({{ Math.round(((activeClip as any).volume ?? 1) * 100) }}%)</label>
+        <div class="field-title-row">
+          <label>音频音量增益</label>
+          <span class="val-pill">{{ Math.round(((activeClip as any).volume ?? 1) * 100) }}%</span>
+        </div>
         <input 
           type="range" 
           min="0" 
-          max="2.0" 
+          max="1.0" 
           step="0.05" 
           v-model.number="(activeClip as any).volume" 
           class="range-slider"
@@ -215,24 +249,30 @@
       </div>
 
       <div class="prop-field">
-        <label>淡入时长 ({{ (((activeClip as any).fade_in_ms ?? 0) / 1000).toFixed(1) }}s)</label>
+        <div class="field-title-row">
+          <label>淡入时长</label>
+          <span class="val-pill">{{ (((activeClip as any).fade_in_ms ?? 0) / 1000).toFixed(1) }}s</span>
+        </div>
         <input 
           type="range" 
           min="0" 
           max="5000" 
-          step="200" 
+          step="100" 
           v-model.number="(activeClip as any).fade_in_ms" 
           class="range-slider"
         />
       </div>
 
       <div class="prop-field">
-        <label>淡出时长 ({{ (((activeClip as any).fade_out_ms ?? 0) / 1000).toFixed(1) }}s)</label>
+        <div class="field-title-row">
+          <label>淡出时长</label>
+          <span class="val-pill">{{ (((activeClip as any).fade_out_ms ?? 0) / 1000).toFixed(1) }}s</span>
+        </div>
         <input 
           type="range" 
           min="0" 
           max="5000" 
-          step="200" 
+          step="100" 
           v-model.number="(activeClip as any).fade_out_ms" 
           class="range-slider"
         />
@@ -244,7 +284,7 @@
 <script setup lang="ts">
 import type { TimelineDocument, TimelineClip } from '../../types/clip';
 
-defineProps<{
+const props = defineProps<{
   timeline: TimelineDocument;
   activeClip: TimelineClip | null;
 }>();
@@ -254,6 +294,28 @@ function resetVideoTransform(clip: any) {
   clip.scale = 1.0;
   clip.position_x = 0;
   clip.position_y = 0;
+}
+
+// 修改播放倍速时，同步调整片段在时间轴上的实际持续时长并重算总时长
+function applyPlaybackRate(clip: any, newRate: number) {
+  if (!clip || !newRate || newRate <= 0) return;
+  const oldRate = clip.playback_rate || 1.0;
+  // 记录原始基准时长
+  if (!clip._base_duration_ms) {
+    clip._base_duration_ms = clip.duration_ms * oldRate;
+  }
+  clip.playback_rate = Number(newRate.toFixed(2));
+  clip.duration_ms = Math.max(200, Math.round(clip._base_duration_ms / clip.playback_rate));
+
+  // 同步更新工程总时长
+  let maxEnd = 0;
+  for (const t of props.timeline.tracks) {
+    for (const c of t.clips) {
+      const end = c.start_ms + c.duration_ms;
+      if (end > maxEnd) maxEnd = end;
+    }
+  }
+  props.timeline.duration_ms = maxEnd;
 }
 </script>
 

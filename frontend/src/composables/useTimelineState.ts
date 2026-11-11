@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { TimelineDocument, TimelineTrack, TimelineClip, TrackType } from '../types/clip';
 
 function newId(): string {
@@ -29,26 +29,82 @@ export function useTimelineState() {
   const undoStack = ref<string[]>([]);
   const redoStack = ref<string[]>([]);
 
+  // 记录上一次已稳定的时间轴序列化快照，用于自动捕获右侧属性面板的修改
+  let lastCommittedJson = JSON.stringify(timeline.value);
+  let isRestoringHistory = false;
+  let lastMutationTimestamp = 0;
+
+  // 显式压入历史栈（用于添加、分割、删除等离散操作）
   function pushHistory() {
-    undoStack.value.push(JSON.stringify(timeline.value));
-    if (undoStack.value.length > 50) undoStack.value.shift();
+    const currentJson = JSON.stringify(timeline.value);
+    if (undoStack.value.length === 0 || undoStack.value[undoStack.value.length - 1] !== currentJson) {
+      undoStack.value.push(currentJson);
+      if (undoStack.value.length > 50) undoStack.value.shift();
+    }
     redoStack.value = [];
   }
 
+  // 监听 timeline 内部任何属性的细微变化（如倍速 1x->2x、缩放、位置拖拽、字幕修改、音量调节）
+  watch(
+    () => timeline.value,
+    (newVal) => {
+      if (isRestoringHistory) return;
+      const newJson = JSON.stringify(newVal);
+      if (newJson === lastCommittedJson) return;
+
+      const now = Date.now();
+      // 如果距离上一次修改超过 600ms（说明是一次新的修改动作，如点击 2x 倍速或新拖动滑块），
+      // 且之前没有被显式 pushHistory 记录过，则把修改前的状态 lastCommittedJson 压入撤销栈
+      if (now - lastMutationTimestamp > 600) {
+        if (undoStack.value.length === 0 || undoStack.value[undoStack.value.length - 1] !== lastCommittedJson) {
+          undoStack.value.push(lastCommittedJson);
+          if (undoStack.value.length > 50) undoStack.value.shift();
+          redoStack.value = [];
+        }
+      }
+
+      lastMutationTimestamp = now;
+      lastCommittedJson = newJson;
+    },
+    { deep: true }
+  );
+
   function undo() {
     if (!undoStack.value.length) return;
-    redoStack.value.push(JSON.stringify(timeline.value));
-    const prev = undoStack.value.pop()!;
-    timeline.value = JSON.parse(prev);
-    recalculateDuration();
+    isRestoringHistory = true;
+    try {
+      const currentJson = JSON.stringify(timeline.value);
+      redoStack.value.push(currentJson);
+
+      const prevJson = undoStack.value.pop()!;
+      timeline.value = JSON.parse(prevJson);
+      lastCommittedJson = prevJson;
+      lastMutationTimestamp = 0;
+      recalculateDuration();
+    } finally {
+      setTimeout(() => {
+        isRestoringHistory = false;
+      }, 0);
+    }
   }
 
   function redo() {
     if (!redoStack.value.length) return;
-    undoStack.value.push(JSON.stringify(timeline.value));
-    const next = redoStack.value.pop()!;
-    timeline.value = JSON.parse(next);
-    recalculateDuration();
+    isRestoringHistory = true;
+    try {
+      const currentJson = JSON.stringify(timeline.value);
+      undoStack.value.push(currentJson);
+
+      const nextJson = redoStack.value.pop()!;
+      timeline.value = JSON.parse(nextJson);
+      lastCommittedJson = nextJson;
+      lastMutationTimestamp = 0;
+      recalculateDuration();
+    } finally {
+      setTimeout(() => {
+        isRestoringHistory = false;
+      }, 0);
+    }
   }
 
   // 重新扫描并更新时间线总时长
@@ -73,6 +129,15 @@ export function useTimelineState() {
     return null;
   });
 
+  // 当选中某个片段时，若播放指针不在该片段范围内，自动跳到片段开头以便实时预览修改效果
+  watch(selectedClipId, (newId) => {
+    if (!newId || isRestoringHistory) return;
+    const clip = activeSelectedClip.value;
+    if (clip && (currentTimeMs.value < clip.start_ms || currentTimeMs.value > clip.start_ms + clip.duration_ms)) {
+      currentTimeMs.value = clip.start_ms;
+    }
+  });
+
   // 添加轨道
   function addTrack(type: TrackType) {
     pushHistory();
@@ -93,7 +158,6 @@ export function useTimelineState() {
       clips: []
     };
 
-    // 文本轨置顶，视频轨居中，音频轨置底
     if (type === 'text') {
       timeline.value.tracks.unshift(newTrack);
     } else if (type === 'video') {
@@ -102,6 +166,7 @@ export function useTimelineState() {
     } else {
       timeline.value.tracks.push(newTrack);
     }
+    lastCommittedJson = JSON.stringify(timeline.value);
   }
 
   // 移除轨道
@@ -109,6 +174,7 @@ export function useTimelineState() {
     pushHistory();
     timeline.value.tracks = timeline.value.tracks.filter(t => t.id !== trackId);
     recalculateDuration();
+    lastCommittedJson = JSON.stringify(timeline.value);
   }
 
   // 追加片段到指定轨道
@@ -128,6 +194,8 @@ export function useTimelineState() {
     track.clips.push(clip);
     selectedClipId.value = clip.id;
     recalculateDuration();
+    lastCommittedJson = JSON.stringify(timeline.value);
+    lastMutationTimestamp = 0; // 重置冷却时间，确保紧接着修改属性（如倍速）时必定作为新的一步记录
   }
 
   // 分割选中片段 (C 键)
@@ -162,6 +230,8 @@ export function useTimelineState() {
     track.clips.push(secondClip);
     selectedClipId.value = secondClip.id;
     recalculateDuration();
+    lastCommittedJson = JSON.stringify(timeline.value);
+    lastMutationTimestamp = 0;
   }
 
   // 删除选中片段 (Delete / Backspace 键)
@@ -177,6 +247,8 @@ export function useTimelineState() {
         break;
       }
     }
+    lastCommittedJson = JSON.stringify(timeline.value);
+    lastMutationTimestamp = 0;
   }
 
   // 添加时间标记 (M 键)
@@ -187,6 +259,8 @@ export function useTimelineState() {
       time_ms: currentTimeMs.value,
       label
     });
+    lastCommittedJson = JSON.stringify(timeline.value);
+    lastMutationTimestamp = 0;
   }
 
   // 缩放操作
@@ -215,6 +289,8 @@ export function useTimelineState() {
       timeline.value.width = 1080;
       timeline.value.height = 1080;
     }
+    lastCommittedJson = JSON.stringify(timeline.value);
+    lastMutationTimestamp = 0;
   }
 
   return {

@@ -1,5 +1,5 @@
 import { ref, shallowRef, watch, onUnmounted, type Ref } from 'vue';
-import type { TimelineDocument, TimelineClip, VideoClip, TextClip } from '../types/clip';
+import type { TimelineDocument, TimelineClip, VideoClip, TextClip, AudioClip } from '../types/clip';
 
 export function useClipEngine(
   timeline: Ref<TimelineDocument>,
@@ -28,7 +28,7 @@ export function useClipEngine(
     }
   }
 
-  // 2. 预加载媒体资源
+  // 2. 预加载媒体资源（支持 Video / Image / 独立 Audio）
   async function ensureClipMedia(clip: TimelineClip): Promise<HTMLVideoElement | HTMLImageElement | HTMLAudioElement | null> {
     if (clip.type === 'text') return null;
 
@@ -45,7 +45,7 @@ export function useClipEngine(
       if (!realUrl) {
         realUrl = await resolveMediaUrl({
           sha256: (clip as any).sha256 || '',
-          file_name: (clip as any).file_name || 'video.mp4',
+          file_name: (clip as any).file_name || 'media',
           url: ''
         });
       }
@@ -71,7 +71,6 @@ export function useClipEngine(
           video.src = realUrl;
           video.preload = 'auto';
           video.muted = false;
-          video.volume = typeof videoClip.volume === 'number' ? Math.min(1.0, videoClip.volume) : 1.0;
           video.playsInline = true;
 
           await new Promise((res) => {
@@ -83,6 +82,19 @@ export function useClipEngine(
           renderCurrentFrame();
           return video;
         }
+      } else if (clip.type === 'audio') {
+        const audio = document.createElement('audio');
+        audio.crossOrigin = 'anonymous';
+        audio.src = realUrl;
+        audio.preload = 'auto';
+
+        await new Promise((res) => {
+          audio.onloadeddata = res;
+          audio.onerror = res;
+        });
+
+        mediaElementCache.set(cacheKey, audio);
+        return audio;
       }
     } finally {
       loadingClips.delete(cacheKey);
@@ -90,7 +102,26 @@ export function useClipEngine(
     return null;
   }
 
-  // 3. 核心单向渲染函数（仅读取，不反向 Seek，杜绝回跳）
+  // 辅助：计算当前时刻的真实音量（含淡入淡出包络）
+  function computeEffectiveVolume(
+    baseVolume: number,
+    elapsedInClipMs: number,
+    clipDurationMs: number,
+    fadeInMs: number = 0,
+    fadeOutMs: number = 0
+  ): number {
+    let factor = 1.0;
+    if (fadeInMs > 0 && elapsedInClipMs < fadeInMs) {
+      factor = Math.max(0, elapsedInClipMs / fadeInMs);
+    }
+    const remainMs = clipDurationMs - elapsedInClipMs;
+    if (fadeOutMs > 0 && remainMs < fadeOutMs) {
+      factor = Math.min(factor, Math.max(0, remainMs / fadeOutMs));
+    }
+    return Math.max(0, Math.min(1.0, baseVolume * factor));
+  }
+
+  // 3. 核心实时多图层与多音轨合成渲染
   function renderCurrentFrame() {
     const canvas = canvasRef.value;
     if (!canvas) return;
@@ -101,10 +132,10 @@ export function useClipEngine(
     const targetH = canvas.height;
     const curTime = currentTimeMs.value;
 
-    // 清空画布（透明清底，消除黑色边界）
+    // 透明清屏
     ctx.clearRect(0, 0, targetW, targetH);
 
-    // 逆序遍历轨道保证图层先后
+    // 逆序遍历轨道：保证上方轨道盖在下方轨道之上
     const tracksToRender = [...timeline.value.tracks].reverse();
 
     for (const track of tracksToRender) {
@@ -114,37 +145,61 @@ export function useClipEngine(
         const clipStart = clip.start_ms;
         const clipEnd = clip.start_ms + clip.duration_ms;
 
-        // 不在当前时段
+        // 不在当前播放指针范围内：确保停止发声
         if (curTime < clipStart || curTime > clipEnd) {
           const cachedEl = mediaElementCache.get(clip.id);
-          if (cachedEl instanceof HTMLVideoElement && !cachedEl.paused) {
+          if ((cachedEl instanceof HTMLVideoElement || cachedEl instanceof HTMLAudioElement) && !cachedEl.paused) {
             cachedEl.pause();
           }
           continue;
         }
 
+        const elapsedMs = curTime - clipStart;
         ctx.save();
 
+        // A. 文本片段实时渲染（支持字号、颜色、对齐、不透明度、位置偏移实时响应）
         if (clip.type === 'text') {
           const textClip = clip as TextClip;
           ctx.globalAlpha = textClip.opacity ?? 1.0;
-          ctx.font = `bold ${textClip.font_size * 2}px sans-serif`;
+          const fontSize = (textClip.font_size || 26) * 2;
+          ctx.font = `bold ${fontSize}px sans-serif`;
           ctx.textAlign = textClip.align || 'center';
           ctx.textBaseline = 'middle';
 
-          const textX = textClip.align === 'left' ? 80 : textClip.align === 'right' ? targetW - 80 : targetW / 2;
-          const textY = targetH - 180;
+          const baseTextX = textClip.align === 'left' ? 120 : textClip.align === 'right' ? targetW - 120 : targetW / 2;
+          const textX = baseTextX + ((textClip as any).position_x ?? 0);
+          const textY = targetH - 180 + ((textClip as any).position_y ?? 0);
 
-          if (textClip.background_color) {
-            ctx.fillStyle = textClip.background_color;
-            const textMetrics = ctx.measureText(textClip.text);
-            const pad = 16;
-            ctx.fillRect(textX - textMetrics.width / 2 - pad, textY - 30 - pad, textMetrics.width + pad * 2, 60 + pad * 2);
-          }
+          const lines = (textClip.text || '').split('\n');
+          const lineHeight = fontSize * 1.25;
 
-          ctx.fillStyle = textClip.color || '#FFFFFF';
-          ctx.fillText(textClip.text, textX, textY);
-        } else if (clip.type === 'video') {
+          lines.forEach((line, idx) => {
+            const lineY = textY + (idx - (lines.length - 1) / 2) * lineHeight;
+            if (textClip.background_color) {
+              ctx.fillStyle = textClip.background_color;
+              const metrics = ctx.measureText(line);
+              const padX = 20;
+              const padY = 10;
+              const bgX =
+                textClip.align === 'left'
+                  ? textX - padX
+                  : textClip.align === 'right'
+                  ? textX - metrics.width - padX
+                  : textX - metrics.width / 2 - padX;
+              ctx.fillRect(bgX, lineY - fontSize / 2 - padY, metrics.width + padX * 2, fontSize + padY * 2);
+            }
+
+            // 描边增强可读性
+            ctx.lineWidth = Math.max(2, Math.round(fontSize / 12));
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+            ctx.strokeText(line, textX, lineY);
+
+            ctx.fillStyle = textClip.color || '#FFFFFF';
+            ctx.fillText(line, textX, lineY);
+          });
+        }
+        // B. 视频/图片片段实时渲染（支持缩放、XY平移、倍速、音量、不透明度）
+        else if (clip.type === 'video') {
           const videoClip = clip as VideoClip;
           ctx.globalAlpha = videoClip.opacity ?? 1.0;
 
@@ -156,29 +211,37 @@ export function useClipEngine(
             const elemH = (element instanceof HTMLVideoElement ? element.videoHeight : (element as HTMLImageElement).naturalHeight) || 1080;
 
             if (element instanceof HTMLVideoElement) {
-              element.muted = track.muted;
-              element.volume = Math.min(1.0, videoClip.volume ?? 1.0);
+              const rate = videoClip.playback_rate || 1.0;
+              if (element.playbackRate !== rate) {
+                element.playbackRate = rate;
+              }
+              element.muted = track.muted || (videoClip.volume ?? 1.0) <= 0;
+              element.volume = computeEffectiveVolume(
+                videoClip.volume ?? 1.0,
+                elapsedMs,
+                videoClip.duration_ms,
+                (videoClip as any).fade_in_ms || 0,
+                (videoClip as any).fade_out_ms || 0
+              );
 
-              // 仅在暂停状态且手动拖动进度条时才执行精确定位
               if (!isPlaying.value) {
-                const targetSec = (curTime - clipStart + videoClip.in_point_ms) / 1000 * (videoClip.playback_rate || 1.0);
-                if (Math.abs(element.currentTime - targetSec) > 0.05) {
+                const targetSec = ((elapsedMs * rate) + videoClip.in_point_ms) / 1000;
+                if (Math.abs(element.currentTime - targetSec) > 0.04) {
                   element.currentTime = targetSec;
                 }
               }
             }
 
-            // 自适应居中与缩放平移
             const scaleFactor = Math.min(targetW / elemW, targetH / elemH);
             const fitW = elemW * scaleFactor;
             const fitH = elemH * scaleFactor;
 
-            const userScale = (videoClip as any).scale ?? 1.0;
+            const userScale = videoClip.scale ?? 1.0;
             const finalW = fitW * userScale;
             const finalH = fitH * userScale;
 
-            const posX = ((videoClip as any).position_x ?? 0);
-            const posY = ((videoClip as any).position_y ?? 0);
+            const posX = videoClip.position_x ?? 0;
+            const posY = videoClip.position_y ?? 0;
 
             const drawX = (targetW - finalW) / 2 + posX;
             const drawY = (targetH - finalH) / 2 + posY;
@@ -190,12 +253,37 @@ export function useClipEngine(
             }
           }
         }
+        // C. 独立音频片段实时控制（音量增益 + 淡入淡出）
+        else if (clip.type === 'audio') {
+          const audioClip = clip as AudioClip;
+          const element = mediaElementCache.get(clip.id);
+          if (!element) {
+            void ensureClipMedia(clip);
+          } else if (element instanceof HTMLAudioElement) {
+            element.muted = track.muted || (audioClip.volume ?? 1.0) <= 0;
+            element.volume = computeEffectiveVolume(
+              audioClip.volume ?? 1.0,
+              elapsedMs,
+              audioClip.duration_ms,
+              audioClip.fade_in_ms || 0,
+              audioClip.fade_out_ms || 0
+            );
+
+            if (!isPlaying.value) {
+              const targetSec = (elapsedMs + audioClip.in_point_ms) / 1000;
+              if (Math.abs(element.currentTime - targetSec) > 0.05) {
+                element.currentTime = targetSec;
+              }
+            }
+          }
+        }
+
         ctx.restore();
       }
     }
   }
 
-  // 4. 彻底解耦的播放调度时钟（单向驱动，杜绝重入和鬼畜循环）
+  // 4. 播放时钟调度循环
   function playTick(timestamp: number) {
     if (!isPlaying.value) return;
 
@@ -205,12 +293,11 @@ export function useClipEngine(
 
     const nextTime = currentTimeMs.value + deltaMs;
 
-    // 播放越界判定
     if (nextTime >= timeline.value.duration_ms) {
       if (timeline.value.duration_ms > 0) {
         pausePlayback();
         currentTimeMs.value = 0;
-        seekAllVideosTo(0);
+        seekAllMediaTo(0);
         renderCurrentFrame();
       }
       return;
@@ -220,22 +307,26 @@ export function useClipEngine(
     currentTimeMs.value = nextTime;
     isSeekingInternally = false;
 
+    syncPlayAllActiveClips();
     renderCurrentFrame();
     animationFrameId = requestAnimationFrame(playTick);
   }
 
-  // 同步所有音视频对象的真实播放
+  // 同步激活所有处于当前时间片内的音视频
   function syncPlayAllActiveClips() {
     const cur = currentTimeMs.value;
     timeline.value.tracks.forEach(track => {
       track.clips.forEach(clip => {
-        if (clip.type === 'video') {
+        if (clip.type === 'video' || clip.type === 'audio') {
           const el = mediaElementCache.get(clip.id);
-          if (el instanceof HTMLVideoElement) {
-            const inRange = cur >= clip.start_ms && cur < clip.start_ms + clip.duration_ms;
+          if (el instanceof HTMLVideoElement || el instanceof HTMLAudioElement) {
+            const inRange = !track.hidden && cur >= clip.start_ms && cur < clip.start_ms + clip.duration_ms;
             if (inRange) {
-              const targetSec = (cur - clip.start_ms + clip.in_point_ms) / 1000;
-              if (Math.abs(el.currentTime - targetSec) > 0.15) {
+              const rate = (clip as VideoClip).playback_rate || 1.0;
+              if (el.playbackRate !== rate) el.playbackRate = rate;
+
+              const targetSec = (((cur - clip.start_ms) * rate) + clip.in_point_ms) / 1000;
+              if (Math.abs(el.currentTime - targetSec) > 0.25) {
                 el.currentTime = targetSec;
               }
               if (el.paused) {
@@ -250,15 +341,16 @@ export function useClipEngine(
     });
   }
 
-  function seekAllVideosTo(targetMs: number) {
+  function seekAllMediaTo(targetMs: number) {
     timeline.value.tracks.forEach(track => {
       track.clips.forEach(clip => {
-        if (clip.type === 'video') {
+        if (clip.type === 'video' || clip.type === 'audio') {
           const el = mediaElementCache.get(clip.id);
-          if (el instanceof HTMLVideoElement) {
-            const inRange = targetMs >= clip.start_ms && targetMs < clip.start_ms + clip.duration_ms;
+          if (el instanceof HTMLVideoElement || el instanceof HTMLAudioElement) {
+            const inRange = targetMs >= clip.start_ms && targetMs <= clip.start_ms + clip.duration_ms;
             if (inRange) {
-              el.currentTime = (targetMs - clip.start_ms + clip.in_point_ms) / 1000;
+              const rate = (clip as VideoClip).playback_rate || 1.0;
+              el.currentTime = (((targetMs - clip.start_ms) * rate) + clip.in_point_ms) / 1000;
             } else {
               if (!el.paused) el.pause();
             }
@@ -284,7 +376,7 @@ export function useClipEngine(
     }
 
     mediaElementCache.forEach((el) => {
-      if (el instanceof HTMLVideoElement && !el.paused) {
+      if ((el instanceof HTMLVideoElement || el instanceof HTMLAudioElement) && !el.paused) {
         el.pause();
       }
     });
@@ -298,7 +390,7 @@ export function useClipEngine(
 
   function seekTo(targetMs: number) {
     currentTimeMs.value = Math.max(0, Math.min(targetMs, timeline.value.duration_ms));
-    seekAllVideosTo(currentTimeMs.value);
+    seekAllMediaTo(currentTimeMs.value);
     renderCurrentFrame();
   }
 
@@ -347,7 +439,7 @@ export function useClipEngine(
       const recordInterval = setInterval(() => {
         simulatedTime += stepMs;
         currentTimeMs.value = simulatedTime;
-        seekAllVideosTo(simulatedTime);
+        seekAllMediaTo(simulatedTime);
         renderCurrentFrame();
         exportProgress.value = Math.min(100, Math.floor((simulatedTime / totalDuration) * 100));
 
@@ -359,7 +451,7 @@ export function useClipEngine(
     });
   }
 
-  // 监听画幅分辨率
+  // 监听画幅宽高切换
   watch(
     () => [timeline.value.width, timeline.value.height],
     ([w, h]) => {
@@ -371,21 +463,39 @@ export function useClipEngine(
     }
   );
 
-  // 关键优化：屏蔽播放时的 watch 冗余重绘，仅在外部手动拖动时间轴时更新画面
+  // 监听手动拖拽时间指针
   watch(
     () => currentTimeMs.value,
     (newVal) => {
       if (!isPlaying.value && !isSeekingInternally) {
-        seekAllVideosTo(newVal);
+        seekAllMediaTo(newVal);
         renderCurrentFrame();
       }
     }
   );
 
+  // 关键修复：深度监听 tracks 内任何片段属性（文字、颜色、字号、缩放、位置、倍速、音量）的变化，在暂停时立即实时重绘画面！
+  watch(
+    () => timeline.value.tracks,
+    () => {
+      for (const t of timeline.value.tracks) {
+        for (const c of t.clips) {
+          if (c.type === 'video' || c.type === 'audio') {
+            void ensureClipMedia(c);
+          }
+        }
+      }
+      if (!isPlaying.value) {
+        renderCurrentFrame();
+      }
+    },
+    { deep: true, immediate: true }
+  );
+
   onUnmounted(() => {
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     mediaElementCache.forEach((el) => {
-      if (el instanceof HTMLVideoElement) el.pause();
+      if (el instanceof HTMLVideoElement || el instanceof HTMLAudioElement) el.pause();
     });
     mediaElementCache.clear();
   });

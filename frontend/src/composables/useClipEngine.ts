@@ -18,29 +18,39 @@ export function useClipEngine(
   const mediaElementCache = new Map<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>();
   const loadingClips = new Set<string>();
 
-  // Web Audio API 功率放大管线（支持 0% ~ 200% 真实音量增益与平滑淡入淡出）
+  // Web Audio API 功率放大与导出混流管线
   let audioCtx: AudioContext | null = null;
+  let exportAudioDest: MediaStreamAudioDestinationNode | null = null;
   const gainNodeCache = new Map<string, GainNode>();
+
+  function ensureAudioContext() {
+    if (!audioCtx) {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      audioCtx = new AudioCtxClass();
+      exportAudioDest = audioCtx.createMediaStreamDestination();
+    }
+    if (audioCtx.state === 'suspended') {
+      void audioCtx.resume();
+    }
+  }
 
   function bindAudioGainNode(clipId: string, mediaEl: HTMLVideoElement | HTMLAudioElement) {
     if (gainNodeCache.has(clipId)) return;
     try {
-      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-      if (!audioCtx) {
-        audioCtx = new AudioCtxClass();
-      }
+      ensureAudioContext();
+      if (!audioCtx || !exportAudioDest) return;
       const source = audioCtx.createMediaElementSource(mediaEl);
       const gainNode = audioCtx.createGain();
       source.connect(gainNode);
+      // 同时连接到扬声器（用于预览）和导出混流器（用于录制导出）
       gainNode.connect(audioCtx.destination);
+      gainNode.connect(exportAudioDest);
       gainNodeCache.set(clipId, gainNode);
     } catch (e) {
-      // 若浏览器环境或跨域限制则回退到原生 volume
       console.warn('WebAudio 增益节点绑定回退:', e);
     }
   }
 
-  // 设置元素实时音量（支持最高 2.0 即 200% 放大，以及淡入淡出衰减）
   function applyMediaVolume(
     clipId: string,
     mediaEl: HTMLVideoElement | HTMLAudioElement,
@@ -57,7 +67,6 @@ export function useClipEngine(
     }
     mediaEl.muted = false;
 
-    // 计算淡入淡出线性包络系数 (0.0 ~ 1.0)
     let fadeFactor = 1.0;
     if (fadeInMs > 0 && elapsedInClipMs < fadeInMs) {
       fadeFactor = Math.max(0, elapsedInClipMs / fadeInMs);
@@ -71,13 +80,9 @@ export function useClipEngine(
     const gainNode = gainNodeCache.get(clipId);
 
     if (gainNode && audioCtx) {
-      if (audioCtx.state === 'suspended' && isPlaying.value) {
-        void audioCtx.resume();
-      }
-      mediaEl.volume = 1.0; // 原生开满，交由 GainNode 控制 0 ~ 200%
+      mediaEl.volume = 1.0;
       gainNode.gain.value = finalGain;
     } else {
-      // 兜底：原生 volume 最大为 1.0
       mediaEl.volume = Math.min(1.0, finalGain);
     }
   }
@@ -167,24 +172,22 @@ export function useClipEngine(
     }
     return null;
   }
-  // 核心：根据当前片段内的相对时间 elapsedMs，在相邻两个关键帧 A -> B 之间执行平滑线性插值
+
+  // 关键帧平滑线性插值计算（只读计算，不修改响应式对象，彻底杜绝播放掉帧！）
   function resolveAnimatedProp(clip: any, propName: string, elapsedMs: number, defaultVal: number): number {
     const baseVal = clip[propName] ?? defaultVal;
     const kfs = clip.keyframes;
     if (!Array.isArray(kfs) || kfs.length === 0) return baseVal;
 
-    const sorted = [...kfs].sort((a: any, b: any) => a.offset_ms - b.offset_ms);
-    // 只有 1 个关键帧，或在第一个关键帧左侧：保持第一个关键帧的值
+    const sorted = kfs.length > 1 ? [...kfs].sort((a: any, b: any) => a.offset_ms - b.offset_ms) : kfs;
     if (sorted.length === 1 || elapsedMs <= sorted[0].offset_ms) {
       return sorted[0][propName] ?? baseVal;
     }
-    // 在最后一个关键帧右侧：保持最后一个关键帧的值
     const last = sorted[sorted.length - 1];
     if (elapsedMs >= last.offset_ms) {
       return last[propName] ?? baseVal;
     }
 
-    // 从左往右找到当前所处的 [关键帧 A, 关键帧 B] 区间并线性插值
     for (let i = 0; i < sorted.length - 1; i++) {
       const kfA = sorted[i];
       const kfB = sorted[i + 1];
@@ -198,7 +201,8 @@ export function useClipEngine(
     }
     return baseVal;
   }
-  // 3. 核心实时多图层与多音轨合成渲染
+
+  // 3. 核心实时多图层合成渲染
   function renderCurrentFrame() {
     const canvas = canvasRef.value;
     if (!canvas) return;
@@ -212,8 +216,6 @@ export function useClipEngine(
     // 视频画幅区域填充纯黑底色
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, targetW, targetH);
-
-    ctx.clearRect(0, 0, targetW, targetH);
 
     const tracksToRender = [...timeline.value.tracks].reverse();
 
@@ -235,7 +237,6 @@ export function useClipEngine(
         const elapsedMs = curTime - clipStart;
         ctx.save();
 
-        // A. 文本片段实时渲染（支持 X/Y 自由拖拽、字号、颜色、对齐、不透明度）
         if (clip.type === 'text') {
           const textClip = clip as TextClip;
           const animOpacity = resolveAnimatedProp(textClip, 'opacity', elapsedMs, 1.0);
@@ -266,8 +267,8 @@ export function useClipEngine(
                 textClip.align === 'left'
                   ? textX - padX
                   : textClip.align === 'right'
-                    ? textX - metrics.width - padX
-                    : textX - metrics.width / 2 - padX;
+                  ? textX - metrics.width - padX
+                  : textX - metrics.width / 2 - padX;
               ctx.fillRect(bgX, lineY - animFontSize / 2 - padY, metrics.width + padX * 2, animFontSize + padY * 2);
             }
 
@@ -278,9 +279,7 @@ export function useClipEngine(
             ctx.fillStyle = textClip.color || '#FFFFFF';
             ctx.fillText(line, textX, lineY);
           });
-        }
-        // B. 视频/图片片段实时渲染（含 200% 音量增益与淡入淡出）
-        else if (clip.type === 'video') {
+        } else if (clip.type === 'video') {
           const videoClip = clip as VideoClip;
           const animOpacity = resolveAnimatedProp(videoClip, 'opacity', elapsedMs, 1.0);
           const animScale = resolveAnimatedProp(videoClip, 'scale', elapsedMs, 1.0);
@@ -307,14 +306,14 @@ export function useClipEngine(
                 clip.id,
                 element,
                 track.muted,
-                animVolume, // 使用关键帧插值后的实时音量
+                animVolume,
                 elapsedMs,
                 videoClip.duration_ms,
                 (videoClip as any).fade_in_ms || 0,
                 (videoClip as any).fade_out_ms || 0
               );
 
-              if (!isPlaying.value) {
+              if (!isPlaying.value && !isExporting.value) {
                 const targetSec = ((elapsedMs * rate) + videoClip.in_point_ms) / 1000;
                 if (Math.abs(element.currentTime - targetSec) > 0.04) {
                   element.currentTime = targetSec;
@@ -338,9 +337,7 @@ export function useClipEngine(
               ctx.drawImage(element, drawX, drawY, finalW, finalH);
             }
           }
-        }
-        // C. 独立音频片段实时控制（含 200% 音量增益与淡入淡出）
-        else if (clip.type === 'audio') {
+        } else if (clip.type === 'audio') {
           const audioClip = clip as AudioClip;
           const animVolume = resolveAnimatedProp(audioClip, 'volume', elapsedMs, 1.0);
           const element = mediaElementCache.get(clip.id);
@@ -351,14 +348,14 @@ export function useClipEngine(
               clip.id,
               element,
               track.muted,
-              animVolume, // 使用关键帧插值后的实时音量
+              animVolume,
               elapsedMs,
               audioClip.duration_ms,
               audioClip.fade_in_ms || 0,
               audioClip.fade_out_ms || 0
             );
 
-            if (!isPlaying.value) {
+            if (!isPlaying.value && !isExporting.value) {
               const targetSec = (elapsedMs + audioClip.in_point_ms) / 1000;
               if (Math.abs(element.currentTime - targetSec) > 0.05) {
                 element.currentTime = targetSec;
@@ -414,11 +411,12 @@ export function useClipEngine(
               if (el.playbackRate !== rate) el.playbackRate = rate;
 
               const targetSec = (((cur - clip.start_ms) * rate) + clip.in_point_ms) / 1000;
-              if (Math.abs(el.currentTime - targetSec) > 0.25) {
+              // 容差放宽到 0.35s，绝不打断浏览器原生硬件连续解码
+              if (Math.abs(el.currentTime - targetSec) > 0.35) {
                 el.currentTime = targetSec;
               }
               if (el.paused) {
-                el.play().catch(() => { });
+                el.play().catch(() => {});
               }
             } else {
               if (!el.paused) el.pause();
@@ -449,9 +447,7 @@ export function useClipEngine(
   }
 
   function startPlayback() {
-    if (audioCtx && audioCtx.state === 'suspended') {
-      void audioCtx.resume();
-    }
+    ensureAudioContext();
     isPlaying.value = true;
     lastTimestamp = performance.now();
     syncPlayAllActiveClips();
@@ -490,55 +486,107 @@ export function useClipEngine(
     seekTo(currentTimeMs.value + frames * frameDurationMs);
   }
 
-  // 5. 纯前端打包导出
+  // 5. 核心重构：丝滑 60FPS 硬件加速音画同步导出（彻底告别 setInterval 強制 Seek 导致的 PPT 卡顿！）
   async function exportMp4(): Promise<Blob> {
-    isExporting.value = true;
-    exportProgress.value = 0;
     pausePlayback();
+    ensureAudioContext();
 
     const canvas = canvasRef.value;
     if (!canvas) throw new Error('渲染画布未就绪');
 
-    const stream = canvas.captureStream(timeline.value.fps || 30);
-    const mediaRecorder = new MediaRecorder(stream, {
-      mimeType: 'video/webm;codecs=vp9',
-      videoBitsPerSecond: 5000000
+    // 先确保所有轨道的音视频均已预加载完毕
+    for (const t of timeline.value.tracks) {
+      for (const c of t.clips) {
+        if (c.type === 'video' || c.type === 'audio') {
+          await ensureClipMedia(c);
+        }
+      }
+    }
+
+    isExporting.value = true;
+    exportProgress.value = 0;
+
+    // 回到 0 秒起点并等待首帧就绪
+    currentTimeMs.value = 0;
+    seekAllMediaTo(0);
+    renderCurrentFrame();
+    await new Promise(r => setTimeout(r, 150));
+
+    const fps = timeline.value.fps || 30;
+    const canvasStream = canvas.captureStream(fps);
+
+    // 将 Web Audio API 混合后的多轨声音加入导出流
+    const combinedTracks = [...canvasStream.getVideoTracks()];
+    if (exportAudioDest) {
+      const audioTracks = exportAudioDest.stream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        combinedTracks.push(audioTracks[0]);
+      }
+    }
+    const finalStream = new MediaStream(combinedTracks);
+
+    // 优先选择硬件加速支持的编码格式
+    const mimeTypes = [
+      'video/mp4;codecs=avc1',
+      'video/webm;codecs=h264',
+      'video/webm;codecs=vp9',
+      'video/webm'
+    ];
+    const selectedMime = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || '';
+
+    const mediaRecorder = new MediaRecorder(finalStream, {
+      ...(selectedMime ? { mimeType: selectedMime } : {}),
+      videoBitsPerSecond: 8000000 // 8Mbps 高清码率，防止马赛克与掉帧
     });
 
     const chunks: Blob[] = [];
     mediaRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
+      if (e.data && e.data.size > 0) chunks.push(e.data);
     };
 
+    const totalDuration = Math.max(1000, timeline.value.duration_ms || 3000);
+
     return new Promise((resolve, reject) => {
+      let exportRafId = 0;
+      let startWallTime = performance.now();
+
       mediaRecorder.onstop = () => {
-        const finalBlob = new Blob(chunks, { type: 'video/mp4' });
+        cancelAnimationFrame(exportRafId);
+        mediaElementCache.forEach((el) => {
+          if (el instanceof HTMLVideoElement || el instanceof HTMLAudioElement) el.pause();
+        });
         isExporting.value = false;
+        exportProgress.value = 100;
+        const finalBlob = new Blob(chunks, { type: selectedMime || 'video/mp4' });
         resolve(finalBlob);
       };
+
       mediaRecorder.onerror = (e) => {
+        cancelAnimationFrame(exportRafId);
         isExporting.value = false;
         reject(e);
       };
 
-      mediaRecorder.start();
+      mediaRecorder.start(100);
+      startWallTime = performance.now();
 
-      const totalDuration = timeline.value.duration_ms || 3000;
-      const stepMs = 1000 / (timeline.value.fps || 30);
-      let simulatedTime = 0;
+      // 使用 requestAnimationFrame + 原生视频连续播放驱动录制，绝不每帧强制 Seek！
+      const exportLoop = (now: number) => {
+        const elapsed = now - startWallTime;
+        currentTimeMs.value = Math.min(totalDuration, elapsed);
+        exportProgress.value = Math.min(99, Math.floor((elapsed / totalDuration) * 100));
 
-      const recordInterval = setInterval(() => {
-        simulatedTime += stepMs;
-        currentTimeMs.value = simulatedTime;
-        seekAllMediaTo(simulatedTime);
+        syncPlayAllActiveClips();
         renderCurrentFrame();
-        exportProgress.value = Math.min(100, Math.floor((simulatedTime / totalDuration) * 100));
 
-        if (simulatedTime >= totalDuration) {
-          clearInterval(recordInterval);
+        if (elapsed >= totalDuration) {
           mediaRecorder.stop();
+        } else {
+          exportRafId = requestAnimationFrame(exportLoop);
         }
-      }, stepMs);
+      };
+
+      exportRafId = requestAnimationFrame(exportLoop);
     });
   }
 
@@ -556,7 +604,7 @@ export function useClipEngine(
   watch(
     () => currentTimeMs.value,
     (newVal) => {
-      if (!isPlaying.value && !isSeekingInternally) {
+      if (!isPlaying.value && !isExporting.value && !isSeekingInternally) {
         seekAllMediaTo(newVal);
         renderCurrentFrame();
       }
@@ -573,7 +621,7 @@ export function useClipEngine(
           }
         }
       }
-      if (!isPlaying.value) {
+      if (!isPlaying.value && !isExporting.value) {
         renderCurrentFrame();
       }
     },

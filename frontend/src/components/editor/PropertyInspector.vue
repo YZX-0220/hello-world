@@ -6,27 +6,110 @@
     </div>
 
     <!-- 1. 未选中片段：展示剪辑全局工程配置 -->
-    <div v-if="!activeClip" class="inspector-content empty-selection">
-      <div class="group-title">全局草稿参数</div>
-      <div class="prop-row">
-        <label>分辨率宽度</label>
-        <span class="val-pill">{{ timeline.width }} px</span>
+   <!-- 1. 未选中片段：可交互的全局草稿分辨率与基准帧率设置 -->
+    <div v-if="!activeClip" class="inspector-content">
+      <div class="group-header-row">
+        <span class="group-title">全局草稿参数配置</span>
       </div>
-      <div class="prop-row">
-        <label>分辨率高度</label>
-        <span class="val-pill">{{ timeline.height }} px</span>
-      </div>
-      <div class="prop-row">
-        <label>基准帧率</label>
-        <span class="val-pill">{{ timeline.fps }} FPS</span>
-      </div>
-      <div class="prop-row">
-        <label>总时长</label>
-        <span class="val-pill">{{ (timeline.duration_ms / 1000).toFixed(1) }} 秒</span>
-      </div>
-      <p class="select-hint">在下方时间轴点击任意片段以展开对应属性</p>
-    </div>
 
+      <!-- 截图同款概览卡片（实时联动下方选择） -->
+      <div class="spec-summary-card">
+        <div class="spec-col">
+          <span class="spec-label">分辨率</span>
+          <span class="spec-val">{{ timeline.width }} × {{ timeline.height }}</span>
+        </div>
+        <div class="spec-divider"></div>
+        <div class="spec-col">
+          <span class="spec-label">基准帧率</span>
+          <span class="spec-val">{{ timeline.fps }} FPS</span>
+        </div>
+      </div>
+
+      <!-- 分辨率预设选择 -->
+      <div class="prop-field">
+        <label>画布分辨率预设</label>
+        <select 
+          class="inspector-select" 
+          :value="`${timeline.width}x${timeline.height}`"
+          @change="handleResolutionChange(($event.target as HTMLSelectElement).value)"
+        >
+          <optgroup label="16:9 横屏标准">
+            <option value="1280x720">720P 高清 (1280 × 720)</option>
+            <option value="1920x1080">1080P 全高清 (1920 × 1080)</option>
+            <option value="2560x1440">2K 超清 (2560 × 1440)</option>
+            <option value="3840x2160">4K 极清 (3840 × 2160)</option>
+          </optgroup>
+          <optgroup label="9:16 竖屏短视频">
+            <option value="720x1280">720P 竖屏 (720 × 1280)</option>
+            <option value="1080x1920">1080P 竖屏 (1080 × 1920)</option>
+            <option value="2160x3840">4K 竖屏 (2160 × 3840)</option>
+          </optgroup>
+          <optgroup label="1:1 方形画幅">
+            <option value="1080x1080">1080P 方形 (1080 × 1080)</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <!-- 自定义宽高输入 -->
+      <div class="prop-field">
+        <div class="field-title-row">
+          <label>自定义宽高 (px)</label>
+          <div class="xy-inputs-group">
+            <div class="xy-box">
+              <span class="axis-tag">W</span>
+              <input 
+                type="number" 
+                min="320" 
+                max="3840" 
+                step="2"
+                :value="timeline.width"
+                @change="applyCustomWidth(parseInt(($event.target as HTMLInputElement).value, 10))"
+                class="xy-num-input"
+              />
+            </div>
+            <div class="xy-box">
+              <span class="axis-tag">H</span>
+              <input 
+                type="number" 
+                min="320" 
+                max="3840" 
+                step="2"
+                :value="timeline.height"
+                @change="applyCustomHeight(parseInt(($event.target as HTMLInputElement).value, 10))"
+                class="xy-num-input"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 基准帧率选择 (FPS) -->
+      <div class="prop-field">
+        <div class="field-title-row">
+          <label>基准帧率 (FPS)</label>
+          <span class="val-pill">{{ timeline.fps }} FPS</span>
+        </div>
+        <div class="speed-presets">
+          <button 
+            v-for="fpsOpt in [24, 25, 30, 60]" 
+            :key="fpsOpt" 
+            :class="{ active: timeline.fps === fpsOpt }"
+            @click="timeline.fps = fpsOpt"
+          >
+            {{ fpsOpt }} FPS
+          </button>
+        </div>
+      </div>
+
+      <div class="divider-line"></div>
+
+      <div class="prop-row">
+        <label>当前工程总时长</label>
+        <span class="val-pill">{{ (timeline.duration_ms / 1000).toFixed(2) }} 秒</span>
+      </div>
+
+      <p class="select-hint">💡 修改分辨率或帧率将直接作用于实时渲染画布与最终导出的 MP4 成片。点击下方时间轴任意片段可切换至片段属性编辑。</p>
+    </div>
     <!-- 2. 选中文本片段时：支持关键帧 + 自由拖拽 + X/Y 轴微调 + 样式调节 -->
     <div v-else-if="activeClip.type === 'text'" class="inspector-content">
       <div class="group-header-row">
@@ -586,51 +669,6 @@ function updateClipProp(propName: string, val: number) {
   }
 }
 
-// 当时间轴指针移动且当前片段含有关键帧时，自动将插值后的数值同步展示到右侧面板滑块上
-watch(
-  () => props.currentTimeMs,
-  () => {
-    const clip = props.activeClip as any;
-    if (!clip || !Array.isArray(clip.keyframes) || clip.keyframes.length === 0) return;
-
-    const kfs = sortedKeyframes.value;
-    const offset = currentClipOffsetMs.value;
-
-    const interp = (key: string, fallback: number): number => {
-      if (kfs.length === 1) return kfs[0][key] ?? fallback;
-      if (offset <= kfs[0].offset_ms) return kfs[0][key] ?? fallback;
-      if (offset >= kfs[kfs.length - 1].offset_ms) return kfs[kfs.length - 1][key] ?? fallback;
-
-      for (let i = 0; i < kfs.length - 1; i++) {
-        const a = kfs[i];
-        const b = kfs[i + 1];
-        if (offset >= a.offset_ms && offset <= b.offset_ms) {
-          const span = Math.max(1, b.offset_ms - a.offset_ms);
-          const ratio = (offset - a.offset_ms) / span;
-          const va = a[key] ?? fallback;
-          const vb = b[key] ?? fallback;
-          return Number((va + (vb - va) * ratio).toFixed(2));
-        }
-      }
-      return fallback;
-    };
-
-    if (clip.type === 'video') {
-      clip.scale = interp('scale', clip.scale ?? 1.0);
-      clip.position_x = Math.round(interp('position_x', clip.position_x ?? 0));
-      clip.position_y = Math.round(interp('position_y', clip.position_y ?? 0));
-      clip.opacity = interp('opacity', clip.opacity ?? 1.0);
-      clip.volume = interp('volume', clip.volume ?? 1.0);
-    } else if (clip.type === 'text') {
-      clip.position_x = Math.round(interp('position_x', clip.position_x ?? 0));
-      clip.position_y = Math.round(interp('position_y', clip.position_y ?? 0));
-      clip.opacity = interp('opacity', clip.opacity ?? 1.0);
-      clip.font_size = Math.round(interp('font_size', clip.font_size ?? 26));
-    } else if (clip.type === 'audio') {
-      clip.volume = interp('volume', clip.volume ?? 1.0);
-    }
-  }
-);
 
 function resetVideoTransform(clip: any) {
   if (!clip) return;
@@ -663,9 +701,94 @@ function applyPlaybackRate(clip: any, newRate: number) {
   }
   props.timeline.duration_ms = maxEnd;
 }
+
+// 切换预设分辨率
+function handleResolutionChange(val: string) {
+  const [wStr, hStr] = val.split('x');
+  const w = parseInt(wStr, 10);
+  const h = parseInt(hStr, 10);
+  if (w >= 320 && h >= 320) {
+    props.timeline.width = w;
+    props.timeline.height = h;
+  }
+}
+
+// 自定义宽度（确保为偶数以兼容视频编码器）
+function applyCustomWidth(w: number) {
+  if (!Number.isFinite(w)) return;
+  const clamped = Math.max(320, Math.min(3840, w));
+  props.timeline.width = clamped % 2 === 0 ? clamped : clamped + 1;
+}
+
+// 自定义高度
+function applyCustomHeight(h: number) {
+  if (!Number.isFinite(h)) return;
+  const clamped = Math.max(320, Math.min(3840, h));
+  props.timeline.height = clamped % 2 === 0 ? clamped : clamped + 1;
+}
 </script>
 
 <style scoped>
+/* 截图同款分辨率与基准帧率双栏展示卡 */
+.spec-summary-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 14px 10px;
+}
+
+.spec-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.spec-label {
+  font-size: 11px;
+  color: #71717a;
+}
+
+.spec-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f4f4f5;
+  font-family: 'Times New Roman', serif, monospace;
+  letter-spacing: 0.5px;
+}
+
+.spec-divider {
+  width: 1px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.inspector-select {
+  width: 100%;
+  background: #1a1824;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 7px 10px;
+  color: #f4f4f5;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.inspector-select:hover,
+.inspector-select:focus {
+  border-color: #00e5ff;
+}
+
+.inspector-select option,
+.inspector-select optgroup {
+  background: #17151f;
+  color: #f4f4f5;
+}
 .property-inspector {
   display: flex;
   flex-direction: column;

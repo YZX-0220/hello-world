@@ -61,11 +61,14 @@
           @changeAspect="setAspectRatio" 
         />
 
-        <!-- 右栏：动态属性检查器 -->
+
+      <!-- 右栏：动态属性检查器（新增传入 currentTimeMs 与 seek 跳转） -->
         <PropertyInspector 
           class="grid-right" 
           :timeline="timeline" 
           :activeClip="activeSelectedClip" 
+          :currentTimeMs="currentTimeMs"
+          @seek="val => currentTimeMs = val"
         />
       </section>
 
@@ -398,11 +401,17 @@ onMounted(() => {
 
 .upper-workspace-grid {
   flex: 1;
+  min-height: 0; /* 关键修复：禁止右侧长表单把上半屏网格向下撑爆 */
   display: grid;
   grid-template-columns: 280px 1fr 300px;
   overflow: hidden;
 }
 
+.upper-workspace-grid > * {
+  min-height: 0; /* 强制左、中、右三栏严格遵守网格高度，超长内容在各自内部滚动 */
+  max-height: 100%;
+  overflow: hidden;
+}
 .lower-timeline-section {
   height: 260px;
   overflow: hidden;

@@ -18,6 +18,70 @@ export function useClipEngine(
   const mediaElementCache = new Map<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>();
   const loadingClips = new Set<string>();
 
+  // Web Audio API 功率放大管线（支持 0% ~ 200% 真实音量增益与平滑淡入淡出）
+  let audioCtx: AudioContext | null = null;
+  const gainNodeCache = new Map<string, GainNode>();
+
+  function bindAudioGainNode(clipId: string, mediaEl: HTMLVideoElement | HTMLAudioElement) {
+    if (gainNodeCache.has(clipId)) return;
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!audioCtx) {
+        audioCtx = new AudioCtxClass();
+      }
+      const source = audioCtx.createMediaElementSource(mediaEl);
+      const gainNode = audioCtx.createGain();
+      source.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      gainNodeCache.set(clipId, gainNode);
+    } catch (e) {
+      // 若浏览器环境或跨域限制则回退到原生 volume
+      console.warn('WebAudio 增益节点绑定回退:', e);
+    }
+  }
+
+  // 设置元素实时音量（支持最高 2.0 即 200% 放大，以及淡入淡出衰减）
+  function applyMediaVolume(
+    clipId: string,
+    mediaEl: HTMLVideoElement | HTMLAudioElement,
+    isMuted: boolean,
+    baseVolume: number,
+    elapsedInClipMs: number,
+    clipDurationMs: number,
+    fadeInMs: number = 0,
+    fadeOutMs: number = 0
+  ) {
+    if (isMuted || baseVolume <= 0) {
+      mediaEl.muted = true;
+      return;
+    }
+    mediaEl.muted = false;
+
+    // 计算淡入淡出线性包络系数 (0.0 ~ 1.0)
+    let fadeFactor = 1.0;
+    if (fadeInMs > 0 && elapsedInClipMs < fadeInMs) {
+      fadeFactor = Math.max(0, elapsedInClipMs / fadeInMs);
+    }
+    const remainMs = clipDurationMs - elapsedInClipMs;
+    if (fadeOutMs > 0 && remainMs < fadeOutMs) {
+      fadeFactor = Math.min(fadeFactor, Math.max(0, remainMs / fadeOutMs));
+    }
+
+    const finalGain = Math.max(0, Math.min(2.0, baseVolume * fadeFactor));
+    const gainNode = gainNodeCache.get(clipId);
+
+    if (gainNode && audioCtx) {
+      if (audioCtx.state === 'suspended' && isPlaying.value) {
+        void audioCtx.resume();
+      }
+      mediaEl.volume = 1.0; // 原生开满，交由 GainNode 控制 0 ~ 200%
+      gainNode.gain.value = finalGain;
+    } else {
+      // 兜底：原生 volume 最大为 1.0
+      mediaEl.volume = Math.min(1.0, finalGain);
+    }
+  }
+
   // 1. 初始化绑定 Canvas
   function setCanvasElement(el: HTMLCanvasElement | null) {
     canvasRef.value = el;
@@ -28,7 +92,7 @@ export function useClipEngine(
     }
   }
 
-  // 2. 预加载媒体资源（支持 Video / Image / 独立 Audio）
+  // 2. 预加载媒体资源
   async function ensureClipMedia(clip: TimelineClip): Promise<HTMLVideoElement | HTMLImageElement | HTMLAudioElement | null> {
     if (clip.type === 'text') return null;
 
@@ -78,6 +142,7 @@ export function useClipEngine(
             video.onerror = res;
           });
 
+          bindAudioGainNode(cacheKey, video);
           mediaElementCache.set(cacheKey, video);
           renderCurrentFrame();
           return video;
@@ -93,6 +158,7 @@ export function useClipEngine(
           audio.onerror = res;
         });
 
+        bindAudioGainNode(cacheKey, audio);
         mediaElementCache.set(cacheKey, audio);
         return audio;
       }
@@ -101,26 +167,37 @@ export function useClipEngine(
     }
     return null;
   }
+  // 核心：根据当前片段内的相对时间 elapsedMs，在相邻两个关键帧 A -> B 之间执行平滑线性插值
+  function resolveAnimatedProp(clip: any, propName: string, elapsedMs: number, defaultVal: number): number {
+    const baseVal = clip[propName] ?? defaultVal;
+    const kfs = clip.keyframes;
+    if (!Array.isArray(kfs) || kfs.length === 0) return baseVal;
 
-  // 辅助：计算当前时刻的真实音量（含淡入淡出包络）
-  function computeEffectiveVolume(
-    baseVolume: number,
-    elapsedInClipMs: number,
-    clipDurationMs: number,
-    fadeInMs: number = 0,
-    fadeOutMs: number = 0
-  ): number {
-    let factor = 1.0;
-    if (fadeInMs > 0 && elapsedInClipMs < fadeInMs) {
-      factor = Math.max(0, elapsedInClipMs / fadeInMs);
+    const sorted = [...kfs].sort((a: any, b: any) => a.offset_ms - b.offset_ms);
+    // 只有 1 个关键帧，或在第一个关键帧左侧：保持第一个关键帧的值
+    if (sorted.length === 1 || elapsedMs <= sorted[0].offset_ms) {
+      return sorted[0][propName] ?? baseVal;
     }
-    const remainMs = clipDurationMs - elapsedInClipMs;
-    if (fadeOutMs > 0 && remainMs < fadeOutMs) {
-      factor = Math.min(factor, Math.max(0, remainMs / fadeOutMs));
+    // 在最后一个关键帧右侧：保持最后一个关键帧的值
+    const last = sorted[sorted.length - 1];
+    if (elapsedMs >= last.offset_ms) {
+      return last[propName] ?? baseVal;
     }
-    return Math.max(0, Math.min(1.0, baseVolume * factor));
+
+    // 从左往右找到当前所处的 [关键帧 A, 关键帧 B] 区间并线性插值
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const kfA = sorted[i];
+      const kfB = sorted[i + 1];
+      if (elapsedMs >= kfA.offset_ms && elapsedMs <= kfB.offset_ms) {
+        const span = Math.max(1, kfB.offset_ms - kfA.offset_ms);
+        const t = (elapsedMs - kfA.offset_ms) / span;
+        const valA = kfA[propName] ?? baseVal;
+        const valB = kfB[propName] ?? baseVal;
+        return valA + (valB - valA) * t;
+      }
+    }
+    return baseVal;
   }
-
   // 3. 核心实时多图层与多音轨合成渲染
   function renderCurrentFrame() {
     const canvas = canvasRef.value;
@@ -132,10 +209,12 @@ export function useClipEngine(
     const targetH = canvas.height;
     const curTime = currentTimeMs.value;
 
-    // 透明清屏
+    // 视频画幅区域填充纯黑底色
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, targetW, targetH);
+
     ctx.clearRect(0, 0, targetW, targetH);
 
-    // 逆序遍历轨道：保证上方轨道盖在下方轨道之上
     const tracksToRender = [...timeline.value.tracks].reverse();
 
     for (const track of tracksToRender) {
@@ -145,7 +224,6 @@ export function useClipEngine(
         const clipStart = clip.start_ms;
         const clipEnd = clip.start_ms + clip.duration_ms;
 
-        // 不在当前播放指针范围内：确保停止发声
         if (curTime < clipStart || curTime > clipEnd) {
           const cachedEl = mediaElementCache.get(clip.id);
           if ((cachedEl instanceof HTMLVideoElement || cachedEl instanceof HTMLAudioElement) && !cachedEl.paused) {
@@ -157,21 +235,25 @@ export function useClipEngine(
         const elapsedMs = curTime - clipStart;
         ctx.save();
 
-        // A. 文本片段实时渲染（支持字号、颜色、对齐、不透明度、位置偏移实时响应）
+        // A. 文本片段实时渲染（支持 X/Y 自由拖拽、字号、颜色、对齐、不透明度）
         if (clip.type === 'text') {
           const textClip = clip as TextClip;
-          ctx.globalAlpha = textClip.opacity ?? 1.0;
-          const fontSize = (textClip.font_size || 26) * 2;
-          ctx.font = `bold ${fontSize}px sans-serif`;
+          const animOpacity = resolveAnimatedProp(textClip, 'opacity', elapsedMs, 1.0);
+          const animFontSize = resolveAnimatedProp(textClip, 'font_size', elapsedMs, 26) * 2;
+          const animPosX = resolveAnimatedProp(textClip, 'position_x', elapsedMs, 0);
+          const animPosY = resolveAnimatedProp(textClip, 'position_y', elapsedMs, 0);
+
+          ctx.globalAlpha = animOpacity;
+          ctx.font = `bold ${animFontSize}px sans-serif`;
           ctx.textAlign = textClip.align || 'center';
           ctx.textBaseline = 'middle';
 
           const baseTextX = textClip.align === 'left' ? 120 : textClip.align === 'right' ? targetW - 120 : targetW / 2;
-          const textX = baseTextX + ((textClip as any).position_x ?? 0);
-          const textY = targetH - 180 + ((textClip as any).position_y ?? 0);
+          const textX = baseTextX + animPosX;
+          const textY = targetH - 180 + animPosY;
 
           const lines = (textClip.text || '').split('\n');
-          const lineHeight = fontSize * 1.25;
+          const lineHeight = animFontSize * 1.25;
 
           lines.forEach((line, idx) => {
             const lineY = textY + (idx - (lines.length - 1) / 2) * lineHeight;
@@ -184,24 +266,29 @@ export function useClipEngine(
                 textClip.align === 'left'
                   ? textX - padX
                   : textClip.align === 'right'
-                  ? textX - metrics.width - padX
-                  : textX - metrics.width / 2 - padX;
-              ctx.fillRect(bgX, lineY - fontSize / 2 - padY, metrics.width + padX * 2, fontSize + padY * 2);
+                    ? textX - metrics.width - padX
+                    : textX - metrics.width / 2 - padX;
+              ctx.fillRect(bgX, lineY - animFontSize / 2 - padY, metrics.width + padX * 2, animFontSize + padY * 2);
             }
 
-            // 描边增强可读性
-            ctx.lineWidth = Math.max(2, Math.round(fontSize / 12));
-            ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+            ctx.lineWidth = Math.max(3, Math.round(animFontSize / 10));
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
             ctx.strokeText(line, textX, lineY);
 
             ctx.fillStyle = textClip.color || '#FFFFFF';
             ctx.fillText(line, textX, lineY);
           });
         }
-        // B. 视频/图片片段实时渲染（支持缩放、XY平移、倍速、音量、不透明度）
+        // B. 视频/图片片段实时渲染（含 200% 音量增益与淡入淡出）
         else if (clip.type === 'video') {
           const videoClip = clip as VideoClip;
-          ctx.globalAlpha = videoClip.opacity ?? 1.0;
+          const animOpacity = resolveAnimatedProp(videoClip, 'opacity', elapsedMs, 1.0);
+          const animScale = resolveAnimatedProp(videoClip, 'scale', elapsedMs, 1.0);
+          const animPosX = resolveAnimatedProp(videoClip, 'position_x', elapsedMs, 0);
+          const animPosY = resolveAnimatedProp(videoClip, 'position_y', elapsedMs, 0);
+          const animVolume = resolveAnimatedProp(videoClip, 'volume', elapsedMs, 1.0);
+
+          ctx.globalAlpha = animOpacity;
 
           const element = mediaElementCache.get(clip.id);
           if (!element) {
@@ -215,9 +302,12 @@ export function useClipEngine(
               if (element.playbackRate !== rate) {
                 element.playbackRate = rate;
               }
-              element.muted = track.muted || (videoClip.volume ?? 1.0) <= 0;
-              element.volume = computeEffectiveVolume(
-                videoClip.volume ?? 1.0,
+
+              applyMediaVolume(
+                clip.id,
+                element,
+                track.muted,
+                animVolume, // 使用关键帧插值后的实时音量
                 elapsedMs,
                 videoClip.duration_ms,
                 (videoClip as any).fade_in_ms || 0,
@@ -236,15 +326,11 @@ export function useClipEngine(
             const fitW = elemW * scaleFactor;
             const fitH = elemH * scaleFactor;
 
-            const userScale = videoClip.scale ?? 1.0;
-            const finalW = fitW * userScale;
-            const finalH = fitH * userScale;
+            const finalW = fitW * animScale;
+            const finalH = fitH * animScale;
 
-            const posX = videoClip.position_x ?? 0;
-            const posY = videoClip.position_y ?? 0;
-
-            const drawX = (targetW - finalW) / 2 + posX;
-            const drawY = (targetH - finalH) / 2 + posY;
+            const drawX = (targetW - finalW) / 2 + animPosX;
+            const drawY = (targetH - finalH) / 2 + animPosY;
 
             if (element instanceof HTMLImageElement) {
               ctx.drawImage(element, drawX, drawY, finalW, finalH);
@@ -253,16 +339,19 @@ export function useClipEngine(
             }
           }
         }
-        // C. 独立音频片段实时控制（音量增益 + 淡入淡出）
+        // C. 独立音频片段实时控制（含 200% 音量增益与淡入淡出）
         else if (clip.type === 'audio') {
           const audioClip = clip as AudioClip;
+          const animVolume = resolveAnimatedProp(audioClip, 'volume', elapsedMs, 1.0);
           const element = mediaElementCache.get(clip.id);
           if (!element) {
             void ensureClipMedia(clip);
           } else if (element instanceof HTMLAudioElement) {
-            element.muted = track.muted || (audioClip.volume ?? 1.0) <= 0;
-            element.volume = computeEffectiveVolume(
-              audioClip.volume ?? 1.0,
+            applyMediaVolume(
+              clip.id,
+              element,
+              track.muted,
+              animVolume, // 使用关键帧插值后的实时音量
               elapsedMs,
               audioClip.duration_ms,
               audioClip.fade_in_ms || 0,
@@ -312,7 +401,6 @@ export function useClipEngine(
     animationFrameId = requestAnimationFrame(playTick);
   }
 
-  // 同步激活所有处于当前时间片内的音视频
   function syncPlayAllActiveClips() {
     const cur = currentTimeMs.value;
     timeline.value.tracks.forEach(track => {
@@ -330,7 +418,7 @@ export function useClipEngine(
                 el.currentTime = targetSec;
               }
               if (el.paused) {
-                el.play().catch(() => {});
+                el.play().catch(() => { });
               }
             } else {
               if (!el.paused) el.pause();
@@ -361,6 +449,9 @@ export function useClipEngine(
   }
 
   function startPlayback() {
+    if (audioCtx && audioCtx.state === 'suspended') {
+      void audioCtx.resume();
+    }
     isPlaying.value = true;
     lastTimestamp = performance.now();
     syncPlayAllActiveClips();
@@ -451,7 +542,6 @@ export function useClipEngine(
     });
   }
 
-  // 监听画幅宽高切换
   watch(
     () => [timeline.value.width, timeline.value.height],
     ([w, h]) => {
@@ -463,7 +553,6 @@ export function useClipEngine(
     }
   );
 
-  // 监听手动拖拽时间指针
   watch(
     () => currentTimeMs.value,
     (newVal) => {
@@ -474,7 +563,6 @@ export function useClipEngine(
     }
   );
 
-  // 关键修复：深度监听 tracks 内任何片段属性（文字、颜色、字号、缩放、位置、倍速、音量）的变化，在暂停时立即实时重绘画面！
   watch(
     () => timeline.value.tracks,
     () => {
@@ -498,6 +586,7 @@ export function useClipEngine(
       if (el instanceof HTMLVideoElement || el instanceof HTMLAudioElement) el.pause();
     });
     mediaElementCache.clear();
+    gainNodeCache.clear();
   });
 
   return {

@@ -1,13 +1,26 @@
 // 轨道类型与片段类型严格隔离
 export type TrackType = 'text' | 'video' | 'audio';
 
+export interface ClipKeyframe {
+  id: string;
+  offset_ms: number; // 距离当前片段起点 (start_ms) 的相对毫秒数
+  scale?: number;
+  position_x?: number;
+  position_y?: number;
+  opacity?: number;
+  volume?: number;
+  font_size?: number;
+}
+
 export interface BaseClip {
   id: string;
   track_id: string;
-  start_ms: number;       // 在时间轴上的起始时间戳（毫秒）
-  duration_ms: number;    // 片段播放时长（毫秒）
-  in_point_ms: number;    // 素材裁剪入点（毫秒）
-  out_point_ms: number;   // 素材裁剪出点（毫秒）
+  type: TrackType;
+  start_ms: number;
+  duration_ms: number;
+  in_point_ms: number;
+  out_point_ms: number;
+  keyframes?: ClipKeyframe[]; // 新增：关键帧序列（按 offset_ms 升序排列）
 }
 
 // 文本片段

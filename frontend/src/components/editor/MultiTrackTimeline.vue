@@ -15,47 +15,25 @@
       </div>
 
       <div class="track-headers-list" ref="headersListRef">
-        <div 
-          v-for="track in timeline.tracks" 
-          :key="track.id" 
-          class="track-header-item"
-          :class="[`type-${track.type}`, { 'is-muted': track.muted, 'is-locked': track.locked }]"
-        >
+        <div v-for="track in timeline.tracks" :key="track.id" class="track-header-item"
+          :class="[`type-${track.type}`, { 'is-muted': track.muted, 'is-locked': track.locked }]">
           <div class="track-type-pill">{{ track.type.toUpperCase() }}</div>
           <span class="track-name" :title="track.name">{{ track.name }}</span>
 
           <div class="track-actions">
-            <button 
-              v-if="track.type !== 'audio'"
-              class="ctrl-icon-btn" 
-              :class="{ off: track.hidden }"
-              @click="track.hidden = !track.hidden"
-              title="显示/隐藏轨道画面"
-            >
+            <button v-if="track.type !== 'audio'" class="ctrl-icon-btn" :class="{ off: track.hidden }"
+              @click="track.hidden = !track.hidden" title="显示/隐藏轨道画面">
               {{ track.hidden ? '🙈' : '👁' }}
             </button>
-            <button 
-              v-if="track.type !== 'text'"
-              class="ctrl-icon-btn" 
-              :class="{ off: track.muted }"
-              @click="track.muted = !track.muted"
-              title="静音/开启声音"
-            >
+            <button v-if="track.type !== 'text'" class="ctrl-icon-btn" :class="{ off: track.muted }"
+              @click="track.muted = !track.muted" title="静音/开启声音">
               {{ track.muted ? '🔇' : '🔊' }}
             </button>
-            <button 
-              class="ctrl-icon-btn" 
-              :class="{ active: track.locked }"
-              @click="track.locked = !track.locked"
-              title="锁定/解锁轨道"
-            >
+            <button class="ctrl-icon-btn" :class="{ active: track.locked }" @click="track.locked = !track.locked"
+              title="锁定/解锁轨道">
               {{ track.locked ? '🔒' : '🔓' }}
             </button>
-            <button 
-              class="ctrl-icon-btn del-btn" 
-              @click="$emit('removeTrack', track.id)"
-              title="删除轨道"
-            >
+            <button class="ctrl-icon-btn del-btn" @click="$emit('removeTrack', track.id)" title="删除轨道">
               ×
             </button>
           </div>
@@ -68,65 +46,39 @@
       <div class="timeline-canvas-Stage" :style="{ width: `${stageWidthPx}px` }">
         <!-- 1. 顶部时间刻度尺 -->
         <div class="time-ruler" @mousedown="handleRulerMouseDown">
-          <div 
-            v-for="tick in rulerTicks" 
-            :key="tick.timeMs" 
-            class="ruler-tick"
-            :class="{ major: tick.isMajor }"
-            :style="{ left: `${timeToPx(tick.timeMs)}px` }"
-          >
+          <div v-for="tick in rulerTicks" :key="tick.timeMs" class="ruler-tick" :class="{ major: tick.isMajor }"
+            :style="{ left: `${timeToPx(tick.timeMs)}px` }">
             <span v-if="tick.isMajor" class="tick-label">{{ tick.label }}</span>
           </div>
 
           <!-- 标记点旗帜 -->
-          <div 
-            v-for="marker in timeline.markers" 
-            :key="marker.id" 
-            class="timeline-marker-flag"
-            :style="{ left: `${timeToPx(marker.timeMs || (marker as any).time_ms)}px` }"
-            :title="marker.label"
-            @click.stop="$emit('update:currentTimeMs', (marker as any).time_ms ?? 0)"
-          >
+          <div v-for="marker in timeline.markers" :key="marker.id" class="timeline-marker-flag"
+            :style="{ left: `${timeToPx((marker as any).time_ms ?? 0)}px` }" :title="marker.label"
+            @click.stop="$emit('update:currentTimeMs', (marker as any).time_ms ?? 0)">
             🚩
           </div>
         </div>
 
         <!-- 2. 轨道泳道容器 -->
         <div class="track-lanes-wrapper">
-          <div 
-            v-for="track in timeline.tracks" 
-            :key="track.id" 
-            class="track-lane"
-            :class="[`lane-${track.type}`, { 'is-locked': track.locked }]"
-            @dragover.prevent
-            @drop="handleLaneDrop($event, track)"
-            @mousedown="handleLaneBackgroundClick($event)"
-          >
-            <!-- 轨道内的各个剪辑片段 (剪映视觉风格) -->
-            <div 
-              v-for="clip in track.clips" 
-              :key="clip.id" 
-              class="timeline-clip-item"
-              :class="[
-                `clip-${clip.type}`,
-                { selected: selectedClipId === clip.id }
-              ]"
-              :style="{
+          <div v-for="track in timeline.tracks" :key="track.id" class="track-lane"
+            :class="[`lane-${track.type}`, { 'is-locked': track.locked }]" @dragover.prevent
+            @drop="handleLaneDrop($event, track)" @mousedown="handleLaneBackgroundClick($event)">
+            <!-- 轨道内的各个剪辑片段 -->
+            <div v-for="clip in track.clips" :key="clip.id" class="timeline-clip-item" :class="[
+              `clip-${clip.type}`,
+              { selected: selectedClipId === clip.id }
+            ]" :style="{
                 left: `${timeToPx(clip.start_ms)}px`,
                 width: `${Math.max(18, timeToPx(clip.duration_ms))}px`
-              }"
-              @mousedown.stop="handleClipMouseDown($event, track, clip)"
-            >
+              }" @mousedown.stop="handleClipMouseDown($event, track, clip)">
               <!-- 左侧裁剪入点把手 -->
-              <div 
-                class="trim-handle left-handle" 
-                title="拖拽裁剪起始入点"
-                @mousedown.stop="handleTrimStart($event, track, clip, 'left')"
-              ></div>
+              <div class="trim-handle left-handle" title="拖拽裁剪起始入点"
+                @mousedown.stop="handleTrimStart($event, track, clip, 'left')"></div>
 
               <!-- 片段主体内容层 -->
               <div class="clip-inner-body">
-                <!-- ================= A. 视频片段：顶部标题栏 + 中部连续缩略图帧 + 底部内嵌音频波形 ================= -->
+                <!-- A. 视频片段 -->
                 <template v-if="clip.type === 'video'">
                   <div class="clip-top-label-bar">
                     <span class="clip-title-text">{{ (clip as any).file_name || '视频片段' }}</span>
@@ -136,37 +88,25 @@
                     </span>
                   </div>
 
-                  <!-- 连续抽帧缩略图胶片条 -->
                   <div class="video-filmstrip-row">
                     <template v-if="getClipThumbnails(clip).length > 0">
-                      <div 
-                        v-for="(thumbUrl, tIdx) in getVisibleFilmstripFrames(clip)" 
-                        :key="tIdx" 
-                        class="film-frame-cell"
-                        :style="{ backgroundImage: `url(${thumbUrl})` }"
-                      ></div>
+                      <div v-for="(thumbUrl, tIdx) in getVisibleFilmstripFrames(clip)" :key="tIdx"
+                        class="film-frame-cell" :style="{ backgroundImage: `url(${thumbUrl})` }"></div>
                     </template>
                     <div v-else class="filmstrip-loading">
                       <span>正在生成帧预览...</span>
                     </div>
                   </div>
 
-                  <!-- 视频底部附带的音频波形条（图片素材除外） -->
                   <div v-if="!(clip as any).is_image_source" class="video-attached-waveform">
-                    <svg 
-                      class="waveform-svg" 
-                      preserveAspectRatio="none" 
-                      :viewBox="`0 0 100 30`"
-                    >
-                      <path 
-                        :d="buildWaveformSvgPath(clip, 100, 30, track.muted)" 
-                        class="waveform-fill-path video-wave"
-                      />
+                    <svg class="waveform-svg" preserveAspectRatio="none" viewBox="0 0 100 30">
+                      <path :d="buildWaveformSvgPath(clip, 100, 30, track.muted)"
+                        class="waveform-fill-path video-wave" />
                     </svg>
                   </div>
                 </template>
 
-                <!-- ================= B. 音频片段：顶部文件名 + 下方动态高密度声波图 ================= -->
+                <!-- B. 音频片段 -->
                 <template v-else-if="clip.type === 'audio'">
                   <div class="clip-top-label-bar audio-bar">
                     <span class="clip-title-text">🎵 {{ (clip as any).file_name || '音频' }}</span>
@@ -174,58 +114,61 @@
                   </div>
 
                   <div class="audio-waveform-area">
-                    <!-- 音量基准辅助线 -->
-                    <div 
-                      class="volume-level-line" 
-                      :style="{ bottom: `${Math.min(100, ((clip as any).volume ?? 1) * 80)}%` }"
-                    ></div>
-                    <svg 
-                      class="waveform-svg" 
-                      preserveAspectRatio="none" 
-                      :viewBox="`0 0 120 40`"
-                    >
-                      <path 
-                        :d="buildWaveformSvgPath(clip, 120, 40, track.muted)" 
-                        class="waveform-fill-path audio-wave"
-                      />
+                    <div class="volume-level-line"
+                      :style="{ bottom: `${Math.min(100, ((clip as any).volume ?? 1) * 45)}%` }"></div>
+                    <svg class="waveform-svg" preserveAspectRatio="none" viewBox="0 0 120 40">
+                      <path :d="buildWaveformSvgPath(clip, 120, 40, track.muted)"
+                        class="waveform-fill-path audio-wave" />
                     </svg>
                   </div>
                 </template>
 
-                <!-- ================= C. 文本字幕片段 ================= -->
+                <!-- C. 文本字幕片段 -->
                 <template v-else-if="clip.type === 'text'">
                   <div class="text-clip-body">
                     <span class="text-badge">T</span>
                     <span class="clip-title-text">{{ (clip as any).text || '字幕文本' }}</span>
                   </div>
                 </template>
+
+                <!-- ================= 关键帧青色菱形标记层 (还原图三) ================= -->
+                <div v-if="(clip as any).keyframes && (clip as any).keyframes.length > 0"
+                  class="clip-keyframes-overlay">
+                  <div v-for="kf in (clip as any).keyframes" :key="kf.id" class="timeline-kf-diamond"
+                    :class="{ 'is-current': Math.abs((currentTimeMs - clip.start_ms) - kf.offset_ms) <= 45 }"
+                    :style="{ left: `${timeToPx(kf.offset_ms)}px` }" title="点击跳转到此关键帧 / 双击删除此关键帧"
+                    @mousedown.stop="handleKeyframeDotClick(clip, kf)"
+                    @dblclick.stop="handleDeleteKeyframeDot(clip, kf.id)"></div>
+                </div>
+              </div>
+              <div v-if="(clip as any).keyframes && (clip as any).keyframes.length > 0" class="clip-keyframes-overlay">
+                <div v-for="kf in (clip as any).keyframes" :key="kf.id" class="timeline-kf-diamond"
+                  :class="{ 'is-current': Math.abs((currentTimeMs - clip.start_ms) - kf.offset_ms) <= 45 }"
+                  :style="{ left: `${kf.offset_ms * pxPerMs}px` }" title="点击跳转到此关键帧 / 双击删除此关键帧"
+                  @mousedown.stop="handleKeyframeDotClick(clip, kf)"
+                  @dblclick.stop="handleDeleteKeyframeDot(clip, kf.id)"></div>
               </div>
 
               <!-- 右侧裁剪出点把手 -->
-              <div 
-                class="trim-handle right-handle" 
-                title="拖拽裁剪结束出点"
-                @mousedown.stop="handleTrimStart($event, track, clip, 'right')"
-              ></div>
+              <div class="trim-handle right-handle" title="拖拽裁剪结束出点"
+                @mousedown.stop="handleTrimStart($event, track, clip, 'right')">
+              </div>
+              <!-- 右侧裁剪出点把手 -->
+              <div class="trim-handle right-handle" title="拖拽裁剪结束出点"
+                @mousedown.stop="handleTrimStart($event, track, clip, 'right')">
+              </div>
             </div>
           </div>
 
           <!-- 底部快捷拖放新建轨道虚线区 -->
-          <div 
-            class="drop-new-track-zone"
-            @dragover.prevent
-            @drop="handleNewZoneDrop($event)"
-          >
+          <div class="drop-new-track-zone" @dragover.prevent @drop="handleNewZoneDrop($event)">
             <span>+ 拖入此处自动追加到对应轨道</span>
           </div>
         </div>
 
-        <!-- 3. 全局红色播放指针 (Playhead) -->
-        <div 
-          class="playhead-line" 
-          :style="{ left: `${timeToPx(currentTimeMs)}px` }"
-          @mousedown.stop="handleRulerMouseDown"
-        >
+        <!-- 3. 全局播放指针 (Playhead) -->
+        <div class="playhead-line" :style="{ left: `${timeToPx(currentTimeMs)}px` }"
+          @mousedown.stop="handleRulerMouseDown">
           <div class="playhead-cap"></div>
         </div>
       </div>
@@ -255,7 +198,6 @@ const emit = defineEmits<{
 const scrollAreaRef = ref<HTMLElement | null>(null);
 const headersListRef = ref<HTMLElement | null>(null);
 
-// 基础比例：1 秒 = 60px * zoomScale
 const pxPerMs = computed(() => (60 * props.zoomScale) / 1000);
 
 function timeToPx(ms: number): number {
@@ -266,16 +208,13 @@ function pxToTime(px: number): number {
   return Math.max(0, Math.round(px / pxPerMs.value));
 }
 
-// 画布总宽度（至少留出 60 秒余量）
 const stageWidthPx = computed(() => {
   const minDurationMs = Math.max(props.timeline.duration_ms + 15000, 45000);
   return Math.max(1200, timeToPx(minDurationMs));
 });
 
-// 生成顶部时间标尺刻度
 const rulerTicks = computed(() => {
   const totalMs = Math.max(props.timeline.duration_ms + 15000, 45000);
-  // 根据缩放比例动态调整主刻度间隔
   let stepMs = 1000;
   if (props.zoomScale < 0.4) stepMs = 5000;
   else if (props.zoomScale < 0.8) stepMs = 2000;
@@ -304,8 +243,20 @@ function formatClipTimecode(ms: number): string {
   return `${m}:${s}:${f}`;
 }
 
+// 点击时间轴片段上的青色菱形关键帧：选中该片段并直接把播放指针跳到该关键帧位置
+function handleKeyframeDotClick(clip: TimelineClip, kf: any) {
+  emit('selectClip', clip.id);
+  emit('update:currentTimeMs', clip.start_ms + (kf.offset_ms || 0));
+}
+
+// 双击时间轴上的青色菱形：快速移除该关键帧
+function handleDeleteKeyframeDot(clip: any, kfId: string) {
+  if (!Array.isArray(clip.keyframes)) return;
+  clip.keyframes = clip.keyframes.filter((k: any) => k.id !== kfId);
+}
+
 // ============================================================================
-// 1. 视频连续帧缩略图提取引擎 (Offscreen Video -> Canvas DataURLs)
+// 1. 视频连续帧缩略图提取引擎
 // ============================================================================
 const thumbnailCache = reactive<Record<string, string[]>>({});
 const extractingThumbSet = new Set<string>();
@@ -320,7 +271,6 @@ async function extractVideoThumbnails(clip: any) {
   const key = getMediaKey(clip);
   if (thumbnailCache[key] || extractingThumbSet.has(key)) return;
 
-  // 如果是静态图片，直接用自身 URL 作为胶片帧
   if (clip.is_image_source) {
     thumbnailCache[key] = [url];
     return;
@@ -341,7 +291,6 @@ async function extractVideoThumbnails(clip: any) {
     });
 
     const durationSec = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : (clip.duration_ms || 5000) / 1000;
-    // 每个视频均匀提取 16 张关键帧缩略图供时间轴任意缩放平铺
     const sampleCount = Math.min(20, Math.max(8, Math.ceil(durationSec / 1.5)));
     const canvas = document.createElement('canvas');
     const thumbW = 96;
@@ -384,13 +333,12 @@ function getClipThumbnails(clip: any): string[] {
   return thumbnailCache[key] || [];
 }
 
-// 根据当前片段在时间轴上的像素宽度，计算应该平铺展示多少格缩略图，并映射入点/出点区间
 function getVisibleFilmstripFrames(clip: any): string[] {
   const allFrames = getClipThumbnails(clip);
   if (allFrames.length === 0) return [];
 
   const clipWidthPx = Math.max(36, timeToPx(clip.duration_ms));
-  const cellWidthPx = 48; // 每格缩略图宽度约 48px
+  const cellWidthPx = 48;
   const cellsCount = Math.max(1, Math.min(60, Math.ceil(clipWidthPx / cellWidthPx)));
 
   const result: string[] = [];
@@ -403,7 +351,7 @@ function getVisibleFilmstripFrames(clip: any): string[] {
 }
 
 // ============================================================================
-// 2. 真实音频波形解码引擎 (Web Audio API -> Normalized Peaks + 动态音量联动)
+// 2. 真实音频波形解码引擎（支持关键帧音量插值与淡入淡出联动）
 // ============================================================================
 const waveformCache = reactive<Record<string, number[]>>({});
 const extractingWaveSet = new Set<string>();
@@ -427,7 +375,7 @@ async function extractAudioWaveform(clip: any) {
 
     const audioBuffer = await sharedAudioCtx.decodeAudioData(arrayBuffer);
     const rawData = audioBuffer.getChannelData(0);
-    const samples = 80; // 采样 80 个波峰节点
+    const samples = 80;
     const blockSize = Math.max(1, Math.floor(rawData.length / samples));
     const peaks: number[] = [];
 
@@ -443,10 +391,8 @@ async function extractAudioWaveform(clip: any) {
       if (sum > maxPeak) maxPeak = sum;
     }
 
-    // 归一化到 0.08 ~ 1.0 之间
     waveformCache[key] = peaks.map(p => Math.max(0.08, Number((p / maxPeak).toFixed(3))));
   } catch (err) {
-    // 兜底：若跨域或无音轨解码失败，根据文件名生成确定性的伪声波特征包络
     const fallback: number[] = [];
     const seedStr = clip.file_name || clip.id || 'wave';
     for (let i = 0; i < 80; i++) {
@@ -460,16 +406,38 @@ async function extractAudioWaveform(clip: any) {
   }
 }
 
-// 构建随音量 (volume)、静音 (muted)、淡入 (fade_in_ms)、淡出 (fade_out_ms) 实时变化的 SVG 声波路径
+// 计算某相对时刻的关键帧插值音量
+function getInterpolatedClipVolume(clip: any, elapsedMs: number): number {
+  const baseVol = clip.volume ?? 1.0;
+  if (!Array.isArray(clip.keyframes) || clip.keyframes.length === 0) return baseVol;
+
+  const sorted = [...clip.keyframes].sort((a: any, b: any) => a.offset_ms - b.offset_ms);
+  if (sorted.length === 1) return sorted[0].volume ?? baseVol;
+  if (elapsedMs <= sorted[0].offset_ms) return sorted[0].volume ?? baseVol;
+  if (elapsedMs >= sorted[sorted.length - 1].offset_ms) return sorted[sorted.length - 1].volume ?? baseVol;
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i];
+    const b = sorted[i + 1];
+    if (elapsedMs >= a.offset_ms && elapsedMs <= b.offset_ms) {
+      const span = Math.max(1, b.offset_ms - a.offset_ms);
+      const t = (elapsedMs - a.offset_ms) / span;
+      const va = a.volume ?? baseVol;
+      const vb = b.volume ?? baseVol;
+      return va + (vb - va) * t;
+    }
+  }
+  return baseVol;
+}
+
+// 构建随关键帧音量、淡入淡出实时变化的 SVG 声波路径
 function buildWaveformSvgPath(clip: any, width: number, height: number, isTrackMuted: boolean): string {
   const key = getMediaKey(clip);
   const peaks = waveformCache[key];
-  if (!peaks || peaks.length === 0) {
+  if (!peaks || peaks.length === 0 || isTrackMuted) {
     return `M 0 ${height} L ${width} ${height} Z`;
   }
 
-  // 核心联动：获取片段当前音量（0 ~ 2.0），若轨道静音或音量为 0，则波形压平
-  const rawVolume = isTrackMuted ? 0 : (clip.volume ?? 1.0);
   const durationMs = Math.max(1, clip.duration_ms || 3000);
   const fadeInMs = clip.fade_in_ms || 0;
   const fadeOutMs = clip.fade_out_ms || 0;
@@ -481,7 +449,10 @@ function buildWaveformSvgPath(clip: any, width: number, height: number, isTrackM
     const progress = i / (count - 1);
     const curTimeInClip = progress * durationMs;
 
-    // 计算当前点的淡入淡出衰减系数
+    // 1. 获取当前采样点经关键帧 A->B 插值后的真实音量
+    const kfVolume = getInterpolatedClipVolume(clip, curTimeInClip);
+
+    // 2. 叠加淡入淡出系数
     let fadeFactor = 1.0;
     if (fadeInMs > 0 && curTimeInClip < fadeInMs) {
       fadeFactor = curTimeInClip / fadeInMs;
@@ -491,10 +462,9 @@ function buildWaveformSvgPath(clip: any, width: number, height: number, isTrackM
       fadeFactor = Math.min(fadeFactor, remainMs / fadeOutMs);
     }
 
-    // 最终波峰振幅 = 原始声波峰值 * 音量增益 * 淡入淡出系数
-    const effectiveAmp = Math.min(1.0, peaks[i] * rawVolume * Math.max(0, fadeFactor));
+    const effectiveAmp = Math.min(1.0, peaks[i] * (kfVolume * 0.7) * Math.max(0, fadeFactor));
     const x = (progress * width).toFixed(1);
-    const y = (height - effectiveAmp * (height * 0.88)).toFixed(1);
+    const y = (height - effectiveAmp * (height * 0.92)).toFixed(1);
     points.push(`L ${x} ${y}`);
   }
 
@@ -502,7 +472,6 @@ function buildWaveformSvgPath(clip: any, width: number, height: number, isTrackM
   return points.join(' ');
 }
 
-// 监听轨道内所有片段变化，自动触发缩略图抽帧与音频波形提取
 watch(
   () => props.timeline.tracks,
   (tracks) => {
@@ -523,7 +492,7 @@ watch(
 );
 
 // ============================================================================
-// 3. 时间轴交互：指针拖拽、片段左右平移、首尾入出点裁剪、素材拖放
+// 3. 时间轴交互
 // ============================================================================
 function handleScrollSync() {
   if (scrollAreaRef.value && headersListRef.value) {
@@ -537,7 +506,6 @@ function handleTimelineWheel(e: WheelEvent) {
   }
 }
 
-// 点击或拖拽时间标尺移动红色指针
 function handleRulerMouseDown(e: MouseEvent) {
   if (!scrollAreaRef.value) return;
   const updateTimeFromMouse = (clientX: number) => {
@@ -563,7 +531,6 @@ function handleLaneBackgroundClick(e: MouseEvent) {
   handleRulerMouseDown(e);
 }
 
-// 选中并在轨道上左右拖拽移动片段位置
 function handleClipMouseDown(e: MouseEvent, track: TimelineTrack, clip: TimelineClip) {
   emit('selectClip', clip.id);
   if (track.locked) return;
@@ -586,7 +553,6 @@ function handleClipMouseDown(e: MouseEvent, track: TimelineTrack, clip: Timeline
   window.addEventListener('mouseup', onUp);
 }
 
-// 左右边缘拖拽裁剪片段时长与入出点
 function handleTrimStart(e: MouseEvent, track: TimelineTrack, clip: TimelineClip, side: 'left' | 'right') {
   emit('selectClip', clip.id);
   if (track.locked) return;
@@ -621,7 +587,6 @@ function handleTrimStart(e: MouseEvent, track: TimelineTrack, clip: TimelineClip
   window.addEventListener('mouseup', onUp);
 }
 
-// 从左侧素材库拖入具体轨道
 function handleLaneDrop(e: DragEvent, track: TimelineTrack) {
   if (track.locked || !e.dataTransfer) return;
   const raw = e.dataTransfer.getData('application/json');
@@ -641,6 +606,9 @@ function handleLaneDrop(e: DragEvent, track: TimelineTrack) {
         color: data.color || '#FFFFFF',
         align: 'center',
         opacity: 1.0,
+        position_x: 0,
+        position_y: 0,
+        keyframes: [],
         start_ms: dropTimeMs,
         duration_ms: 3000
       });
@@ -664,7 +632,8 @@ function handleLaneDrop(e: DragEvent, track: TimelineTrack) {
         position_x: 0,
         position_y: 0,
         fade_in_ms: 0,
-        fade_out_ms: 0
+        fade_out_ms: 0,
+        keyframes: []
       });
     }
   } catch (err) {
@@ -672,7 +641,6 @@ function handleLaneDrop(e: DragEvent, track: TimelineTrack) {
   }
 }
 
-// 拖入底部虚线区自动匹配轨道追加
 function handleNewZoneDrop(e: DragEvent) {
   if (!e.dataTransfer) return;
   const raw = e.dataTransfer.getData('application/json');
@@ -694,6 +662,9 @@ function handleNewZoneDrop(e: DragEvent) {
         color: data.color || '#FFFFFF',
         align: 'center',
         opacity: 1.0,
+        position_x: 0,
+        position_y: 0,
+        keyframes: [],
         start_ms: lastEnd,
         duration_ms: 3000
       });
@@ -714,7 +685,8 @@ function handleNewZoneDrop(e: DragEvent) {
         position_x: 0,
         position_y: 0,
         fade_in_ms: 0,
-        fade_out_ms: 0
+        fade_out_ms: 0,
+        keyframes: []
       });
     }
   } catch (err) {
@@ -733,7 +705,6 @@ function handleNewZoneDrop(e: DragEvent) {
   overflow: hidden;
 }
 
-/* 左侧轨道头控制栏 */
 .track-headers-panel {
   width: 180px;
   flex-shrink: 0;
@@ -819,9 +790,20 @@ function handleNewZoneDrop(e: DragEvent) {
   border-left: 3px solid #6366f1;
 }
 
-.track-header-item.type-video { border-left-color: #14b8a6; height: 74px; }
-.track-header-item.type-audio { border-left-color: #3b82f6; height: 56px; }
-.track-header-item.type-text { border-left-color: #a855f7; height: 42px; }
+.track-header-item.type-video {
+  border-left-color: #14b8a6;
+  height: 74px;
+}
+
+.track-header-item.type-audio {
+  border-left-color: #3b82f6;
+  height: 56px;
+}
+
+.track-header-item.type-text {
+  border-left-color: #a855f7;
+  height: 42px;
+}
 
 .track-type-pill {
   font-size: 9px;
@@ -857,11 +839,19 @@ function handleNewZoneDrop(e: DragEvent) {
   border-radius: 3px;
 }
 
-.ctrl-icon-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
-.ctrl-icon-btn.off { opacity: 0.35; }
-.ctrl-icon-btn.del-btn:hover { color: #ef4444; }
+.ctrl-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
 
-/* 右侧滚动泳道区 */
+.ctrl-icon-btn.off {
+  opacity: 0.35;
+}
+
+.ctrl-icon-btn.del-btn:hover {
+  color: #ef4444;
+}
+
 .timeline-tracks-scroll-area {
   flex: 1;
   overflow: auto;
@@ -873,7 +863,6 @@ function handleNewZoneDrop(e: DragEvent) {
   min-height: 100%;
 }
 
-/* 顶部时间标尺 */
 .time-ruler {
   position: sticky;
   top: 0;
@@ -915,7 +904,6 @@ function handleNewZoneDrop(e: DragEvent) {
   z-index: 5;
 }
 
-/* 轨道泳道列表 */
 .track-lanes-wrapper {
   padding-top: 6px;
   position: relative;
@@ -929,11 +917,18 @@ function handleNewZoneDrop(e: DragEvent) {
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-.track-lane.lane-video { height: 74px; }
-.track-lane.lane-audio { height: 56px; }
-.track-lane.lane-text { height: 42px; }
+.track-lane.lane-video {
+  height: 74px;
+}
 
-/* ================= 剪映风格片段容器 ================= */
+.track-lane.lane-audio {
+  height: 56px;
+}
+
+.track-lane.lane-text {
+  height: 42px;
+}
+
 .timeline-clip-item {
   position: absolute;
   top: 2px;
@@ -958,19 +953,16 @@ function handleNewZoneDrop(e: DragEvent) {
   z-index: 10;
 }
 
-/* 视频片段底色（剪映青绿暗底） */
 .timeline-clip-item.clip-video {
   background-color: #0d3b3e;
   border-color: #14b8a6;
 }
 
-/* 音频片段底色（剪映深海蓝底） */
 .timeline-clip-item.clip-audio {
   background-color: #0c2b4e;
   border-color: #0ea5e9;
 }
 
-/* 文本片段底色 */
 .timeline-clip-item.clip-text {
   background: linear-gradient(90deg, #6d28d9, #7c3aed);
   border-color: #c084fc;
@@ -985,7 +977,40 @@ function handleNewZoneDrop(e: DragEvent) {
   pointer-events: none;
 }
 
-/* 片段顶部文件名与时长小条 */
+/* 关键帧菱形标记覆盖层：与片段左边缘 0px 绝对对齐，消除 border 与 trim-handle 带来的偏移 */
+.clip-keyframes-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1.5px; /* 补偿 timeline-clip-item 自身 1.5px 的左边框宽度，使其与全局标尺的 timeToPx(clip.start_ms) 严丝合缝 */
+  right: 0;
+  z-index: 14;
+  pointer-events: none;
+}
+
+.timeline-kf-diamond {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  background-color: #00e5ff;
+  border: 1.5px solid #0b1920;
+  box-sizing: border-box;
+  transform: translate(-50%, -50%) rotate(45deg);
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.85);
+  transition: transform 0.15s, background-color 0.15s;
+}
+
+.timeline-kf-diamond:hover,
+.timeline-kf-diamond.is-current {
+  background-color: #ffffff;
+  border-color: #00e5ff;
+  transform: translate(-50%, -50%) rotate(45deg) scale(1.25);
+  box-shadow: 0 0 10px #00e5ff;
+}
+
 .clip-top-label-bar {
   height: 15px;
   padding: 0 6px;
@@ -1025,7 +1050,6 @@ function handleNewZoneDrop(e: DragEvent) {
   font-size: 9px;
 }
 
-/* 视频连续缩略图帧胶片条 */
 .video-filmstrip-row {
   flex: 1;
   display: flex;
@@ -1052,7 +1076,6 @@ function handleNewZoneDrop(e: DragEvent) {
   color: #94a3b8;
 }
 
-/* 视频底部内嵌声波条 */
 .video-attached-waveform {
   height: 14px;
   background: #082f32;
@@ -1061,7 +1084,6 @@ function handleNewZoneDrop(e: DragEvent) {
   position: relative;
 }
 
-/* 独立音频波形区 */
 .audio-waveform-area {
   flex: 1;
   position: relative;
@@ -1094,7 +1116,6 @@ function handleNewZoneDrop(e: DragEvent) {
   opacity: 0.9;
 }
 
-/* 文本轨样式 */
 .text-clip-body {
   flex: 1;
   display: flex;
@@ -1113,7 +1134,6 @@ function handleNewZoneDrop(e: DragEvent) {
   font-size: 10px;
 }
 
-/* 左右修剪把手 */
 .trim-handle {
   width: 7px;
   background: rgba(255, 255, 255, 0.15);
@@ -1139,12 +1159,12 @@ function handleNewZoneDrop(e: DragEvent) {
   color: #52525b;
 }
 
-/* 红色播放时间指针 */
 .playhead-line {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 1.5px;
+  transform: translateX(-50%);
   background-color: #ffffff;
   z-index: 30;
   pointer-events: auto;

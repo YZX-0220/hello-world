@@ -59,11 +59,10 @@
       </div>
     </div>
 
-    <!-- 2. 我的素材 Tab（剪映风格：支持多文件夹导入与层级浏览） -->
+    <!-- 2. 我的素材 Tab（内置 5s 全黑/全白固定素材 + 多文件夹导入） -->
     <div v-else-if="activeTab === 'library'" class="tab-content">
       <!-- 顶部导入操作栏 -->
       <div class="content-header">
-        <!-- 导入整个文件夹（选完立即扫描并生成文件夹卡片） -->
         <label class="import-folder-btn" title="直接导入一个或多个本地文件夹">
           <span>📁 + 导入文件夹</span>
           <input 
@@ -76,7 +75,6 @@
           />
         </label>
 
-        <!-- 导入散装单文件/多文件 -->
         <label class="import-file-btn" title="导入单个或多个音视频/图片">
           <span>+ 导入素材</span>
           <input 
@@ -109,7 +107,7 @@
         <span>正在自动扫描并解析文件夹媒体时长...</span>
       </div>
 
-      <!-- 素材与文件夹混合网格 (剪映同款视图) -->
+      <!-- 素材与文件夹混合网格 -->
       <div class="assets-grid">
         <!-- A. 根目录视图：展示所有已导入的【文件夹卡片】 -->
         <template v-if="!activeFolderId">
@@ -119,7 +117,6 @@
             class="jianying-folder-card"
             @click="activeFolderId = folder.id"
           >
-            <!-- 删除整个文件夹按钮 -->
             <button 
               class="delete-asset-btn" 
               @click.stop="handleDeleteFolder(folder.id)" 
@@ -128,7 +125,6 @@
               ×
             </button>
 
-            <!-- 剪映风格的堆叠卡片视觉层 -->
             <div class="folder-stack-box">
               <div class="stack-back-layer"></div>
               <div class="stack-preview-layer">
@@ -146,7 +142,6 @@
                 />
                 <div v-else class="folder-empty-cover">📁</div>
               </div>
-              <!-- 前置半透明磨砂文件夹挡板 -->
               <div class="folder-front-lip">
                 <span class="folder-count-tag">{{ folder.items.length }} 项</span>
               </div>
@@ -156,7 +151,7 @@
           </div>
         </template>
 
-        <!-- B. 展示当前视图下的【具体媒体素材卡片】（根目录散装素材 或 当前打开文件夹内的素材） -->
+        <!-- B. 展示当前视图下的【具体媒体素材卡片】（含内置 5 秒黑白视频与用户素材） -->
         <div 
           v-for="item in displayedAssets" 
           :key="item.id" 
@@ -164,15 +159,18 @@
           draggable="true"
           @dragstart="handleDragStart($event, item)"
         >
+          <!-- 系统内置的黑白场固定素材不显示删除按钮 -->
           <button 
+            v-if="!isBuiltinAsset(item.id)"
             class="delete-asset-btn" 
             @click.stop="handleDeleteAsset(item.id)" 
             title="删除此素材"
           >
             ×
           </button>
-          <div class="thumb-wrapper">
-            <img v-if="item.kind === 'image'" :src="item.url" class="asset-thumb" />
+
+          <div class="thumb-wrapper" :class="{ 'white-matte-thumb': item.id === 'builtin_white_5s' }">
+            <img v-if="item.kind === 'image' || isBuiltinAsset(item.id)" :src="item.url" class="asset-thumb" />
             <video 
               v-else-if="item.kind === 'video'" 
               :src="item.url" 
@@ -183,17 +181,13 @@
               @mouseleave="($event.target as HTMLVideoElement).pause(); ($event.target as HTMLVideoElement).currentTime = 0;"
             ></video>
             <div v-else class="audio-thumb">🎵 音频</div>
-            <span class="duration-badge" v-if="item.kind !== 'image'">{{ formatSeconds(item.duration_ms) }}</span>
+
+            <span class="builtin-badge" v-if="isBuiltinAsset(item.id)">内置</span>
+            <span class="duration-badge" v-if="item.kind !== 'image' || isBuiltinAsset(item.id)">{{ formatSeconds(item.duration_ms) }}</span>
             <span class="kind-tag" v-else>图片</span>
           </div>
           <div class="asset-title" :title="item.file_name">{{ item.file_name }}</div>
         </div>
-      </div>
-
-      <!-- 空状态提示 -->
-      <div v-if="!isScanning && importedFolders.length === 0 && displayedAssets.length === 0" class="empty-box">
-        <span>暂无导入的素材或文件夹</span>
-        <small>点击上方“导入文件夹”或“导入素材”即可自动扫描添加</small>
       </div>
     </div>
 
@@ -223,7 +217,6 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { libraryApi } from '../../services/libraryApi';
 import type { LibraryAssetView, StorageQuotaView } from '../../types/clip';
 
-// 文件夹数据结构（支持导入无限个文件夹）
 interface ImportedFolderGroup {
   id: string;
   name: string;
@@ -246,12 +239,54 @@ const activeTab = ref<'ai' | 'library' | 'text'>('library');
 const isLoading = ref(false);
 const isScanning = ref(false);
 
+// 生成纯黑/纯白 16:9 幕布 DataURL（用于内置 5 秒全黑/全白视频素材，0 网络依赖、100% 稳定渲染）
+function createSolidMatteDataUrl(hexColor: string): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = 640;
+  canvas.height = 360;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = hexColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  return canvas.toDataURL('image/png');
+}
+
+// 每名用户固定自带的 5 秒全黑视频与 5 秒全白视频素材
+const builtinMatteAssets: LibraryAssetView[] = [
+  {
+    id: 'builtin_black_5s',
+    file_name: '全黑视频 (5s).mp4',
+    size_bytes: 0,
+    mime_type: 'video/mp4',
+    kind: 'video',
+    purpose: 'source_video',
+    sha256: 'builtin_black_5s_sha256',
+    duration_ms: 5000,
+    url: createSolidMatteDataUrl('#000000'),
+    created_at: new Date(0).toISOString()
+  },
+  {
+    id: 'builtin_white_5s',
+    file_name: '全白视频 (5s).mp4',
+    size_bytes: 0,
+    mime_type: 'video/mp4',
+    kind: 'video',
+    purpose: 'source_video',
+    sha256: 'builtin_white_5s_sha256',
+    duration_ms: 5000,
+    url: createSolidMatteDataUrl('#FFFFFF'),
+    created_at: new Date(0).toISOString()
+  }
+];
+
+function isBuiltinAsset(id: string): boolean {
+  return id === 'builtin_black_5s' || id === 'builtin_white_5s';
+}
+
 const aiAssets = ref<LibraryAssetView[]>([]);
-// 根目录下的散装单文件素材
 const userAssets = ref<LibraryAssetView[]>([]);
-// 已导入的多个文件夹列表（如“庄周幻梦”、“目前情况”等）
 const importedFolders = ref<ImportedFolderGroup[]>([]);
-// 当前点开查看的文件夹 ID（null 表示在根层级看全部）
 const activeFolderId = ref<string | null>(null);
 
 const currentOpenFolder = computed(() => {
@@ -259,12 +294,13 @@ const currentOpenFolder = computed(() => {
   return importedFolders.value.find(f => f.id === activeFolderId.value) || null;
 });
 
-// 当前网格中应显示的媒体卡片（如果在文件夹内则显示文件夹里的素材，否则显示根目录散装素材）
+// 当前网格中应显示的媒体卡片（根层级下始终将 5 秒全黑视频与 5 秒全白视频固定排在最前面）
 const displayedAssets = computed(() => {
   if (currentOpenFolder.value) {
     return currentOpenFolder.value.items;
   }
-  return userAssets.value;
+  const filteredUser = userAssets.value.filter(a => !isBuiltinAsset(a.id));
+  return [...builtinMatteAssets, ...filteredUser];
 });
 
 const textTemplates = [
@@ -273,7 +309,6 @@ const textTemplates = [
   { title: '背景底栏字幕', text: '带半透明背景的文案', color: '#FFFFFF', fontSize: 24, desc: '深色遮罩高可读性' }
 ];
 
-// 辅助：判断并提取媒体分类
 function getMediaKind(file: File): 'video' | 'image' | 'audio' | null {
   const lower = file.name.toLowerCase();
   if (file.type.startsWith('video/') || lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov') || lower.endsWith('.mkv')) {
@@ -288,7 +323,6 @@ function getMediaKind(file: File): 'video' | 'image' | 'audio' | null {
   return null;
 }
 
-// 辅助：计算文件 SHA-256
 async function calculateFileSha256(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
   const digest = await crypto.subtle.digest('SHA-256', buffer);
@@ -297,7 +331,6 @@ async function calculateFileSha256(file: File): Promise<string> {
     .join('');
 }
 
-// 探测媒体文件（视频/音频）真实时长
 function detectMediaDuration(file: File, kind: 'video' | 'audio' | 'image'): Promise<number> {
   if (kind === 'image') return Promise.resolve(3000);
 
@@ -317,7 +350,6 @@ function detectMediaDuration(file: File, kind: 'video' | 'audio' | 'image'): Pro
   });
 }
 
-// 将单个 File 转换为前端资产对象
 async function fileToAssetView(file: File, kind: 'video' | 'image' | 'audio', indexSuffix: string): Promise<LibraryAssetView> {
   const sha256 = await calculateFileSha256(file);
   const realDurationMs = await detectMediaDuration(file, kind);
@@ -337,7 +369,6 @@ async function fileToAssetView(file: File, kind: 'video' | 'image' | 'audio', in
   };
 }
 
-// 1. 直接导入整个文件夹（支持导入无限个文件夹，自动扫描分类并生成剪映式文件夹卡片）
 async function handleFolderInputImport(e: Event) {
   const input = e.target as HTMLInputElement;
   const files = input.files;
@@ -345,7 +376,6 @@ async function handleFolderInputImport(e: Event) {
 
   isScanning.value = true;
   try {
-    // 按顶层文件夹名称自动归组（例如“庄周幻梦/xxx.mp4”归入“庄周幻梦”）
     const folderMap = new Map<string, File[]>();
 
     for (let i = 0; i < files.length; i++) {
@@ -373,7 +403,6 @@ async function handleFolderInputImport(e: Event) {
 
       if (parsedItems.length === 0) continue;
 
-      // 如果同名文件夹已存在则合并进去，否则创建新文件夹卡片
       const existingFolder = importedFolders.value.find(fd => fd.name === folderName);
       if (existingFolder) {
         const existNames = new Set(existingFolder.items.map(it => it.file_name));
@@ -392,7 +421,6 @@ async function handleFolderInputImport(e: Event) {
       }
     }
 
-    // 导入文件夹后自动回到根层级展示新文件夹卡片
     activeFolderId.value = null;
   } catch (err) {
     console.error('导入并扫描文件夹失败:', err);
@@ -402,7 +430,6 @@ async function handleFolderInputImport(e: Event) {
   }
 }
 
-// 2. 兼容原有的 File System Access API 句柄：一旦传入自动扫描为文件夹卡片
 async function scanDirectoryHandleToFolder(dirHandle: any) {
   if (!dirHandle) return;
   isScanning.value = true;
@@ -453,7 +480,6 @@ watch(
   { immediate: true }
 );
 
-// 3. 导入单个或多个散装素材（若当前正处于某个文件夹内，则直接导入该文件夹；否则放在根目录与文件夹并列）
 async function handleLocalImport(e: Event) {
   const input = e.target as HTMLInputElement;
   const files = input.files;
@@ -483,7 +509,6 @@ async function handleLocalImport(e: Event) {
   }
 }
 
-// 删除整个文件夹卡片
 function handleDeleteFolder(folderId: string) {
   if (confirm('确定要从素材库移除此文件夹及其包含的素材吗？')) {
     importedFolders.value = importedFolders.value.filter(f => f.id !== folderId);
@@ -493,8 +518,8 @@ function handleDeleteFolder(folderId: string) {
   }
 }
 
-// 删除单个素材卡片
 function handleDeleteAsset(assetId: string) {
+  if (isBuiltinAsset(assetId)) return;
   if (currentOpenFolder.value) {
     currentOpenFolder.value.items = currentOpenFolder.value.items.filter(a => a.id !== assetId);
     currentOpenFolder.value.coverItem = currentOpenFolder.value.items.find(it => it.kind !== 'audio') || currentOpenFolder.value.items[0];
@@ -526,6 +551,8 @@ async function fetchUserAssets() {
 
 function handleDragStart(e: DragEvent, asset: LibraryAssetView) {
   if (!e.dataTransfer) return;
+  // 内置的 5 秒全黑/全白视频在底层使用无损静态帧模式驱动，既具备 5000ms 完整视频时长与关键帧能力，又免去视频解码开销
+  const isMatte = isBuiltinAsset(asset.id);
   const payload = {
     sourceType: 'asset',
     assetId: asset.id,
@@ -534,7 +561,7 @@ function handleDragStart(e: DragEvent, asset: LibraryAssetView) {
     sha256: asset.sha256,
     url: asset.url,
     durationMs: asset.duration_ms || (asset.kind === 'image' ? 3000 : 5000),
-    isImageSource: asset.kind === 'image'
+    isImageSource: asset.kind === 'image' || isMatte
   };
   e.dataTransfer.setData('application/json', JSON.stringify(payload));
 }
@@ -644,7 +671,6 @@ onMounted(() => {
   color: #fff;
 }
 
-/* 面包屑导航条 */
 .breadcrumb-bar {
   display: flex;
   align-items: center;
@@ -655,16 +681,8 @@ onMounted(() => {
   font-size: 12px;
 }
 
-.crumb-link {
-  color: #818cf8;
-  cursor: pointer;
-  font-weight: 500;
-}
-
-.crumb-link:hover {
-  text-decoration: underline;
-}
-
+.crumb-link { color: #818cf8; cursor: pointer; font-weight: 500; }
+.crumb-link:hover { text-decoration: underline; }
 .crumb-sep { color: #52525b; }
 .crumb-current { color: #e4e4e7; font-weight: 600; }
 
@@ -693,10 +711,7 @@ onMounted(() => {
   overflow: hidden;
 }
 
-.quota-fill {
-  height: 100%;
-  background: #6366f1;
-}
+.quota-fill { height: 100%; background: #6366f1; }
 
 .assets-grid {
   display: grid;
@@ -704,7 +719,6 @@ onMounted(() => {
   gap: 10px;
 }
 
-/* 剪映同款堆叠文件夹卡片样式 */
 .jianying-folder-card {
   position: relative;
   cursor: pointer;
@@ -712,13 +726,8 @@ onMounted(() => {
   transition: transform 0.2s;
 }
 
-.jianying-folder-card:hover {
-  transform: translateY(-2px);
-}
-
-.jianying-folder-card:hover .delete-asset-btn {
-  display: flex;
-}
+.jianying-folder-card:hover { transform: translateY(-2px); }
+.jianying-folder-card:hover .delete-asset-btn { display: flex; }
 
 .folder-stack-box {
   position: relative;
@@ -753,22 +762,9 @@ onMounted(() => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
-.folder-cover-media {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+.folder-cover-media { width: 100%; height: 100%; object-fit: cover; }
+.folder-empty-cover { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 20px; }
 
-.folder-empty-cover {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-}
-
-/* 剪映标志性的前置半透明文件夹挡板切角 */
 .folder-front-lip {
   position: absolute;
   bottom: 0;
@@ -784,17 +780,12 @@ onMounted(() => {
   padding: 3px 6px;
 }
 
-.folder-count-tag {
-  font-size: 9px;
-  color: rgba(255, 255, 255, 0.9);
-  font-weight: 600;
-}
+.folder-count-tag { font-size: 9px; color: rgba(255, 255, 255, 0.9); font-weight: 600; }
 
-/* 普通媒体卡片样式 */
 .asset-card {
   position: relative;
   background: #1a1824;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   overflow: hidden;
   cursor: grab;
@@ -826,13 +817,8 @@ onMounted(() => {
   transition: background-color 0.2s;
 }
 
-.asset-card:hover .delete-asset-btn {
-  display: flex;
-}
-
-.delete-asset-btn:hover {
-  background: #ef4444;
-}
+.asset-card:hover .delete-asset-btn { display: flex; }
+.delete-asset-btn:hover { background: #ef4444; }
 
 .thumb-wrapper {
   position: relative;
@@ -844,13 +830,25 @@ onMounted(() => {
   justify-content: center;
 }
 
-.asset-thumb {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.thumb-wrapper.white-matte-thumb {
+  background-color: #ffffff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
 }
 
+.asset-thumb { width: 100%; height: 100%; object-fit: cover; }
 .audio-thumb { font-size: 12px; color: #a1a1aa; }
+
+.builtin-badge {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  background: rgba(99, 102, 241, 0.85);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  color: #fff;
+  font-weight: 600;
+}
 
 .duration-badge, .kind-tag {
   position: absolute;
@@ -865,19 +863,15 @@ onMounted(() => {
 }
 
 .asset-title {
-  padding: 6px 4px 2px;
+  padding: 6px 6px 4px;
   font-size: 11px;
-  color: #a1a1aa;
+  color: #cbd5e1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.text-templates-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+.text-templates-list { display: flex; flex-direction: column; gap: 8px; }
 
 .text-tpl-card {
   padding: 12px;

@@ -112,22 +112,26 @@ function toggleFullscreen() {
   }
 }
 
-// 画布上按住鼠标左键自由拖动画面的 position_x 和 position_y
+// 画布上按住鼠标左键自由拖动【视频画面】或【文本字幕】的 position_x 和 position_y
 function handleCanvasDragStart(e: MouseEvent) {
-  if (!props.activeClip || props.activeClip.type !== 'video') return;
+  if (!props.activeClip || (props.activeClip.type !== 'video' && props.activeClip.type !== 'text')) return;
 
-  const clip = props.activeClip as VideoClip;
+  const clip = props.activeClip as any;
   const startMouseX = e.clientX;
   const startMouseY = e.clientY;
   const initialX = clip.position_x || 0;
   const initialY = clip.position_y || 0;
 
+  // 根据预览画布的显示尺寸与实际分辨率换算拖拽比例，确保鼠标跟手
+  const canvasEl = canvasElRef.value;
+  const scaleX = canvasEl ? (props.timeline.width / Math.max(1, canvasEl.clientWidth)) : 2;
+  const scaleY = canvasEl ? (props.timeline.height / Math.max(1, canvasEl.clientHeight)) : 2;
+
   function onMouseMove(moveEvent: MouseEvent) {
     const deltaX = moveEvent.clientX - startMouseX;
     const deltaY = moveEvent.clientY - startMouseY;
-    // 映射到 Canvas 相对位移坐标
-    clip.position_x = Math.round(initialX + deltaX * 2);
-    clip.position_y = Math.round(initialY + deltaY * 2);
+    clip.position_x = Math.round(initialX + deltaX * scaleX);
+    clip.position_y = Math.round(initialY + deltaY * scaleY);
   }
 
   function onMouseUp() {
@@ -152,6 +156,7 @@ onMounted(() => {
   flex-direction: column;
   background-color: #0b0a0f;
   height: 100%;
+  min-height: 0; /* 关键修复 */
   position: relative;
   overflow: hidden;
   user-select: none;
@@ -159,6 +164,7 @@ onMounted(() => {
 
 .pane-top-header {
   height: 38px;
+  flex-shrink: 0; /* 禁止顶部栏被挤压 */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -167,6 +173,37 @@ onMounted(() => {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   font-size: 11px;
   color: #71717a;
+}
+
+.canvas-viewport {
+  flex: 1;
+  min-height: 0; /* 关键修复：允许画布容器随剩余空间自适应缩放，绝不把底部播放栏顶出去 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #141318;
+  background-image: 
+    linear-gradient(45deg, rgba(255, 255, 255, 0.02) 25%, transparent 25%), 
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.02) 25%, transparent 25%), 
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.02) 75%), 
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.02) 75%);
+  background-size: 20px 20px;
+  position: relative;
+  overflow: hidden;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.player-controls-bar {
+  height: 48px;
+  flex-shrink: 0; /* 关键修复：锁死底部播放控制条高度，任何情况下都不允许被挤没 */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background-color: #121118;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  z-index: 10;
 }
 
 .aspect-badges {
@@ -197,30 +234,14 @@ onMounted(() => {
   color: #fff;
 }
 
-/* 中间预览视窗：改为沉浸式暗灰工作台底色，并加入棋盘网格质感，彻底消除纯黑边界误判 */
-.canvas-viewport {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: #141318; /* 专业剪辑工作台背景，不再是纯黑 */
-  background-image: 
-    linear-gradient(45deg, rgba(255, 255, 255, 0.02) 25%, transparent 25%), 
-    linear-gradient(-45deg, rgba(255, 255, 255, 0.02) 25%, transparent 25%), 
-    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.02) 75%), 
-    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.02) 75%);
-  background-size: 20px 20px;
-  position: relative;
-  overflow: hidden;
-  padding: 16px;
-  box-sizing: border-box;
-}
 
-/* 核心画布：去掉原本的纯黑背景与多余黑底，加上清晰细边框标明真实画幅物理边界 */
+
+
+/* 核心画布：内部视频展示区域改为全黑背景，外部工作台保持棋盘格 */
 .preview-canvas {
-  background-color: transparent !important; /* 透明底，杜绝非视频区域变黑 */
-  border: 1px solid rgba(255, 255, 255, 0.15); /* 明确标识真实成片画面边界 */
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  background-color: #000000 !important;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.75);
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
@@ -263,15 +284,6 @@ onMounted(() => {
   100% { transform: rotate(360deg); }
 }
 
-.player-controls-bar {
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 16px;
-  background-color: #121118;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
 
 .timecode-display {
   display: flex;

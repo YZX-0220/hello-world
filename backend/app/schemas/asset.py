@@ -25,12 +25,15 @@ class AssetView(BaseModel):
 
 
 class AssetUploadIntentRequest(BaseModel):
-    filename: str
+    filename: str | None = None
+    file_name: str | None = None  # 兼容前端命名
     purpose: str
     kind: str | None = None  # 可选 image/video/audio
     byte_size: int
-    content_type: str
+    content_type: str | None = None
+    mime_type: str | None = None  # 兼容前端命名
     file_hash: str | None = None  # 客户端计算的 MD5/SHA256（用于秒传）
+    sha256: str | None = None  # 兼容前端命名
     conversation_id: str | None = None
 
 

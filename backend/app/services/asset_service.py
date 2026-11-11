@@ -222,7 +222,29 @@ class AssetService:
         self, user_id: str, req: AssetUploadIntentRequest
     ) -> AssetUploadIntentResponse:
         """两阶段直传第一步：秒传核验与 OBS 预签名上传凭证下发。"""
-        suggested = _UPLOAD_KIND_BY_PURPOSE.get(req.purpose) or req.kind or "image"
+        effective_filename = req.file_name or req.filename or "file.bin"
+        effective_mime = req.mime_type or req.content_type or "application/octet-stream"
+        effective_hash = (req.sha256 or req.file_hash or "").strip().lower()
+
+        from app.services.library_service import LibraryService
+
+        quota_bytes = int(settings.default_user_storage_quota_gb * 1024 * 1024 * 1024)
+        used_bytes, _ = await LibraryService(self._session).get_storage_used_bytes(user_id)
+        if used_bytes + req.byte_size > quota_bytes:
+            raise AppError(
+                ASSET_TOO_LARGE,
+                f"云端资料库空间不足。当前已用 {used_bytes / (1024**2):.1f}MB，配额 {settings.default_user_storage_quota_gb}GB",
+            )
+
+        suggested = _UPLOAD_KIND_BY_PURPOSE.get(req.purpose) or req.kind
+        if not suggested:
+            if effective_mime.startswith("video/"):
+                suggested = "video"
+            elif effective_mime.startswith("audio/"):
+                suggested = "audio"
+            else:
+                suggested = "image"
+
         max_bytes = _MAX_BYTES_BY_KIND.get(suggested, settings.image_max_bytes)
         if req.byte_size > max_bytes:
             raise AppError(ASSET_TOO_LARGE)
@@ -237,7 +259,7 @@ class AssetService:
                 raise AppError(ASSET_CONTENT_INVALID, "所属对话不存在或无权访问")
 
         # 1. 尝试秒传（若前端提供了 Hash 且库中存在该用户同一文件的已就绪资产）
-        clean_hash = (req.file_hash or "").strip().lower()
+        clean_hash = effective_hash
         if clean_hash:
             existing = await self._session.exec(
                 select(Asset).where(
@@ -260,13 +282,17 @@ class AssetService:
 
         # 2. 未命中秒传：签发 OBS 预签名 PUT URL
         asset_id = new_id()
-        ext = req.filename.rsplit(".", 1)[-1].lower() if "." in req.filename else "bin"
+        ext = (
+            effective_filename.rsplit(".", 1)[-1].lower()
+            if "." in effective_filename
+            else "bin"
+        )
         object_key = f"assets/{user_id}/{suggested}s/{asset_id}.{ext}"
 
         upload_url = None
         if isinstance(self._storage, ObsStorage):
             upload_url = self._storage.generate_presigned_upload_url(
-                object_key, content_type=req.content_type, expires=1800
+                object_key, content_type=effective_mime, expires=1800
             )
 
         asset = Asset(
@@ -275,10 +301,10 @@ class AssetService:
             conversation_id=req.conversation_id,
             kind=suggested,
             purpose=req.purpose,
-            original_name=req.filename[:500],
+            original_name=effective_filename[:500],
             storage_key=object_key,
             storage_provider="obs" if isinstance(self._storage, ObsStorage) else "local",
-            mime_type=req.content_type,
+            mime_type=effective_mime,
             size_bytes=req.byte_size,
             sha256=clean_hash or "",
             width=None,
@@ -321,6 +347,15 @@ class AssetService:
 
         asset.status = "ready"
         await self._repo.save(asset)
+
+        # 触发配额缓存失效
+        try:
+            from app.services.library_service import LibraryService
+
+            await LibraryService(self._session).invalidate_quota_cache(user_id)
+        except Exception:
+            pass
+
         return self._to_view(asset)
 
     async def get_direct_url(self, user_id: str, asset_id: str) -> str:
@@ -373,6 +408,14 @@ class AssetService:
         asset.status = "deleted"
         asset.deleted_at = now()
         await self._session.commit()
+
+        # 触发配额缓存失效
+        try:
+            from app.services.library_service import LibraryService
+
+            await LibraryService(self._session).invalidate_quota_cache(user_id)
+        except Exception:
+            pass
 
     def _to_view(self, asset: Asset) -> AssetView:
         direct_url = None

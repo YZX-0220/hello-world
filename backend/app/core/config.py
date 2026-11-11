@@ -133,6 +133,7 @@ class Settings(BaseSettings):
     signed_url_ttl_seconds: int = 600
     result_retention_days: int = 30
     max_video_jobs_per_user: int = 3
+    default_user_storage_quota_gb: float = 1.0
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -3,6 +3,7 @@
 from app.db.models.agent import AgentRun, MessageCitation, ToolExecution
 from app.db.models.asset import Asset
 from app.db.models.audit import AuditEvent
+from app.db.models.clip_project import ClipProject
 from app.db.models.conversation import Conversation, ConversationContext, Message
 from app.db.models.image_generation import ImageApiConfig, ImageJob
 from app.db.models.material_library import MaterialLibraryItem
@@ -16,6 +17,7 @@ __all__ = [
     "AgentRun",
     "Asset",
     "AuditEvent",
+    "ClipProject",
     "Conversation",
     "ConversationContext",
     "ImageApiConfig",

@@ -13,7 +13,7 @@ interface PageResponse<T> {
 export const libraryApi = {
   // 1. 获取当前用户存储配额使用情况（1GB 配额与 Redis 缓存聚合）
   async getStorageQuota(): Promise<StorageQuotaView> {
-    return request.get<StorageQuotaView, StorageQuotaView>('/api/v1/library/quota');
+    return request.get<StorageQuotaView, StorageQuotaView>('/library/quota');
   },
 
   // 2. 检索资料库素材（支持按类型、来源筛选）
@@ -25,7 +25,7 @@ export const libraryApi = {
     cursor?: string;
   }): Promise<PageResponse<LibraryAssetView>> {
     return request.get<PageResponse<LibraryAssetView>, PageResponse<LibraryAssetView>>(
-      '/api/v1/library/assets',
+      '/library/assets',
       { params: { limit: 20, ...params } }
     );
   },
@@ -33,7 +33,7 @@ export const libraryApi = {
   // 3. 获取所有草稿工程列表
   async listProjects(): Promise<ClipProjectView[]> {
     const res = await request.get<ClipProjectView[] | PageResponse<ClipProjectView>, any>(
-      '/api/v1/clip-projects'
+      '/clip-projects'
     );
     return Array.isArray(res) ? res : (res?.items || []);
   },
@@ -45,7 +45,7 @@ export const libraryApi = {
     height?: number;
     fps?: number;
   }): Promise<ClipProjectView> {
-    return request.post<ClipProjectView, ClipProjectView>('/api/v1/clip-projects', {
+    return request.post<ClipProjectView, ClipProjectView>('/clip-projects', {
       title: payload.title || '未命名剪辑草稿',
       width: payload.width || 1080,
       height: payload.height || 1920,
@@ -55,7 +55,7 @@ export const libraryApi = {
 
   // 5. 获取指定草稿的时间线详情
   async getProject(projectId: string): Promise<ClipProjectView> {
-    return request.get<ClipProjectView, ClipProjectView>(`/api/v1/clip-projects/${projectId}`);
+    return request.get<ClipProjectView, ClipProjectView>(`/clip-projects/${projectId}`);
   },
 
   // 6. 保存/同步时间线草稿（带乐观锁版本校验）
@@ -69,14 +69,14 @@ export const libraryApi = {
     }
   ): Promise<ClipProjectView> {
     return request.put<ClipProjectView, ClipProjectView>(
-      `/api/v1/clip-projects/${projectId}`,
+      `/clip-projects/${projectId}`,
       payload
     );
   },
 
   // 7. 删除草稿工程（仅删除工程元数据，已导出至资料库的成片不受影响）
   async deleteProject(projectId: string): Promise<void> {
-    return request.delete(`/api/v1/clip-projects/${projectId}`);
+    return request.delete(`/clip-projects/${projectId}`);
   },
 
   // 8. 预检云端直传意图（检查配额并获取华为云 OBS 预签名 PUT 链接）
@@ -87,11 +87,11 @@ export const libraryApi = {
     sha256: string;
     purpose: 'source_video' | 'clip_export';
   }): Promise<{ asset_id: string; upload_url: string }> {
-    return request.post('/api/v1/assets/upload-intent', payload);
+    return request.post('/assets/upload-intent', payload);
   },
 
   // 9. OBS 直传完成后回执通知
   async completeUpload(assetId: string): Promise<LibraryAssetView> {
-    return request.post(`/api/v1/assets/${assetId}/complete`);
+    return request.post(`/assets/${assetId}/complete`);
   }
 };

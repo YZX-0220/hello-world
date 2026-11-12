@@ -7,9 +7,11 @@ from app.api.v1 import (
     auth,
     clip_projects,
     conversations,
+    cultural_guidances,
     image_generation,
     library,
     material_library,
+    prompt_templates,
     provider_assets,
     site_traffic,
     users,
@@ -33,6 +35,8 @@ def register_v1_routes(app: FastAPI) -> None:
     api_router.include_router(library.router)
     api_router.include_router(material_library.router)
     api_router.include_router(material_library.admin_router)
+    api_router.include_router(cultural_guidances.router)
+    api_router.include_router(prompt_templates.router)
     api_router.include_router(provider_assets.router)
     api_router.include_router(site_traffic.router)
     api_router.include_router(video_jobs.router)

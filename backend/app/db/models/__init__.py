@@ -5,6 +5,11 @@ from app.db.models.asset import Asset
 from app.db.models.audit import AuditEvent
 from app.db.models.clip_project import ClipProject
 from app.db.models.conversation import Conversation, ConversationContext, Message
+from app.db.models.cultural_guidance import (
+    CulturalGuidance,
+    PromptTemplate,
+    PromptTemplateVersion,
+)
 from app.db.models.image_generation import ImageApiConfig, ImageJob
 from app.db.models.material_library import MaterialLibraryItem
 from app.db.models.project import VideoProject, VideoProjectVersion
@@ -20,11 +25,14 @@ __all__ = [
     "ClipProject",
     "Conversation",
     "ConversationContext",
+    "CulturalGuidance",
     "ImageApiConfig",
     "ImageJob",
     "MaterialLibraryItem",
     "Message",
     "MessageCitation",
+    "PromptTemplate",
+    "PromptTemplateVersion",
     "SiteTrafficTotal",
     "SiteVisit",
     "SiteVisitEvent",

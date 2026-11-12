@@ -36,33 +36,33 @@
     <div class="editor-body">
       <!-- 上半部分：三栏协作区 -->
       <section class="upper-workspace-grid">
-        <!-- 左栏：素材面板 -->
+        <!-- 左栏：素材面板 (修正为 mountLocalWorkspace) -->
         <MediaPanel 
           class="grid-left" 
-          :isWorkspaceMounted="isWorkspaceMounted" 
+          :isWorkspaceMounted="isWorkspaceMounted"
           :mountedFolderName="mountedFolderName"
-          :directoryHandle="directoryHandle" 
-          :quota="quota" 
-          @mountWorkspace="mountLocalWorkspace" 
+          :quota="quota"
+          :directoryHandle="directoryHandle"
+          @mountWorkspace="mountLocalWorkspace"
+          @previewAsset="handlePreviewAsset"
         />
 
         <!-- 中栏：实时视窗与播放控制 -->
         <PlayerPreview 
-          class="grid-center" 
-          :timeline="timeline" 
-          :currentTimeMs="currentTimeMs" 
+          class="grid-center"
+          :timeline="timeline"
+          :currentTimeMs="currentTimeMs"
           :isPlaying="isPlaying"
-          :isExporting="isExporting" 
-          :exportProgress="exportProgress" 
           :activeClip="activeSelectedClip"
-          @setCanvas="setCanvasElement"
-          @togglePlay="togglePlay" 
-          @step="stepFrame" 
-          @changeAspect="setAspectRatio" 
+          :previewingAsset="previewingAsset"
+          @togglePlay="togglePlay"
+          @stepFrame="stepFrame"
+          @changeAspect="setAspectRatio"
+          @canvasReady="setCanvasElement"
+          @closeAssetPreview="previewingAsset = null"
         />
 
-
-      <!-- 右栏：动态属性检查器（新增传入 currentTimeMs 与 seek 跳转） -->
+        <!-- 右栏：动态属性检查器 -->
         <PropertyInspector 
           class="grid-right" 
           :timeline="timeline" 
@@ -124,7 +124,7 @@ import { useFileSystemWorkspace } from '../composables/useFileSystemWorkspace';
 import { useClipEngine } from '../composables/useClipEngine';
 import { ClipProjectPersistence, type PersistenceState } from '../services/clipProjectPersistence';
 import { libraryApi } from '../services/libraryApi';
-import type { StorageQuotaView, ClipProjectView } from '../types/clip';
+import type { StorageQuotaView, ClipProjectView, LibraryAssetView } from '../types/clip';
 
 import MediaPanel from '../components/editor/MediaPanel.vue';
 import PlayerPreview from '../components/editor/PlayerPreview.vue';
@@ -136,7 +136,7 @@ import ExportDialog from '../components/editor/ExportDialog.vue';
 const router = useRouter();
 const route = useRoute();
 
-// 1. 时间轴状态机
+// 1. 时间轴状态机（先声明，供后续 watch 使用）
 const {
   timeline,
   currentTimeMs,
@@ -168,17 +168,33 @@ const {
   resolveAssetMediaUrl
 } = useFileSystemWorkspace();
 
-// 3. WebAV 纯前端混流引擎
+// 3. WebAV 纯前端混流引擎（解构出 pausePlayback）
 const {
   isExporting,
   exportProgress,
   setCanvasElement,
+  pausePlayback,
   togglePlay,
   stepFrame,
   exportMp4
 } = useClipEngine(timeline, currentTimeMs, isPlaying, resolveAssetMediaUrl);
 
-// 4. 工程草稿与持久化
+// 4. 左侧素材独立预览控制（放在 useTimelineState 和 useClipEngine 之后）
+const previewingAsset = ref<LibraryAssetView | null>(null);
+
+function handlePreviewAsset(asset: LibraryAssetView) {
+  pausePlayback(); // 暂停下方时间轴播放
+  previewingAsset.value = asset;
+}
+
+// 当用户点击或拖动下方时间轴时，自动退出单素材预览，切回时间轴合成画面
+watch([currentTimeMs, selectedClipId], () => {
+  if (previewingAsset.value) {
+    previewingAsset.value = null;
+  }
+});
+
+// 5. 工程草稿与持久化
 const projectTitle = ref('未命名剪辑工程');
 const quota = ref<StorageQuotaView | null>(null);
 const showExportModal = ref(false);
@@ -401,17 +417,18 @@ onMounted(() => {
 
 .upper-workspace-grid {
   flex: 1;
-  min-height: 0; /* 关键修复：禁止右侧长表单把上半屏网格向下撑爆 */
+  min-height: 0;
   display: grid;
   grid-template-columns: 280px 1fr 300px;
   overflow: hidden;
 }
 
 .upper-workspace-grid > * {
-  min-height: 0; /* 强制左、中、右三栏严格遵守网格高度，超长内容在各自内部滚动 */
+  min-height: 0;
   max-height: 100%;
   overflow: hidden;
 }
+
 .lower-timeline-section {
   height: 260px;
   overflow: hidden;

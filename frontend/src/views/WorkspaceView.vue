@@ -34,8 +34,7 @@
         </div>
       </div>
     </div>
-    <!-- 顶部导航栏 -->
-    <!-- 顶部导航栏 -->
+
     <!-- 顶部导航栏 -->
     <header class="top-nav">
       <div class="nav-left">
@@ -48,7 +47,6 @@
         </router-link>
 
         <router-link to="/tv" class="nav-tv-btn" title="浏览 TV 频道">
-          <!-- 精致电视天线 SVG 标识 -->
           <span class="tv-icon-wrapper">
             <svg class="tv-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M7 3L11.5 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
@@ -68,7 +66,6 @@
       </div>
 
       <div class="nav-actions">
-        <!-- 原有保存状态、API配置、退出登录等按钮保持不变 -->
         <span v-if="currentConvId" class="save-indicator" :class="saveState.status" role="status">{{ saveLabel }}</span>
         <button v-if="currentConvId" class="glass-pill-btn" @click="retrySave"
           :disabled="saveState.status === 'saving'">保存</button>
@@ -93,6 +90,7 @@
       <button v-if="saveState.status === 'conflict' && currentConvId" @click="resolveConflict('remote')">使用云端版本</button>
       <button aria-label="关闭提示" @click="notice = ''">×</button>
     </div>
+
     <!-- 视图平滑推拉切换容器 -->
     <div class="workspace-body">
       <div v-if="loading" class="workspace-loading" role="status">正在加载项目…</div>
@@ -107,8 +105,8 @@
 
           <div class="cards-grid">
             <div class="square-card add-card" role="button" tabindex="0"
-              :aria-disabled="!initialized || isCreatingConv || loading" @keydown.enter="createNewConversation"
-              @click="createNewConversation">
+              :aria-disabled="!initialized || isCreatingConv || loading" @keydown.enter="handleCreateNewConversation"
+              @click="handleCreateNewConversation">
               <div class="plus-icon">+</div>
               <span class="add-text">{{ isCreatingConv ? '正在初始化...' : '开启新创作对话' }}</span>
               <div class="add-glow"></div>
@@ -124,12 +122,36 @@
               </div>
 
               <div class="card-content">
-                <h3 class="card-project-title">{{ conv.title || '新创作对话' }}</h3>
+                <input
+                  v-if="renamingConvId === conv.id"
+                  v-model="renamingConvTitle"
+                  class="card-rename-input"
+                  v-autofocus
+                  maxlength="120"
+                  aria-label="修改项目名称"
+                  @click.stop
+                  @mousedown.stop
+                  @blur="finishRenameConv(conv)"
+                  @keydown.enter.prevent="finishRenameConv(conv)"
+                  @keydown.esc.stop="cancelRenameConv"
+                />
+                <h3 v-else class="card-project-title" :title="getConvDisplayTitle(conv)">
+                  {{ getConvDisplayTitle(conv) }}
+                </h3>
                 <span class="version-tag">版本 v{{ conv.version || 0 }}</span>
               </div>
 
+              <!-- 左下角改名按钮 + 右下角进入提示 -->
               <div class="card-bottom">
-                <span>点击进入工作台 →</span>
+                <button
+                  type="button"
+                  class="rename-card-btn"
+                  title="修改项目名称"
+                  @click.stop="startRenameConv(conv)"
+                >
+                  ✎ 改名
+                </button>
+                <span class="enter-text">点击进入工作台 →</span>
               </div>
             </div>
           </div>
@@ -155,7 +177,7 @@
             <button class="glass-pill-btn" @click.stop="addNode('text')">添加文本</button>
             <button class="glass-pill-btn" @click.stop="addNode('image')">添加图片</button>
             <button class="glass-pill-btn image-generate-entry" @click.stop="openImageGeneration()">✧ AI 生图</button>
-            <span class="canvas-project-title">{{ activeConversation?.title || '新创作工作流' }}</span>
+            <span class="canvas-project-title">{{ activeConversation ? getConvDisplayTitle(activeConversation) : '新创作工作流' }}</span>
           </div>
 
           <!-- 左侧居中悬浮工具栏：素材库与国际传播指导 -->
@@ -210,7 +232,6 @@
               <!-- 已确认的连线 (双击连线删除) -->
               <g v-for="conn in connections" :key="conn.id" class="conn-group"
                 @dblclick.stop="deleteConnection(conn.id)" title="双击删除此连线">
-                <!-- 宽隐形响应区方便点击 -->
                 <path :d="calculateBezierPath(conn.from, conn.to)" class="connection-hit-path" />
                 <path :d="calculateBezierPath(conn.from, conn.to)" class="connection-base-path" />
                 <path :d="calculateBezierPath(conn.from, conn.to)" class="connection-flow-path" filter="url(#glow)" />
@@ -243,12 +264,22 @@
                   <span v-else>🎬</span>
                 </div>
 
-                <!-- 节点命名（双击修改） -->
+                <!-- 节点命名（双击修改，使用受控本地缓冲状态，防止自动保存打断输入） -->
                 <div class="node-title-wrap">
-                  <input v-if="node.isRenaming" v-model="node.title" class="node-title-input" v-autofocus
-                    maxlength="200" aria-label="小框名称" @mousedown.stop @click.stop @blur="node.isRenaming = false"
-                    @keydown.enter="node.isRenaming = false" />
-                  <span v-else class="node-title" @dblclick.stop="node.isRenaming = true" title="双击进行重命名">
+                  <input
+                    v-if="renamingNodeId === node.id"
+                    v-model="renamingNodeTitle"
+                    class="node-title-input"
+                    v-autofocus
+                    maxlength="200"
+                    aria-label="小框名称"
+                    @mousedown.stop
+                    @click.stop
+                    @blur="finishRenameNode(node)"
+                    @keydown.enter.prevent="finishRenameNode(node)"
+                    @keydown.esc.stop="cancelRenameNode"
+                  />
+                  <span v-else class="node-title" @dblclick.stop="startRenameNode(node)" title="双击进行重命名">
                     {{ node.title }}
                   </span>
                 </div>
@@ -588,55 +619,73 @@
       </div>
     </Teleport>
 
-    <!-- ================= 国际传播指引弹窗 ================= -->
+    <!-- ================= 国际传播指引弹窗（多选 & 后端负面提示词合并） ================= -->
     <div v-if="showGuideModal" class="guide-modal-mask" @click.self="closeGuideModal">
       <div class="guide-modal-box">
         <div class="guide-modal-header">
           <div class="modal-title-group">
             <span class="modal-badge">CULTURAL GUIDANCE</span>
             <h3 class="modal-title">国际传播叙事指引与受众偏好</h3>
+            <p class="modal-sub-desc">请选择目标传播国家/地区（支持多选），系统将自动从后端读取并组合对应的负面提示词</p>
           </div>
           <button class="cancel-action-btn" @click="closeGuideModal">算了</button>
         </div>
 
-        <div class="countries-tab-bar">
-          <button v-for="country in countryList" :key="country.code" class="country-tab"
-            :class="{ active: selectedCountryCode === country.code }" @click="selectCountry(country.code)">
-            <span class="flag-icon">{{ country.flag }}</span>
+        <!-- 加载状态 / 错误状态 / 纯国家名称多选按钮组 -->
+        <div v-if="isLoadingCountries" class="countries-status-tip">正在从服务端加载国家配置…</div>
+        <div v-else-if="countriesLoadError" class="countries-status-tip error">
+          <span>{{ countriesLoadError }}</span>
+          <button type="button" class="retry-inline-btn" @click="fetchCountryNegativePrompts">重试</button>
+        </div>
+        <div v-else-if="!countryList.length" class="countries-status-tip">暂无国家配置，请联系后端管理员初始化数据库</div>
+        <div v-else class="countries-multi-grid">
+          <button
+            v-for="country in countryList"
+            :key="country.code"
+            type="button"
+            class="country-select-pill"
+            :class="{ active: selectedCountryCodes.includes(country.code) }"
+            @click="toggleCountry(country.code)"
+          >
             <span>{{ country.name }}</span>
+            <span v-if="selectedCountryCodes.includes(country.code)" class="check-mark">✓</span>
           </button>
         </div>
 
+        <!-- 选中国家的详情与合并后的负面提示词预览 -->
         <div class="guidance-content-box">
           <div class="guidance-header">
-            <h4 class="country-target-name">{{ currentCountryGuide.name }}受众视听特征与叙事建议</h4>
-            <span class="lang-pill">{{ currentCountryGuide.lang }}</span>
+            <h4 class="country-target-name">
+              {{ selectedCountries.length ? `已选：${selectedCountries.map(c => c.name).join('、')}` : '请至少选择一个国家/地区' }}
+            </h4>
+            <span class="lang-pill" v-if="selectedCountries.length">已选 {{ selectedCountries.length }} 项</span>
           </div>
 
-          <div class="guidance-detail-card">
-            <div class="guide-block">
-              <span class="block-label">审美喜好与节奏：</span>
-              <p class="block-desc">{{ currentCountryGuide.aesthetic }}</p>
-            </div>
-            <div class="guide-block">
-              <span class="block-label">叙事共情逻辑：</span>
-              <p class="block-desc">{{ currentCountryGuide.narrative }}</p>
-            </div>
-            <div class="guide-block highlight-block">
-              <span class="block-label">避免踩雷与文化禁忌：</span>
-              <p class="block-desc">{{ currentCountryGuide.taboo }}</p>
-            </div>
+          <div v-if="selectedCountries.some(c => c.taboo)" class="guidance-detail-card">
+            <template v-for="item in selectedCountries" :key="item.code">
+              <div v-if="item.taboo" class="guide-block highlight-block">
+                <span class="block-label">{{ item.name }} · 文化禁忌与规避：</span>
+                <p class="block-desc">{{ item.taboo }}</p>
+              </div>
+            </template>
           </div>
 
+          <!-- 最终合并生成的负面提示词预览 -->
           <div class="prompt-snippet-box">
-            <div class="snippet-label">可注入节点的特化创作指令：</div>
-            <div class="snippet-text">{{ currentCountryGuide.promptText }}</div>
+            <div class="snippet-label">待注入节点的合并负面提示词（Negative Prompt）：</div>
+            <div class="snippet-text">
+              {{ combinedNegativePrompt || '未选择国家，暂无负面提示词' }}
+            </div>
           </div>
         </div>
 
         <div class="guide-modal-footer">
-          <span class="footer-tip desktop-only">点击下方按钮可直接把建议放入当前文本节点</span>
-          <button class="apply-to-chat-btn" @click="applyGuidanceToNode">
+          <span class="footer-tip desktop-only">点击右侧按钮将合并后的负面提示词直接写入当前文本节点</span>
+          <button
+            class="apply-to-chat-btn"
+            :disabled="!selectedCountryCodes.length || !combinedNegativePrompt"
+            @click="applyGuidanceToNode"
+          >
             注入文本节点
           </button>
         </div>
@@ -661,18 +710,10 @@ import { useRouter, useRoute } from 'vue-router';
 const router = useRouter();
 const route = useRoute();
 
-onMounted(async () => {
-  // 如果通过跳转带入了 conv_id，直接自动切换至该对话进入 B 页面
-  if (route.query.conv_id) {
-    await switchConversation(String(route.query.conv_id));
-  } else if (!currentConvId.value && conversations.value.length > 0) {
-    // 若希望每次直接进入 B 页面，可默认激活最近的一个会话
-    // await switchConversation(conversations.value[0].id);
-  }
-});
 function goToEditor() {
   router.push('/editor');
 }
+
 const workspace = useWorkspace();
 const {
   canvas, nodes, connections, pan, zoom, conversations, currentConvId, accountId, messages, inputContent,
@@ -683,6 +724,7 @@ const {
   switchConversation, createNewConversation, backToProjectSpace, retrySave, resolveConflict,
   restoreBeforeAi, handleLogout,
 } = workspace;
+
 const viewportRef = ref<HTMLElement | null>(null);
 const messagesContainerRef = ref<HTMLElement | null>(null);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
@@ -694,42 +736,185 @@ watch(portraitFailure, async value => {
   if (value) { portraitPreviousFocus = document.activeElement as HTMLElement; await nextTick(); portraitClose.value?.focus(); }
   else if (portraitPreviousFocus?.isConnected) portraitPreviousFocus.focus();
 });
+
+// ==================== 1. 项目卡片重命名功能（左下角改名按钮） ====================
+const renamingConvId = ref('');
+const renamingConvTitle = ref('');
+// 本地持久化项目自定义名称映射，确保即使后端未提供 PATCH 改名接口也能持久生效
+const customConvTitles = reactive<Record<string, string>>(
+  JSON.parse(localStorage.getItem('custom_conv_titles') || '{}')
+);
+
+function getConvDisplayTitle(conv: { id: string; title?: string | null }) {
+  return customConvTitles[conv.id] || conv.title || '新创作对话';
+}
+
+function startRenameConv(conv: { id: string; title?: string | null }) {
+  renamingConvId.value = conv.id;
+  renamingConvTitle.value = getConvDisplayTitle(conv);
+}
+
+function cancelRenameConv() {
+  renamingConvId.value = '';
+  renamingConvTitle.value = '';
+}
+
+async function finishRenameConv(conv: { id: string; title?: string | null }) {
+  if (renamingConvId.value !== conv.id) return;
+  const trimmed = renamingConvTitle.value.trim();
+  renamingConvId.value = '';
+  if (!trimmed) return;
+
+  // 1. 立即更新前端状态与本地持久化存储
+  conv.title = trimmed;
+  customConvTitles[conv.id] = trimmed;
+  localStorage.setItem('custom_conv_titles', JSON.stringify(customConvTitles));
+
+  // 2. 如果 useWorkspace 提供了 renameConversation / updateConversation 则调用，否则尝试 PATCH 后端接口
+  try {
+    if (typeof (workspace as any).renameConversation === 'function') {
+      await (workspace as any).renameConversation(conv.id, trimmed);
+    } else {
+      await fetch(`/api/v1/conversations/${encodeURIComponent(conv.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ title: trimmed })
+      }).catch(() => {});
+    }
+  } catch {
+    // 本地已保存，忽略后端未实现该路由时的错误
+  }
+}
+
+// ==================== 2. 节点重命名修复 & 初始/新增节点命名规则 ====================
+// 使用独立 ref 管理正在重命名的节点，避免输入第一个字符触发自动保存重绘时丢失 isRenaming 状态
+const renamingNodeId = ref('');
+const renamingNodeTitle = ref('');
+
+function startRenameNode(node: FlowNode) {
+  if (loading.value) return;
+  renamingNodeId.value = node.id;
+  renamingNodeTitle.value = node.title || '';
+}
+
+function finishRenameNode(node: FlowNode) {
+  if (renamingNodeId.value !== node.id) return;
+  const nextTitle = renamingNodeTitle.value.trim();
+  if (nextTitle) {
+    node.title = nextTitle;
+  }
+  renamingNodeId.value = '';
+  renamingNodeTitle.value = '';
+}
+
+function cancelRenameNode() {
+  renamingNodeId.value = '';
+  renamingNodeTitle.value = '';
+}
+
+// 将初始默认节点的名字统一设为“文本节点”与“图片节点”
+function normalizeInitialNodeTitles() {
+  const legacyTextDefaults = new Set(['视频脚本', '视频脚本1', '分镜脚本']);
+  const legacyImageDefaults = new Set(['参考图', '参考图1', '首帧图']);
+
+  const textNodes = nodes.value.filter(n => n.type === 'text');
+  const imageNodes = nodes.value.filter(n => n.type === 'image');
+
+  // 将初始的第一个默认文本节点名称规范为“文本节点”
+  if (textNodes.length > 0 && legacyTextDefaults.has(textNodes[0].title)) {
+    textNodes[0].title = '文本节点';
+  }
+  // 将初始的第一个默认图片节点名称规范为“图片节点”
+  if (imageNodes.length > 0 && legacyImageDefaults.has(imageNodes[0].title)) {
+    imageNodes[0].title = '图片节点';
+  }
+}
+
+watch(
+  () => [currentConvId.value, nodes.value.length],
+  () => {
+    normalizeInitialNodeTitles();
+  },
+  { immediate: true }
+);
+
+// 计算新增节点的递增名称：
+// 初始节点名为“文本节点”/“图片节点”；后续每次新增依次为“文本节点1”、“文本节点2” / “图片节点1”、“图片节点2”
+function getNextNodeTitle(type: 'text' | 'image'): string {
+  const baseName = type === 'text' ? '文本节点' : '图片节点';
+  const sameTypeNodes = nodes.value.filter(n => n.type === type);
+
+  // 如果画布上还没有该类型节点，作为初始节点直接命名为“文本节点”或“图片节点”
+  if (sameTypeNodes.length === 0) {
+    return baseName;
+  }
+
+  // 找出当前已占用的编号（如 文本节点1, 文本节点2...）
+  const usedNumbers = new Set<number>();
+  const regex = new RegExp(`^${baseName}\\s*(\\d+)$`);
+  for (const n of sameTypeNodes) {
+    const match = (n.title || '').trim().match(regex);
+    if (match) {
+      usedNumbers.add(Number(match[1]));
+    }
+  }
+
+  let nextNum = 1;
+  while (usedNumbers.has(nextNum)) {
+    nextNum++;
+  }
+  return `${baseName}${nextNum}`;
+}
+
 const agentTab = ref<'chat' | 'image' | 'video'>('chat');
 const isAgentExpanded = ref(false);
 const activeNodeId = ref('');
 const imageGenerationOpen = computed(() => isAgentDrawerOpen.value && agentTab.value === 'image');
 const imageSourceNodeId = ref('');
+
 function openImageGeneration(node?: FlowNode) {
   if (loading.value || !currentConvId.value) return;
   imageSourceNodeId.value = node?.id || '';
-  agentTab.value = 'image'; isAgentDrawerOpen.value = true;
+  agentTab.value = 'image';
+  isAgentDrawerOpen.value = true;
 }
+
 function insertGeneratedImage(job: ImageJob) {
   if (loading.value || job.conversation_id !== currentConvId.value) return;
   const source = nodes.value.find(n => n.id === imageSourceNodeId.value);
+  const nextTitle = getNextNodeTitle('image');
   const node = createImageNode(nodes.value, job, newId(), source);
   if (!node) return;
-  nodes.value.push(node); activeNodeId.value = node.id;
+  node.title = nextTitle;
+  nodes.value.push(node);
+  activeNodeId.value = node.id;
   notice.value = '图片已插入画布，可用作参考图或首帧。';
 }
+
 watch(currentConvId, () => { imageSourceNodeId.value = ''; });
 const editingNodeId = ref('');
 const nodeEditors = new Map<string, HTMLTextAreaElement>();
+
 function setNodeEditor(id: string, element: unknown) {
   if (element instanceof HTMLTextAreaElement) nodeEditors.set(id, element);
   else nodeEditors.delete(id);
 }
+
 function beginNodeEditing(node: FlowNode) {
   if (loading.value) return;
   editingNodeId.value = node.id;
   activeNodeId.value = node.id;
   nextTick(() => nodeEditors.get(node.id)?.focus({ preventScroll: true }));
 }
+
 function finishNodeEditing() { editingNodeId.value = ''; }
+
 const activeNode = computed(() => nodes.value.find(n => n.id === activeNodeId.value));
 const selectedNodeIds = ref<string[]>([]);
 const aiTargetNode = computed(() => nodes.value.find(n => n.id === aiTargetNodeId.value));
 const canApplyAiContent = computed(() => !!aiTargetNode.value?.pending_ai && aiTargetNode.value.pending_ai.source_model !== 'local-preview');
+
 const videoSourceIds = computed(() => {
   const selection = [...new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean))]
     .filter(id => nodes.value.some(n => n.id === id));
@@ -737,23 +922,28 @@ const videoSourceIds = computed(() => {
   if (aiTargetNode.value) return [aiTargetNode.value.id];
   return canvas.value.generation_source_ids.filter(id => nodes.value.some(n => n.id === id));
 });
+
 const videoSourceNodes = computed(() => nodes.value.filter(n => videoSourceIds.value.includes(n.id)));
 const videoImageNodes = computed(() => generationSources(canvas.value, videoSourceIds.value).filter(n => n.type === 'image' && n.asset_id));
+
 const videoDurationInput = computed({
   get: () => canvas.value.video_duration_seconds ?? '',
   set: (value: string | number) => { canvas.value.video_duration_seconds = value === '' ? null : Number(value); },
 });
+
 function adjustVideoDuration(delta: number) {
   const value = Number(videoDurationInput.value);
   videoDurationInput.value = videoDurationInput.value === '' || !Number.isFinite(value)
     ? 1
     : Math.max(1, Math.min(15, delta > 0 ? Math.floor(value) + 1 : Math.ceil(value) - 1));
 }
+
 const videoDurationOptions = computed(() => videoDurationChoices(selectedGenerationTarget.value));
 const videoResolutionOptions = computed(() => {
   const resolutions = selectedGenerationTarget.value?.profile?.resolutions;
   return resolutions?.length ? resolutions.filter(value => ['480p', '720p', '1080p'].includes(value)) : ['480p', '720p', '1080p'];
 });
+
 const videoModeHelp = computed(() => {
   const adaptive = selectedGenerationTarget.value?.profile?.image_constraints;
   return ({
@@ -764,12 +954,13 @@ const videoModeHelp = computed(() => {
     first_last_frame_to_video: '指定起始和结束画面。' + (selectedGenerationTarget.value?.profile?.allows_identical_frames ? '可以使用同一张图片作为首尾帧。' : ''),
   }[canvas.value.video_mode] || '请选择生成模式。');
 });
+
 const videoSettingsReason = computed(() => videoSettingsBlockReason(canvas.value, selectedGenerationTarget.value));
 const videoSelectionReady = computed(() => generationReady.value && !!project.value
   && generationMatches(canvas.value, project.value.current_spec_version, videoSourceIds.value, selectedGenerationTarget.value?.fingerprint));
 const videoReviewFresh = computed(() => !!project.value && !!selectedGenerationTarget.value && !targetLoading.value
   && generationContextMatches(canvas.value, project.value.current_spec_version, videoSourceIds.value, selectedGenerationTarget.value.fingerprint));
-// 判断当前是否有正在进行中的视频生成任务
+
 const isJobRunning = computed(() =>
   !!activeJob.value && !['succeeded', 'failed', 'cancelled'].includes(activeJob.value.status)
 );
@@ -792,6 +983,7 @@ const generationModeLabel = computed(() => ({
   first_last_frame_to_video: '首帧与尾帧生成',
   reference_image_to_video: '多张图片作为参考素材',
 }[project.value?.current_spec.mode || 'text_to_video'] || project.value?.current_spec.mode));
+
 const isSelecting = ref(false);
 const isPanning = ref(false);
 const startPan = reactive({ x: 0, y: 0 });
@@ -802,21 +994,31 @@ const connectingSource = ref<FlowNode | null>(null);
 const tempMousePos = reactive({ x: 0, y: 0 });
 let draggingNode: FlowNode | null = null;
 const isDraggingOverAgent = ref(false);
-const deletedNode = ref<{ node: FlowNode; connections: FlowConnection[] } | null>(null);
-const vAutofocus = { mounted: (element: HTMLInputElement) => { element.focus({ preventScroll: true }); element.select(); } };
+// 支持记录单个或多个被删除的节点及其连线，方便一键撤销
+const deletedNode = ref<{ nodes: FlowNode[]; connections: FlowConnection[] } | null>(null);
+
+const vAutofocus = {
+  mounted: (element: HTMLInputElement) => {
+    element.focus({ preventScroll: true });
+    element.select();
+  }
+};
 
 const referencedNodes = computed(() => {
   const fallback = referencedNodeIds.value.length ? referencedNodeIds.value : [...selectedNodeIds.value, activeNodeId.value];
   const ids = collaborationReferenceIds(nodes.value, fallback, [...selectedNodeIds.value, activeNodeId.value], aiTargetNodeId.value);
   return nodes.value.filter(n => ids.includes(n.id));
 });
+
 function clearReferencedNodes() { referencedNodeIds.value = []; selectedNodeIds.value = []; activeNodeId.value = ''; }
+
 function handleNodeDragStart(e: DragEvent, node: FlowNode) {
   draggingNode = null;
   const ids = selectedNodeIds.value.includes(node.id) ? selectedNodeIds.value : [node.id];
   e.dataTransfer?.setData('application/json', JSON.stringify(ids));
   if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy';
 }
+
 function handleAgentDragOver(_e: DragEvent) { isDraggingOverAgent.value = true; }
 function handleAgentDragLeave() { isDraggingOverAgent.value = false; }
 function handleAgentDrop(e: DragEvent) {
@@ -828,6 +1030,7 @@ function handleAgentDrop(e: DragEvent) {
     isAgentDrawerOpen.value = true;
   } catch { notice.value = '无法识别参考节点，请重新拖入'; }
 }
+
 function canvasPoint(e: { clientX: number; clientY: number }) {
   const rect = viewportRef.value?.getBoundingClientRect();
   return {
@@ -835,8 +1038,11 @@ function canvasPoint(e: { clientX: number; clientY: number }) {
     y: (e.clientY - (rect?.top || 0) - pan.value.y) / zoom.value
   };
 }
+
 watch(currentConvId, () => {
   editingNodeId.value = '';
+  renamingNodeId.value = '';
+  renamingNodeTitle.value = '';
   activeNodeId.value = ''; selectedNodeIds.value = []; connectingSource.value = null;
   contextMenu.visible = false; deletedNode.value = null; handleCanvasMouseUp();
 });
@@ -844,66 +1050,167 @@ watch(() => messages.value.length, scrollToBottom);
 watch(() => aiTargetNode.value?.pending_ai?.message_id, scrollToBottom);
 watch(agentTab, tab => { if (tab === 'chat') scrollToBottom(); });
 
-// ==================== 3. 国际传播文化配置 ====================
+// ==================== 3. 国际传播文化配置（对接后端接口 & 支持增改） ====================
+export interface CountryGuideItem {
+  id?: string | number;
+  code: string;
+  name: string;
+  negative_prompt: string;
+  taboo?: string;
+  sort_order?: number;
+}
+
+const CULTURAL_API_BASE = '/api/v1/cultural-guidances';
 const showGuideModal = ref(false);
-const selectedCountryCode = ref('US');
-const countryList = [
-  { code: 'US', name: '美国', flag: '🇺🇸' },
-  { code: 'FR', name: '法国', flag: '🇫🇷' },
-  { code: 'JP', name: '日本', flag: '🇯🇵' },
-  { code: 'IN', name: '印度', flag: '🇮🇳' },
-  { code: 'DE', name: '德国', flag: '🇩🇪' },
-  { code: 'GB', name: '英国', flag: '🇬🇧' },
-];
+const countryList = ref<CountryGuideItem[]>([]);
+const selectedCountryCodes = ref<string[]>([]);
+const isLoadingCountries = ref(false);
+const countriesLoadError = ref('');
 
-const countryGuideMap: Record<string, {
-  name: string; lang: string; aesthetic: string; narrative: string; taboo: string; promptText: string;
-}> = {
-  US: {
-    name: '美国', lang: '英语 (en-US)',
-    aesthetic: '偏好高对比度动态视觉、明快紧凑的运镜剪辑与强烈的视觉奇观冲击；喜欢自然抓人眼球的开门见山式镜头。',
-    narrative: '侧重个人英雄主义、个体真实经历与温情日常叙事，避免空洞说教，强调平等交流与自然共鸣。',
-    taboo: '注意避免任何形式的刻板印象、种族敏感符号或过度主旋律视角的宏大叙事灌输。',
-    promptText: '【国际传播受众：美国】请采用写实电影画质、高动态光影与明快节奏推进。注重以生动微观的个体视角展开，弱化宏大概念，重点强调真实烟火气与情感共鸣。'
-  },
-  FR: {
-    name: '法国', lang: '法语 / 英语 (fr-FR)',
-    aesthetic: '极为看重画面诗意、自然光影质感与艺术构图。偏好低饱和度、胶片颗粒感及留白的浪漫慢镜头。',
-    narrative: '偏爱思辨性与哲学深意，喜欢讲述人与自然、传统工艺或慢生活的意境美，崇尚原生态与个性化表达。',
-    taboo: '反感工业化流水线感过重或过于喧闹刺眼的塑料 CG 感；避免直接灌输式说理。',
-    promptText: '【国际传播受众：法国】请运用胶片质感、柔和自然光与富有诗意的长镜头推拉。镜头语言需具有艺术留白与慢生活审美，呈现兼具哲思与优雅的文化意境。'
-  },
-  JP: {
-    name: '日本', lang: '日语 (ja-JP)',
-    aesthetic: '追求“物哀”与细腻治愈审美。偏好清新微暖的色调、柔光运镜、对季节流转与细微声画动作（如水滴、风吹落叶）的捕捉。',
-    narrative: '长于以小见大，从生活细节、人情羁绊与匠人精神中展现文化底蕴，容易被纯粹专注、平和克制的情感打动。',
-    taboo: '避免夸张喧嚣的肢体冲突与生硬的情绪宣泄；慎用容易引发历史语境争议的图腾符号。',
-    promptText: '【国际传播受众：日本】请采用日系清新胶片色调与柔美漫射光，运镜平稳细腻。重点捕捉微观场景细节与人情温暖，营造内敛治愈的视听共情体验。'
-  },
-  IN: {
-    name: '印度', lang: '印地语 / 英语 (hi-IN / en-IN)',
-    aesthetic: '热爱浓郁明丽的高饱和色彩（暖黄、翠绿、朱红等），青睐富有韵律感、富丽堂皇且充满生命力的镜头动势。',
-    narrative: '极为看重家庭团聚、传统节日氛围与富有感染力的生活仪式感，偏向乐观向上、热烈欢快的叙事弧线。',
-    taboo: '避免冷色调或沉闷压抑的灰暗构图；注意规避宗教习俗与特定饮食层面的文化冒犯。',
-    promptText: '【国际传播受众：印度】请采用高饱和度暖色调与富丽光影，运镜富有节奏与活力。突出热烈欢快的节日氛围或家庭人际温情，展现充满蓬勃生命力的视听画面。'
-  },
-  DE: {
-    name: '德国', lang: '德语 / 英语 (de-DE)',
-    aesthetic: '崇尚极简主义与理性几何构图。偏爱冷峻清晰的工业秩序感、冷色系自然光线与一丝不苟的透视对称。',
-    narrative: '重视事实逻辑、精密工艺原理与生态可持续理念，对结构清晰、严谨真实的叙事接受度最高。',
-    taboo: '排斥虚假浮夸、逻辑前后矛盾或逻辑煽情的画面设计；注重规则与严谨度。',
-    promptText: '【国际传播受众：德国】请采用严谨的几何对称构图与低饱和冷色调电影光影。运镜克制平稳，强调画面主体的结构质感与逻辑严密性。'
-  },
-  GB: {
-    name: '英国', lang: '英式英语 (en-GB)',
-    aesthetic: '偏好古典优雅、阴雨朦胧的氛围光影（油画质感、历史厚重感、冷色调雾气感与复古色泽）。',
-    narrative: '青睐英式幽默、含蓄克制以及对历史文化遗产、古老街区与人与自然共生的细腻呈现。',
-    taboo: '避免用力过猛的浮躁炫技和过于直白露骨的情绪宣泄。',
-    promptText: '【国际传播受众：英国】请采用复古油画质感与阴雨冷雾电影氛围光。镜头缓慢深沉推进，展现兼具古典底蕴与内敛克制的人文故事。'
+async function fetchCountryNegativePrompts() {
+  isLoadingCountries.value = true;
+  countriesLoadError.value = '';
+  try {
+    const res = await fetch(CULTURAL_API_BASE, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      credentials: 'include'
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const list: any[] = Array.isArray(data) ? data : (data.items || data.data || []);
+    countryList.value = list.map(item => ({
+      id: item.id,
+      code: String(item.code || ''),
+      name: String(item.name || ''),
+      negative_prompt: String(item.negative_prompt ?? item.negativePrompt ?? ''),
+      taboo: item.taboo ? String(item.taboo) : undefined,
+      sort_order: item.sort_order
+    }));
+  } catch (err: any) {
+    countriesLoadError.value = '加载国家负面提示词失败，请检查后端接口是否已启动';
+    console.error('fetchCountryNegativePrompts error:', err);
+  } finally {
+    isLoadingCountries.value = false;
   }
-};
+}
 
-const currentCountryGuide = computed(() => countryGuideMap[selectedCountryCode.value]);
+async function createCountryGuidance(payload: {
+  code: string;
+  name: string;
+  negative_prompt: string;
+  taboo?: string;
+  sort_order?: number;
+}) {
+  const res = await fetch(CULTURAL_API_BASE, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(`新增国家配置失败: HTTP ${res.status}`);
+  const created = await res.json();
+  await fetchCountryNegativePrompts();
+  return created;
+}
+
+async function updateCountryGuidance(
+  code: string,
+  payload: Partial<{ name: string; negative_prompt: string; taboo: string; sort_order: number }>
+) {
+  const res = await fetch(`${CULTURAL_API_BASE}/${encodeURIComponent(code)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error(`修改国家配置失败: HTTP ${res.status}`);
+  const updated = await res.json();
+  await fetchCountryNegativePrompts();
+  return updated;
+}
+
+defineExpose({
+  fetchCountryNegativePrompts,
+  createCountryGuidance,
+  updateCountryGuidance
+});
+
+function toggleCountry(code: string) {
+  const idx = selectedCountryCodes.value.indexOf(code);
+  if (idx > -1) {
+    selectedCountryCodes.value.splice(idx, 1);
+  } else {
+    selectedCountryCodes.value.push(code);
+  }
+}
+
+const selectedCountries = computed(() =>
+  countryList.value.filter(c => selectedCountryCodes.value.includes(c.code))
+);
+
+const combinedNegativePrompt = computed(() =>
+  selectedCountries.value.map(c => c.negative_prompt).join('')
+);
+
+function applyGuidanceToNode() {
+  const promptText = combinedNegativePrompt.value;
+  if (!promptText) return;
+
+  if (activeNode.value && activeNode.value.type === 'text') {
+    activeNode.value.content = activeNode.value.content
+      ? `${activeNode.value.content}\n${promptText}`
+      : promptText;
+  } else {
+    const emptyTextNode = nodes.value.find(n => n.type === 'text' && !n.content?.trim());
+    if (emptyTextNode) {
+      emptyTextNode.content = promptText;
+      activeNodeId.value = emptyTextNode.id;
+    } else {
+      const newNodeId = newId();
+      nodes.value.push({
+        id: newNodeId,
+        type: 'text',
+        title: getNextNodeTitle('text'),
+        x: 180,
+        y: 220,
+        content: promptText
+      });
+      activeNodeId.value = newNodeId;
+    }
+  }
+  closeGuideModal();
+}
+
+function openGuideModal() {
+  if (!countryList.value.length && !isLoadingCountries.value) {
+    void fetchCountryNegativePrompts();
+  }
+  showGuideModal.value = true;
+}
+
+function closeGuideModal() {
+  showGuideModal.value = false;
+}
+
+function checkAndOpenGuideForNewConv(convId: string) {
+  if (!convId) return;
+  const storageKey = `guide_shown_${convId}`;
+  if (!localStorage.getItem(storageKey)) {
+    localStorage.setItem(storageKey, '1');
+    selectedCountryCodes.value = [];
+    openGuideModal();
+  }
+}
+
+async function handleCreateNewConversation() {
+  await createNewConversation();
+  normalizeInitialNodeTitles();
+  if (currentConvId.value) {
+    checkAndOpenGuideForNewConv(currentConvId.value);
+  }
+}
+
 const activeConversation = computed(() => conversations.value.find(c => c.id === currentConvId.value));
 
 // ==================== 4. 看板卡片配色 ====================
@@ -937,7 +1244,6 @@ async function handleDeleteConversation(id: string) {
   if (confirm('确定删除这个创作项目吗？')) await workspace.deleteConversation(id);
 }
 
-// 记录当前正在按下的方向键集合
 const pressedArrowKeys = new Set<string>();
 let keyPanRafId: number | null = null;
 
@@ -952,16 +1258,12 @@ function isEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
-// 每一帧执行的画布平滑位移（无停顿、零延迟）
 function updateKeyPanLoop() {
   if (!currentConvId.value || loading.value || pressedArrowKeys.size === 0) {
     keyPanRafId = null;
     return;
   }
-
-  // 每帧移动像素速度（60Hz下约每秒840px，可根据手感调大或调小，例如 12 ~ 18）
   const speed = 14;
-
   if (pressedArrowKeys.has('ArrowLeft')) pan.value.x += speed;
   if (pressedArrowKeys.has('ArrowRight')) pan.value.x -= speed;
   if (pressedArrowKeys.has('ArrowUp')) pan.value.y += speed;
@@ -992,12 +1294,22 @@ function handleKeydown(event: KeyboardEvent) {
   }
 
   if (!currentConvId.value || loading.value) return;
-  if (isEditableTarget(event.target)) return;
+  // 如果当前焦点在输入框、文本框或正在重命名节点/项目，不触发画布快捷键
+  if (isEditableTarget(event.target) || editingNodeId.value || renamingNodeId.value || renamingConvId.value) return;
+
+  // 按下 Delete 键（如需同时支持 Mac 退格键可加上 || event.key === 'Backspace'）：删除当前选中的单/多个节点
+  if (event.key === 'Delete') {
+    const idsToDelete = [...new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean))];
+    if (idsToDelete.length > 0) {
+      event.preventDefault();
+      deleteSelectedNodes(idsToDelete);
+    }
+    return;
+  }
 
   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
     event.preventDefault();
     pressedArrowKeys.add(event.key);
-    // 按下瞬间立即启动帧循环，彻底消除系统长按停顿
     if (keyPanRafId === null) {
       keyPanRafId = requestAnimationFrame(updateKeyPanLoop);
     }
@@ -1014,12 +1326,27 @@ function handleKeyup(event: KeyboardEvent) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('mousemove', handleCanvasMouseMove);
   window.addEventListener('mouseup', handleCanvasMouseUp);
   window.addEventListener('keydown', handleKeydown);
   window.addEventListener('keyup', handleKeyup);
-  window.addEventListener('blur', stopKeyPan); // 切换窗口失焦时自动停止移动
+  window.addEventListener('blur', stopKeyPan);
+
+  void fetchCountryNegativePrompts();
+
+  const queryConvId = route.query.conv_id as string;
+  if (queryConvId) {
+    await switchConversation(queryConvId);
+    normalizeInitialNodeTitles();
+  } else if (!currentConvId.value) {
+    if (conversations.value.length > 0) {
+      await switchConversation(conversations.value[0].id);
+      normalizeInitialNodeTitles();
+    } else {
+      await handleCreateNewConversation();
+    }
+  }
 });
 
 onBeforeUnmount(() => {
@@ -1030,9 +1357,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('blur', stopKeyPan);
   stopKeyPan();
 });
+
 // ==================== 5. 画布拖拽、缩放与连线交互 ====================
-// 点击端口：首次点击作为起点拉线，再次点击目标端口完成连接
-// 3. 点击加号端点拉线
 function handlePortClick(node: FlowNode, portType: 'in' | 'out') {
   if (!connectingSource.value) {
     if (portType !== 'out') return;
@@ -1064,20 +1390,15 @@ function handlePortClick(node: FlowNode, portType: 'in' | 'out') {
   connectingSource.value = null;
 }
 
-// 画布鼠标移动：更新跟随鼠标的临时线末端坐标
 function handleCanvasMouseMove(e: MouseEvent) {
   if (isPanning.value) {
     pan.value.x = e.clientX - startPan.x;
     pan.value.y = e.clientY - startPan.y;
   } else if (draggingNode) {
-    // 计算当前鼠标在画布里的坐标
     const { x: currentCanvasX, y: currentCanvasY } = canvasPoint(e);
-
-    // 计算鼠标平移的相对差值
     const deltaX = currentCanvasX - mouseStartCanvasPos.x;
     const deltaY = currentCanvasY - mouseStartCanvasPos.y;
 
-    // 所有选中的节点同时平移相同距离
     const allSelectedIds = new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean));
     nodes.value.forEach(n => {
       if (allSelectedIds.has(n.id) && dragStartNodePos[n.id]) {
@@ -1115,7 +1436,6 @@ function handleCanvasMouseMove(e: MouseEvent) {
   }
 }
 
-// 画布空白处按下：取消选中；若拉线中则随时取消；若 Agent 面板打开则自动收回
 function handleCanvasMouseDown(e: MouseEvent) {
   if (loading.value || (e.target as HTMLElement).closest('button,input,textarea,select,.floating-top-left,.floating-left-bar,.floating-bottom-right')) return;
   if (contextMenu.visible) {
@@ -1123,22 +1443,14 @@ function handleCanvasMouseDown(e: MouseEvent) {
     return;
   }
 
-  // 移除或注释掉此处的关闭逻辑：
-  // if (isAgentDrawerOpen.value) {
-  //   isAgentDrawerOpen.value = false;
-  // }
-
-  // 点击空白处取消节点高亮单选和多选
   activeNodeId.value = '';
   selectedNodeIds.value = [];
 
-  // 若正处于拉线状态，点击空白处取消连线
   if (connectingSource.value) {
     connectingSource.value = null;
     return;
   }
 
-  // 左键(button === 0)点击空白处：开启矩形拉框多选
   if (e.button === 0) {
     isSelecting.value = true;
     const { x: canvasMouseX, y: canvasMouseY } = canvasPoint(e);
@@ -1152,20 +1464,18 @@ function handleCanvasMouseDown(e: MouseEvent) {
     selectionBox.h = 0;
     selectionBox.visible = true;
   } else if (e.button === 1) {
-    // 鼠标中键平移画布
     isPanning.value = true;
     startPan.x = e.clientX - pan.value.x;
     startPan.y = e.clientY - pan.value.y;
   }
 }
-// 4. 修改 handleCanvasMouseUp：结束框选
+
 function handleCanvasMouseUp() {
   isPanning.value = false;
   draggingNode = null;
   isSelecting.value = false;
   selectionBox.visible = false;
 }
-
 
 function handleCanvasZoom(e: WheelEvent) {
   if ((e.target as HTMLElement).closest('textarea,input,select,video,.agent-flyout-drawer')) return;
@@ -1174,6 +1484,7 @@ function handleCanvasZoom(e: WheelEvent) {
   const next = Math.min(Math.max(zoom.value * (e.deltaY < 0 ? 1.08 : 0.92), 0.4), 2.2);
   pan.value.x += point.x * (zoom.value - next); pan.value.y += point.y * (zoom.value - next); zoom.value = next;
 }
+
 function openContextMenu(e: MouseEvent) {
   if ((e.target as HTMLElement).closest('textarea,input,video,.agent-flyout-drawer')) return;
   e.preventDefault();
@@ -1184,17 +1495,20 @@ function openContextMenu(e: MouseEvent) {
   contextMenu.y = Math.min(e.clientY - (rect?.top || 0), Math.max(0, (rect?.height || 600) - 180));
   contextMenu.canvasX = point.x; contextMenu.canvasY = point.y;
 }
+
 function addNode(type: 'text' | 'image') {
-  contextMenu.canvasX = 160 + nodes.value.length * 35; contextMenu.canvasY = 160 + nodes.value.length * 35;
+  contextMenu.canvasX = 160 + nodes.value.length * 35;
+  contextMenu.canvasY = 160 + nodes.value.length * 35;
   createNodeFromContext(type);
 }
 
+// 创建新节点时自动使用递增名称：文本节点1、文本节点2 / 图片节点1、图片节点2
 function createNodeFromContext(type: 'text' | 'image') {
   const id = newId();
   const newNode: FlowNode = {
     id,
     type,
-    title: type === 'text' ? '文本节点' : '图片节点',
+    title: getNextNodeTitle(type),
     x: contextMenu.canvasX,
     y: contextMenu.canvasY,
     content: type === 'text' ? '' : undefined,
@@ -1205,30 +1519,80 @@ function createNodeFromContext(type: 'text' | 'image') {
   contextMenu.visible = false;
 }
 
+// 删除单个节点（点击节点右上角 ✕ 按钮时调用）
 function deleteNode(id: string) {
-  const node = nodes.value.find(n => n.id === id);
-  if (!node) return;
-  const removed = connections.value.filter(c => c.from === id || c.to === id);
-  deletedNode.value = { node: JSON.parse(JSON.stringify(node)), connections: removed };
-  if (node.job_id) canvas.value.dismissed_job_ids.push(node.job_id);
-  nodes.value = nodes.value.filter(n => n.id !== id);
-  connections.value = connections.value.filter(c => c.from !== id && c.to !== id);
-  referencedNodeIds.value = referencedNodeIds.value.filter(value => value !== id);
-  selectedNodeIds.value = selectedNodeIds.value.filter(value => value !== id);
-  if (activeNodeId.value === id) activeNodeId.value = '';
-  if (aiTargetNodeId.value === id) aiTargetNodeId.value = '';
-  if (connectingSource.value?.id === id) connectingSource.value = null;
-  notice.value = '小框已删除，可以撤销。';
+  deleteSelectedNodes([id]);
 }
+
+// 批量或单个删除选中节点（按 Delete 快捷键或点击 ✕ 时调用）
+function deleteSelectedNodes(ids: string[]) {
+  const targetIds = new Set(ids);
+  const targetNodes = nodes.value.filter(n => targetIds.has(n.id));
+  if (!targetNodes.length) return;
+
+  const removedConnections = connections.value.filter(
+    c => targetIds.has(c.from) || targetIds.has(c.to)
+  );
+
+  deletedNode.value = {
+    nodes: JSON.parse(JSON.stringify(targetNodes)),
+    connections: JSON.parse(JSON.stringify(removedConnections))
+  };
+
+  for (const node of targetNodes) {
+    if (node.job_id && !canvas.value.dismissed_job_ids.includes(node.job_id)) {
+      canvas.value.dismissed_job_ids.push(node.job_id);
+    }
+  }
+
+  nodes.value = nodes.value.filter(n => !targetIds.has(n.id));
+  connections.value = connections.value.filter(c => !targetIds.has(c.from) && !targetIds.has(c.to));
+  referencedNodeIds.value = referencedNodeIds.value.filter(id => !targetIds.has(id));
+  selectedNodeIds.value = selectedNodeIds.value.filter(id => !targetIds.has(id));
+
+  if (targetIds.has(activeNodeId.value)) activeNodeId.value = '';
+  if (targetIds.has(aiTargetNodeId.value)) aiTargetNodeId.value = '';
+  if ( targetIds.has(editingNodeId.value)) editingNodeId.value = '';
+  if (connectingSource.value && targetIds.has(connectingSource.value.id)) {
+    connectingSource.value = null;
+  }
+
+  notice.value = targetNodes.length > 1
+    ? `已删除 ${targetNodes.length} 个小框，可以撤销。`
+    : '小框已删除，可以撤销。';
+}
+
+// 撤销删除（恢复刚才删除的单个或多个节点及其连线）
 function undoDeleteNode() {
   const removed = deletedNode.value;
-  if (!removed || nodes.value.some(n => n.id === removed.node.id)) return;
-  nodes.value.push(removed.node);
-  connections.value.push(...removed.connections.filter(c => nodes.value.some(n => n.id === c.from) && nodes.value.some(n => n.id === c.to)));
-  if (removed.node.job_id) canvas.value.dismissed_job_ids = canvas.value.dismissed_job_ids.filter(id => id !== removed.node.job_id);
-  activeNodeId.value = removed.node.id; deletedNode.value = null; notice.value = '已恢复删除的小框。';
+  if (!removed || !removed.nodes.length) return;
+
+  const existingNodeIds = new Set(nodes.value.map(n => n.id));
+  const nodesToRestore = removed.nodes.filter(n => !existingNodeIds.has(n.id));
+  if (!nodesToRestore.length) return;
+
+  nodes.value.push(...nodesToRestore);
+
+  const restoredJobs = new Set(nodesToRestore.map(n => n.job_id).filter(Boolean));
+  if (restoredJobs.size > 0) {
+    canvas.value.dismissed_job_ids = canvas.value.dismissed_job_ids.filter(id => !restoredJobs.has(id));
+  }
+
+  const allNodeIds = new Set(nodes.value.map(n => n.id));
+  const existingConnIds = new Set(connections.value.map(c => c.id));
+  for (const conn of removed.connections) {
+    if (!existingConnIds.has(conn.id) && allNodeIds.has(conn.from) && allNodeIds.has(conn.to)) {
+      connections.value.push(conn);
+    }
+  }
+
+  selectedNodeIds.value = nodesToRestore.map(n => n.id);
+  activeNodeId.value = nodesToRestore[nodesToRestore.length - 1].id;
+  deletedNode.value = null;
+  notice.value = '已恢复删除的小框。';
 }
 function deleteConnection(id: string) { connections.value = connections.value.filter(c => c.id !== id); }
+
 function selectNode(node: FlowNode, event: MouseEvent) {
   if (event.ctrlKey || event.metaKey || event.shiftKey) {
     const selected = new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean));
@@ -1240,7 +1604,7 @@ function selectNode(node: FlowNode, event: MouseEvent) {
   if (!selectedNodeIds.value.includes(node.id)) selectedNodeIds.value = [node.id];
   activeNodeId.value = node.id;
 }
-// 记录拖拽开始时，所有选中节点的初始坐标
+
 let dragStartNodePos: Record<string, { x: number; y: number }> = {};
 let mouseStartCanvasPos = { x: 0, y: 0 };
 
@@ -1248,7 +1612,6 @@ function startDragNode(e: MouseEvent, node: FlowNode) {
   if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || (e.target as HTMLElement).closest('button,textarea,input,label,video,[draggable="true"]')) return;
   draggingNode = node;
 
-  // 如果点击拖拽的节点不在已多选的列表里，则将当前节点设为唯一选中
   if (!selectedNodeIds.value.includes(node.id) && activeNodeId.value !== node.id) {
     activeNodeId.value = node.id;
     selectedNodeIds.value = [node.id];
@@ -1256,10 +1619,8 @@ function startDragNode(e: MouseEvent, node: FlowNode) {
     selectedNodeIds.value.push(node.id);
   }
 
-  // 记录按下时的画布实际坐标
   Object.assign(mouseStartCanvasPos, canvasPoint(e));
 
-  // 记录所有当前选中节点的初始位置，用于多选同步位移
   dragStartNodePos = {};
   const allSelectedIds = new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean));
   nodes.value.forEach(n => {
@@ -1269,41 +1630,33 @@ function startDragNode(e: MouseEvent, node: FlowNode) {
   });
 }
 
-// 辅助函数：精准获取节点端口圆心的相对偏移坐标
 function getNodePortPos(node: FlowNode, type: 'in' | 'out') {
-  // 根据节点类型精准获取卡片高度的中点（图片卡片高约280px，文本卡片高约240px）
   const cardHeight = node.type === 'image' ? 280 : node.type === 'text' ? 300 : 240;
   const centerY = node.y + cardHeight / 2;
 
   return {
-    // 左端点(In)：x 在节点左边界；右端点(Out)：x 在节点右边界(宽248px)
     x: type === 'in' ? node.x : node.x + 248,
     y: centerY
   };
 }
-// 1. 修正 SVG 路径拼接（各坐标参数之间必须有空格分隔）
+
 function calculateBezierPath(fromId: string, toId: string): string {
   const fromNode = nodes.value.find(n => n.id === fromId);
   const toNode = nodes.value.find(n => n.id === toId);
   if (!fromNode || !toNode) return '';
 
-  // 起点：源节点右侧加号中心 (Out)
   const p1 = getNodePortPos(fromNode, 'out');
-  // 终点：目标节点左侧加号中心 (In)
   const p2 = getNodePortPos(toNode, 'in');
 
   const dx = Math.max(Math.abs(p2.x - p1.x) * 0.5, 60);
   return `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x - dx} ${p2.y}, ${p2.x} ${p2.y}`;
 }
 
-// 2. 临时跟随鼠标的虚线：起点也严格对准加号中心
 function calculateTempBezier(fromNode: FlowNode, mouse: { x: number; y: number }): string {
   const p1 = getNodePortPos(fromNode, 'out');
   const dx = Math.max(Math.abs(mouse.x - p1.x) * 0.5, 40);
   return `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${mouse.x - dx} ${mouse.y}, ${mouse.x} ${mouse.y}`;
 }
-
-
 
 function handleImageUpload(event: Event, node: FlowNode) { void workspace.uploadImage(event, node); }
 function toggleAgentDrawer() { agentTab.value = 'chat'; isAgentDrawerOpen.value = !isAgentDrawerOpen.value; }
@@ -1319,32 +1672,6 @@ function sendMessage() {
 function confirmProjectSpec() { if (canApplyAiContent.value) void workspace.confirmSpec(); }
 function prepareVideo() { void workspace.prepareVideo(videoSourceIds.value); }
 function submitVideoJob() { void workspace.submitVideoJob(videoSourceIds.value); }
-
-// 国际传播建议应用到节点
-function applyGuidanceToNode() {
-  const guideText = currentCountryGuide.value.promptText;
-  if (activeNode.value && activeNode.value.type === 'text') {
-    activeNode.value.content = activeNode.value.content
-      ? `${activeNode.value.content}\n\n${guideText}`
-      : guideText;
-  } else {
-    const newNodeId = newId();
-    nodes.value.push({
-      id: newNodeId,
-      type: 'text',
-      title: `${currentCountryGuide.value.name} 文化定向`,
-      x: 200,
-      y: 300,
-      content: guideText
-    });
-    activeNodeId.value = newNodeId;
-  }
-  closeGuideModal();
-}
-
-function openGuideModal() { showGuideModal.value = true; }
-function closeGuideModal() { showGuideModal.value = false; }
-function selectCountry(code: string) { selectedCountryCode.value = code; }
 function openAssetsDrawer() { alert('素材库已预留：后续可直接调取历史生成资源！'); }
 
 function scrollToBottom() {
@@ -1360,24 +1687,6 @@ function formatFullTime(isoStr?: string | null) {
   const d = new Date(isoStr);
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
-onMounted(async () => {
-
-
-  // 关键：检查 URL 参数或已有会话，直接进入视图 B
-  const queryConvId = route.query.conv_id as string;
-  if (queryConvId) {
-    // 优先进入指定的会话
-    await switchConversation(queryConvId);
-  } else if (!currentConvId.value) {
-    // 如果没有指定参数且当前没进入任何会话，直接自动打开最新的对话进入视图 B
-    if (conversations.value.length > 0) {
-      await switchConversation(conversations.value[0].id);
-    } else {
-      // 如果一个历史对话都没有，自动新建一个对话进入视图 B
-      await createNewConversation();
-    }
-  }
-});
 </script>
 
 <style scoped>
@@ -1386,16 +1695,12 @@ onMounted(async () => {
   background: rgba(234, 179, 8, .06);
 }
 
-/* TV 频道导航交互按钮 */
-/* 新增：左侧包裹容器，使 Logo 与 TV 按钮紧挨在一起 */
 .nav-left {
   display: flex;
   align-items: center;
   gap: 16px;
-  /* 控制两者之间的间距，如需更紧凑可调整为 12px ~ 14px */
 }
 
-/* TV 频道导航交互按钮：删除原有 left: 2vw; */
 .nav-tv-btn {
   display: inline-flex;
   align-items: center;
@@ -1414,7 +1719,6 @@ onMounted(async () => {
   backdrop-filter: blur(8px);
 }
 
-/* 电视图标容器 */
 .tv-icon-wrapper {
   position: relative;
   display: flex;
@@ -1422,7 +1726,6 @@ onMounted(async () => {
   justify-content: center;
 }
 
-/* 电视 SVG */
 .tv-svg {
   width: 18px;
   height: 18px;
@@ -1430,7 +1733,6 @@ onMounted(async () => {
   transition: all 0.25s ease;
 }
 
-/* 模拟信号接收/正在连线小红点 */
 .live-dot {
   position: absolute;
   top: -1px;
@@ -1444,13 +1746,10 @@ onMounted(async () => {
 }
 
 @keyframes tvDotPulse {
-
-  0%,
-  100% {
+  0%, 100% {
     opacity: 0.5;
     transform: scale(0.9);
   }
-
   50% {
     opacity: 1;
     transform: scale(1.2);
@@ -1463,7 +1762,6 @@ onMounted(async () => {
   transition: color 0.2s ease;
 }
 
-/* 鼠标悬停动效：浮起、渐变外边框发光、天线与图标上跳 */
 .nav-tv-btn:hover {
   background: rgba(99, 102, 241, 0.12);
   border-color: rgba(129, 140, 248, 0.45);
@@ -1477,7 +1775,6 @@ onMounted(async () => {
   transform: scale(1.1) rotate(-4deg);
 }
 
-/* 点击激活状态 */
 .nav-tv-btn:active {
   transform: translateY(0);
 }
@@ -1947,7 +2244,8 @@ onMounted(async () => {
 }
 
 .text-body textarea,
-.node-title-input {
+.node-title-input,
+.card-rename-input {
   user-select: text;
 }
 
@@ -1991,7 +2289,6 @@ button:disabled {
   }
 }
 
-/* 参考节点标签排版 */
 .node-binding-banner {
   background: rgba(99, 102, 241, 0.12);
   padding: 8px 14px;
@@ -2026,7 +2323,6 @@ button:disabled {
   font-weight: 500;
 }
 
-/* 拖拽释放提示区域 */
 .agent-flyout-drawer.drag-over {
   border-left: 2px dashed #818cf8 !important;
   box-shadow: -15px 0 35px rgba(99, 102, 241, 0.35) !important;
@@ -2044,7 +2340,6 @@ button:disabled {
   animation: pulse 1s infinite alternate;
 }
 
-/* 鼠标拖拽出的蓝色透明选框 */
 .selection-box {
   position: absolute;
   background: rgba(99, 102, 241, 0.15);
@@ -2071,7 +2366,6 @@ button:disabled {
   display: inline-flex;
 }
 
-/* 顶部导航 */
 .top-nav {
   height: clamp(60px, 7.5vh, 76px);
   min-height: 60px;
@@ -2177,7 +2471,6 @@ button:disabled {
   color: #fca5a5;
 }
 
-/* 切换动效容器 */
 .workspace-body {
   position: relative;
   flex: 1;
@@ -2204,7 +2497,6 @@ button:disabled {
   opacity: 0;
 }
 
-/* ================= 视图 A：项目空间看板 ================= */
 .board-container {
   flex: 1;
   overflow-y: auto;
@@ -2350,6 +2642,19 @@ button:disabled {
   overflow: hidden;
 }
 
+.card-rename-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1.5px solid #818cf8;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 5px 8px;
+  outline: none;
+}
+
 .project-card .version-tag {
   align-self: flex-start;
   background: rgba(255, 255, 255, 0.1);
@@ -2360,14 +2665,36 @@ button:disabled {
 }
 
 .card-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: 11px;
   color: #94a3b8;
-  text-align: right;
   font-weight: 500;
+  gap: 8px;
 }
 
-/* ================= 视图 B：暗色点阵网格画布 ================= */
-/* 画布容器：平时是常规指针，只有中键/拖动画布时才显示小手 */
+.rename-card-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #cbd5e1;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.rename-card-btn:hover {
+  background: rgba(99, 102, 241, 0.28);
+  border-color: #818cf8;
+  color: #ffffff;
+}
+
+.enter-text {
+  margin-left: auto;
+}
+
 .canvas-viewport {
   flex: 1;
   width: 100%;
@@ -2376,13 +2703,11 @@ button:disabled {
   overflow: clip;
   user-select: none;
   cursor: default;
-  /* 改为平时是默认指针，不再常驻小手 */
   background-color: #07090e;
   background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
-/* 仅在按住拖动画布时显示抓取手势 */
 .canvas-viewport.panning,
 .canvas-viewport:active {
   cursor: grabbing;
@@ -2396,15 +2721,12 @@ button:disabled {
   left: 0;
   transform-origin: 0 0;
   will-change: transform;
-  /* 开启硬件加速，确保节点多时依然满帧跟手 */
 }
 
-/* 鼠标拖拽画布时关闭过渡动画，保证实时跟手 */
 .canvas-plane.is-panning {
   transition: none;
 }
 
-/* 贝塞尔曲线与光点流动动画 */
 .connections-layer {
   position: absolute;
   top: 0;
@@ -2444,17 +2766,14 @@ button:disabled {
   stroke: #ef4444;
 }
 
-/* 正在拉出的临时贝塞尔曲线（跟随鼠标） */
 .connection-temp-path {
   fill: none;
   stroke: #818cf8;
   stroke-width: 2.5px;
   stroke-dasharray: 6 6;
   pointer-events: none;
-  /* 关键：禁止阻挡鼠标点击目标节点加号 */
 }
 
-/* 作为起点的激活正圆（蓝紫色正圆高亮，不拉长） */
 .port-source-active {
   opacity: 1 !important;
   pointer-events: auto !important;
@@ -2467,7 +2786,6 @@ button:disabled {
   transform: scale(1.15);
 }
 
-/* 目标待连接端点（柔和呼吸高亮，保持正圆） */
 .port-target-active {
   opacity: 1 !important;
   pointer-events: auto !important;
@@ -2483,19 +2801,8 @@ button:disabled {
   from {
     transform: scale(1);
   }
-
   to {
     transform: scale(1.2);
-  }
-}
-
-@keyframes pulseTarget {
-  from {
-    transform: translateY(-50%) scale(1);
-  }
-
-  to {
-    transform: translateY(-50%) scale(1.25);
   }
 }
 
@@ -2503,15 +2810,11 @@ button:disabled {
   from {
     stroke-dashoffset: 24;
   }
-
   to {
     stroke-dashoffset: 0;
   }
 }
 
-/* 节点通用卡片 */
-/* 固定卡片尺寸与垂直居中参考系 */
-/* 节点：鼠标放到节点卡片上时显示移动指针 move */
 .canvas-node {
   position: absolute;
   width: 248px;
@@ -2520,20 +2823,17 @@ button:disabled {
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
   cursor: move;
-  /* 鼠标悬浮到节点上呈现可拖拽手势 */
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
 }
 
-/* 节点内部文本区和输入框保留文字选择指针，避免误判 */
 .text-body textarea,
 .node-title-input {
   cursor: text;
 }
 
-/* 统一节点卡片的高度，确保端点严格在 50% 居中位置 */
 .canvas-node.text {
   height: 300px;
 }
@@ -2546,13 +2846,11 @@ button:disabled {
   height: 240px;
 }
 
-/* 仅在被选中时显示发光边框 */
 .canvas-node.selected {
   border-color: #818cf8 !important;
   box-shadow: 0 0 0 1.5px #818cf8, 0 12px 30px rgba(0, 0, 0, 0.7) !important;
 }
 
-/* 左右加号端口：严格在边框中线上居中 */
 .node-port {
   position: absolute;
   top: 50%;
@@ -2568,25 +2866,21 @@ button:disabled {
   transition: opacity 0.2s ease;
 }
 
-/* 左侧加号：圆心精确落在 x=0 */
 .in-port {
   left: 0;
   transform: translate(-50%, -50%);
 }
 
-/* 右侧加号：圆心精确落在 x=248px */
 .out-port {
   right: 0;
   transform: translate(50%, -50%);
 }
 
-/* 鼠标悬停显示 */
 .canvas-node:hover .node-port {
   opacity: 1;
   pointer-events: auto;
 }
 
-/* 圆形外观保持正圆 */
 .port-inner {
   width: 20px;
   height: 20px;
@@ -2604,7 +2898,6 @@ button:disabled {
   user-select: none;
 }
 
-/* 里面的加号字体与居中 */
 .port-inner .plus-icon {
   font-size: 13px;
   line-height: 1;
@@ -2613,13 +2906,11 @@ button:disabled {
   justify-content: center;
 }
 
-/* 彻底删除之前重复添加的 ::after 伪元素，防止撑开变形 */
 .in-port .port-inner::after,
 .out-port .port-inner::after {
   content: none !important;
 }
 
-/* 悬停微高亮（保持正圆放大） */
 .node-port:hover .port-inner {
   background: #2a2d36;
   border-color: #818cf8;
@@ -2642,6 +2933,7 @@ button:disabled {
 
 .node-title-wrap {
   flex: 1;
+  min-width: 0;
 }
 
 .node-title {
@@ -2656,9 +2948,11 @@ button:disabled {
   border: 1px solid #6366f1;
   border-radius: 4px;
   color: #fff;
-  padding: 2px 4px;
+  padding: 2px 6px;
   font-size: 12px;
-  width: 90%;
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
 }
 
 .node-del-btn {
@@ -2673,7 +2967,6 @@ button:disabled {
   color: #ef4444;
 }
 
-/* 文本节点 */
 .node-body {
   padding: 12px;
 }
@@ -2711,7 +3004,6 @@ button:disabled {
   background: rgba(99, 102, 241, 0.3);
 }
 
-/* 图片节点 */
 .image-body {
   position: relative;
   display: flex;
@@ -2742,7 +3034,6 @@ button:disabled {
   color: #2e3440;
 }
 
-/* 悬停滑出的上传胶囊按钮 */
 .image-upload-hover-pill {
   position: absolute;
   top: -16px;
@@ -2788,7 +3079,6 @@ button:disabled {
   object-fit: cover;
 }
 
-/* 右键唤出快捷菜单 */
 .context-menu-box {
   position: fixed;
   z-index: 200;
@@ -2843,7 +3133,6 @@ button:disabled {
   color: #94a3b8;
 }
 
-/* 悬浮控制按钮组 */
 .floating-top-left {
   position: absolute;
   top: 18px;
@@ -2951,7 +3240,6 @@ button:disabled {
   opacity: 1;
 }
 
-/* 右下角 Agent 悬浮球 */
 .floating-bottom-right {
   position: absolute;
   right: 24px;
@@ -3002,13 +3290,11 @@ button:disabled {
   from {
     box-shadow: 0 0 10px #6366f1;
   }
-
   to {
     box-shadow: 0 0 25px #38bdf8;
   }
 }
 
-/* 侧边滑出：Agent 对话与生成面板（严格固定在屏幕视口最右侧） */
 .agent-flyout-drawer {
   position: absolute;
   right: 0;
@@ -3019,18 +3305,15 @@ button:disabled {
   border-left: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: -12px 0 35px rgba(0, 0, 0, 0.85);
   z-index: 990;
-  /* 提升层级，浮于所有节点和连线之上 */
   display: flex;
   flex-direction: column;
   overflow: hidden;
   transform: translateX(100%);
-  /* 默认隐藏在屏幕右侧外面 */
   transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .agent-flyout-drawer.open {
   transform: translateX(0);
-  /* 展开时完美贴紧屏幕最右边缘滑出 */
 }
 
 .drawer-top-bar {
@@ -3064,36 +3347,12 @@ button:disabled {
   cursor: pointer;
 }
 
-.node-binding-banner {
-  background: rgba(99, 102, 241, 0.12);
-  padding: 6px 14px;
-  font-size: 16px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  color: #a5b4fc;
-}
-
 .clear-bind {
   background: none;
   border: none;
   color: #818cf8;
   cursor: pointer;
   font-size: 15px;
-}
-
-.drawer-scroll-area {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-.drawer-scroll-area>.ai-target-picker,
-.drawer-scroll-area>.node-binding-banner,
-.drawer-scroll-area>.drawer-spec-panel {
-  flex-shrink: 0;
 }
 
 .drawer-messages {
@@ -3324,19 +3583,16 @@ button:disabled {
   transition: width 0.3s ease, background-color 0.3s ease;
 }
 
-/* 生成完成：100% 满格绿色 */
 .progress-bar-inner.succeeded {
   width: 100%;
   background: #10b981;
 }
 
-/* 失败或取消：100% 警示色 */
 .progress-bar-inner.failed {
   width: 100%;
   background: #ef4444;
 }
 
-/* 生成中：不确定滚动条动画 */
 .progress-bar-inner.indeterminate {
   position: absolute;
   top: 0;
@@ -3350,7 +3606,6 @@ button:disabled {
   0% {
     left: -35%;
   }
-
   100% {
     left: 100%;
   }
@@ -3362,7 +3617,6 @@ button:disabled {
   text-align: center;
 }
 
-/* 消息输入区域（增大整体高度与内边距） */
 .drawer-input-box {
   flex-shrink: 0;
   padding: 12px 18px 14px;
@@ -3370,7 +3624,6 @@ button:disabled {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* 输入框本体放大：高度增加到 110px，字号提升至 14px，行高更宽松 */
 .drawer-input-box textarea {
   width: 100%;
   height: clamp(80px, 14vh, 120px);
@@ -3380,7 +3633,6 @@ button:disabled {
   padding: 12px 14px;
   color: #fff;
   font-size: 14px;
-  /* 原先为 12px */
   line-height: 1.6;
   resize: none;
   min-height: 80px;
@@ -3395,7 +3647,6 @@ button:disabled {
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
 
-/* 底部操作栏与发送按钮微调放大 */
 .input-actions-row {
   display: flex;
   justify-content: space-between;
@@ -3413,7 +3664,6 @@ button:disabled {
   color: #fff;
   border: none;
   padding: 8px 20px;
-  /* 增大按钮点击区域 */
   border-radius: 8px;
   font-size: 14px;
   font-weight: 500;
@@ -3483,31 +3733,85 @@ button:disabled {
   cursor: pointer;
 }
 
-.countries-tab-bar {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+.modal-sub-desc {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 4px 0 0 0;
 }
 
-.country-tab {
+.countries-status-tip {
+  padding: 14px;
+  border-radius: 8px;
+  background: #141b2c;
+  border: 1px solid #1f2b44;
+  color: #94a3b8;
+  font-size: 13px;
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: space-between;
+}
+
+.countries-status-tip.error {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.retry-inline-btn {
+  background: #27344f;
+  border: 1px solid #465779;
+  color: #e2e8f0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.countries-multi-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.country-select-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 76px;
   background: #172033;
   border: 1px solid #28374f;
   color: #cbd5e1;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
-  white-space: nowrap;
+  transition: all 0.2s ease;
+  user-select: none;
 }
 
-.country-tab.active {
+.country-select-pill:hover {
+  border-color: #6366f1;
+  color: #ffffff;
+  background: #1e2942;
+}
+
+.country-select-pill.active {
   background: linear-gradient(135deg, #4f46e5, #6366f1);
   border-color: #818cf8;
-  color: #fff;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+}
+
+.check-mark {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.apply-to-chat-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .guidance-content-box {
@@ -3586,6 +3890,7 @@ button:disabled {
   color: #a5f3fc;
   line-height: 1.45;
   font-family: monospace;
+  overflow-wrap: anywhere;
 }
 
 .guide-modal-footer {
@@ -3638,15 +3943,11 @@ button:disabled {
   }
 }
 
-/* ================= 移动端暂不支持提示层 ================= */
 .mobile-block-overlay {
   display: none;
-  /* 桌面端默认完全隐藏 */
 }
 
 @media (max-width: 768px) {
-
-  /* 移动端全屏弹层高优先级覆盖 */
   .mobile-block-overlay {
     position: fixed;
     inset: 0;
@@ -3697,18 +3998,14 @@ button:disabled {
   }
 
   @keyframes iconBounce {
-
-    0%,
-    100% {
+    0%, 100% {
       transform: translateY(0);
     }
-
     50% {
       transform: translateY(-8px);
     }
   }
 
-  /* 移动端下隐藏原有工作台主体及导航，避免背景依然可滚动或接收手势 */
   .top-nav,
   .workspace-body,
   .floating-bottom-right,
@@ -3716,7 +4013,6 @@ button:disabled {
     display: none !important;
   }
 
-  /* 按钮组合容器 */
   .mobile-actions-group {
     display: flex;
     flex-direction: column;
@@ -3725,7 +4021,6 @@ button:disabled {
     margin-top: 28px;
   }
 
-  /* 通用按钮胶囊质感 */
   .mobile-btn {
     display: flex;
     align-items: center;
@@ -3749,14 +4044,12 @@ button:disabled {
     height: 18px;
   }
 
-  /* 返回首页：低调微光边框 */
   .mobile-btn.home-btn {
     background: rgba(30, 41, 59, 0.7);
     color: #e2e8f0;
     border: 1px solid rgba(255, 255, 255, 0.12);
   }
 
-  /* TV 频道：主色高亮与霓虹渐变效果 */
   .mobile-btn.tv-btn {
     background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(79, 70, 229, 0.45));
     border: 1px solid rgba(129, 140, 248, 0.5);
@@ -3764,7 +4057,6 @@ button:disabled {
     box-shadow: 0 4px 20px -2px rgba(99, 102, 241, 0.35);
   }
 
-  /* TV 图标与直播小红点 */
   .mobile-tv-icon-wrap {
     position: relative;
     display: flex;
@@ -3783,22 +4075,18 @@ button:disabled {
     box-shadow: 0 0 6px #ef4444;
   }
 }
-</style>
 
-<style scoped>
-.video-failure-detail{color:#fca5a5;font-size:12px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0}
-.portrait-failure-mask{position:fixed;inset:0;z-index:1800;display:flex;align-items:center;justify-content:center;background:#020617b8;backdrop-filter:blur(4px);padding:24px}
-.portrait-failure-dialog{width:min(460px,100%);padding:26px;background:#151b29;border:1px solid #3b465f;border-radius:15px;color:#e2e8f0;box-shadow:0 24px 90px #0009}
-.portrait-failure-dialog h3{margin:0 0 16px;font-size:18px}
-.portrait-failure-dialog p{line-height:1.8;font-size:14px;overflow-wrap:anywhere}
-.portrait-failure-dialog .portrait-vendor-detail{color:#94a3b8;font-size:12px;white-space:pre-wrap}
-.portrait-failure-dialog button{display:block;margin:22px 0 0 auto;border:1px solid #818cf8;border-radius:7px;background:#6366f1;padding:10px 22px;color:white;cursor:pointer}
-</style>
+.video-failure-detail { color: #fca5a5; font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0; }
+.portrait-failure-mask { position: fixed; inset: 0; z-index: 1800; display: flex; align-items: center; justify-content: center; background: #020617b8; backdrop-filter: blur(4px); padding: 24px; }
+.portrait-failure-dialog { width: min(460px, 100%); padding: 26px; background: #151b29; border: 1px solid #3b465f; border-radius: 15px; color: #e2e8f0; box-shadow: 0 24px 90px #0009; }
+.portrait-failure-dialog h3 { margin: 0 0 16px; font-size: 18px; }
+.portrait-failure-dialog p { line-height: 1.8; font-size: 14px; overflow-wrap: anywhere; }
+.portrait-failure-dialog .portrait-vendor-detail { color: #94a3b8; font-size: 12px; white-space: pre-wrap; }
+.portrait-failure-dialog button { display: block; margin: 22px 0 0 auto; border: 1px solid #818cf8; border-radius: 7px; background: #6366f1; padding: 10px 22px; color: white; cursor: pointer; }
 
-<style scoped>
-.image-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 16px 20px}
-.empty-image-portrait-note{max-width:180px;margin:12px 0 0;text-align:center;font-size:10px;line-height:1.7;color:#78869e;cursor:default}
-.empty-image-portrait-note button,.portrait-channel-help button{display:inline;border:0;background:none;padding:0;color:#a5b4fc;font:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
-.portrait-channel-help button{margin-left:5px;white-space:nowrap}
-.empty-image-portrait-note button:focus-visible,.portrait-channel-help button:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px;border-radius:2px}
+.image-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 16px 20px; }
+.empty-image-portrait-note { max-width: 180px; margin: 12px 0 0; text-align: center; font-size: 10px; line-height: 1.7; color: #78869e; cursor: default; }
+.empty-image-portrait-note button, .portrait-channel-help button { display: inline; border: 0; background: none; padding: 0; color: #a5b4fc; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.portrait-channel-help button { margin-left: 5px; white-space: nowrap; }
+.empty-image-portrait-note button:focus-visible, .portrait-channel-help button:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; border-radius: 2px; }
 </style>

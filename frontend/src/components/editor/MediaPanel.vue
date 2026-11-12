@@ -42,21 +42,30 @@
         <small>在工作台通过底模生成的视频将自动显示在此</small>
       </div>
 
-      <div v-else class="assets-grid">
+     <!-- AI 生成素材卡片 (约第 49 行) -->
         <div 
           v-for="item in aiAssets" 
           :key="item.id" 
           class="asset-card"
+          :class="{ 'active-asset': selectedAssetId === item.id }"
           draggable="true"
+          @click="handleAssetClick(item)"
           @dragstart="handleDragStart($event, item)"
         >
-          <div class="thumb-wrapper">
-            <video :src="item.url" class="asset-thumb" muted preload="metadata"></video>
+         <div class="thumb-wrapper">
+            <video 
+              :src="item.url" 
+              class="asset-thumb" 
+              muted 
+              preload="metadata"
+              disablepictureinpicture
+              controlslist="nodownload nofullscreen noremoteplayback"
+              @loadedmetadata="onMediaMetadataLoaded($event, item)"
+            ></video>
             <span class="duration-badge">{{ formatSeconds(item.duration_ms) }}</span>
           </div>
           <div class="asset-title" :title="item.file_name">{{ item.file_name }}</div>
         </div>
-      </div>
     </div>
 
     <!-- 2. 我的素材 Tab（内置 5s 全黑/全白固定素材 + 多文件夹导入） -->
@@ -151,12 +160,14 @@
           </div>
         </template>
 
-        <!-- B. 展示当前视图下的【具体媒体素材卡片】（含内置 5 秒黑白视频与用户素材） -->
+       <!-- B. 展示当前视图下的【具体媒体素材卡片】 -->
         <div 
           v-for="item in displayedAssets" 
           :key="item.id" 
           class="asset-card"
+          :class="{ 'active-asset': selectedAssetId === item.id }"
           draggable="true"
+          @click="handleAssetClick(item)"
           @dragstart="handleDragStart($event, item)"
         >
           <!-- 系统内置的黑白场固定素材不显示删除按钮 -->
@@ -170,17 +181,23 @@
           </button>
 
           <div class="thumb-wrapper" :class="{ 'white-matte-thumb': item.id === 'builtin_white_5s' }">
-            <img v-if="item.kind === 'image' || isBuiltinAsset(item.id)" :src="item.url" class="asset-thumb" />
+            <img v-if="item.kind === 'image' || isBuiltinAsset(item.id)" :src="item.url" class="asset-thumb" draggable="false" />
             <video 
               v-else-if="item.kind === 'video'" 
               :src="item.url" 
               class="asset-thumb" 
               muted 
               preload="metadata"
-              @mouseenter="($event.target as HTMLVideoElement).play().catch(() => {})"
-              @mouseleave="($event.target as HTMLVideoElement).pause(); ($event.target as HTMLVideoElement).currentTime = 0;"
+              disablepictureinpicture
+              controlslist="nodownload nofullscreen noremoteplayback"
+              @loadedmetadata="onMediaMetadataLoaded($event, item)"
             ></video>
-            <div v-else class="audio-thumb">🎵 音频</div>
+            <!-- 剪映风格音频缩略图（蓝底声波卡片） -->
+            <div v-else class="audio-wave-thumb">
+              <svg viewBox="0 0 100 32" preserveAspectRatio="none" class="mini-wave-svg">
+                <path d="M0 32 L0 26 L8 22 L14 10 L20 25 L28 28 L35 24 L42 12 L48 27 L56 29 L65 8 L72 24 L80 28 L88 16 L94 24 L100 22 L100 32 Z" fill="#38bdf8" opacity="0.85" />
+              </svg>
+            </div>
 
             <span class="builtin-badge" v-if="isBuiltinAsset(item.id)">内置</span>
             <span class="duration-badge" v-if="item.kind !== 'image' || isBuiltinAsset(item.id)">{{ formatSeconds(item.duration_ms) }}</span>
@@ -216,7 +233,33 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { libraryApi } from '../../services/libraryApi';
 import type { LibraryAssetView, StorageQuotaView } from '../../types/clip';
+// 当卡片上的 <video> 加载完元数据时，自动将真实时长回填到 item.duration_ms
+function onMediaMetadataLoaded(e: Event, item: LibraryAssetView) {
+  const el = e.target as HTMLMediaElement;
+  if (el && Number.isFinite(el.duration) && el.duration > 0) {
+    const realMs = Math.round(el.duration * 1000);
+    if (item.duration_ms !== realMs) {
+      item.duration_ms = realMs;
+    }
+  }
+}
 
+// 针对云端拉取的音频素材（无 <video> 标签），后台静默探测其真实时长
+function probeRemoteAssetsDuration(list: LibraryAssetView[]) {
+  list.forEach((item) => {
+    if ((!item.duration_ms || item.duration_ms <= 0) && item.url && item.kind === 'audio') {
+      const audio = document.createElement('audio');
+      audio.preload = 'metadata';
+      audio.src = item.url;
+      audio.onloadedmetadata = () => {
+        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+          item.duration_ms = Math.round(audio.duration * 1000);
+        }
+        audio.src = '';
+      };
+    }
+  });
+}
 interface ImportedFolderGroup {
   id: string;
   name: string;
@@ -231,10 +274,17 @@ const props = defineProps<{
   directoryHandle?: any;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'mountWorkspace'): void;
+  (e: 'previewAsset', asset: LibraryAssetView): void;
 }>();
 
+const selectedAssetId = ref<string | null>(null);
+
+function handleAssetClick(item: LibraryAssetView) {
+  selectedAssetId.value = item.id;
+  emit('previewAsset', item);
+}
 const activeTab = ref<'ai' | 'library' | 'text'>('library');
 const isLoading = ref(false);
 const isScanning = ref(false);
@@ -533,6 +583,7 @@ async function fetchAiAssets() {
   try {
     const res = await libraryApi.listAssets({ purpose: 'ai_generated' });
     aiAssets.value = res.items || [];
+    probeRemoteAssetsDuration(aiAssets.value);
   } catch (err) {
     console.warn('获取 AI 资产列表失败', err);
   } finally {
@@ -544,6 +595,7 @@ async function fetchUserAssets() {
   try {
     const res = await libraryApi.listAssets({ purpose: 'source_video' });
     userAssets.value = res.items || [];
+    probeRemoteAssetsDuration(userAssets.value);
   } catch (err) {
     console.warn('获取素材列表失败', err);
   }
@@ -578,8 +630,8 @@ function handleTextDragStart(e: DragEvent, tpl: typeof textTemplates[0]) {
 }
 
 function formatSeconds(ms?: number) {
-  if (!ms) return '00:03';
-  const sec = Math.floor(ms / 1000);
+  if (!ms || ms <= 0) return '--:--';
+  const sec = Math.round(ms / 1000);
   const m = Math.floor(sec / 60).toString().padStart(2, '0');
   const s = (sec % 60).toString().padStart(2, '0');
   return `${m}:${s}`;
@@ -589,6 +641,8 @@ onMounted(() => {
   void fetchAiAssets();
   void fetchUserAssets();
 });
+
+
 </script>
 
 <style scoped>
@@ -835,9 +889,31 @@ onMounted(() => {
   border-bottom: 1px solid rgba(255, 255, 255, 0.15);
 }
 
-.asset-thumb { width: 100%; height: 100%; object-fit: cover; }
-.audio-thumb { font-size: 12px; color: #a1a1aa; }
+.asset-card.active-asset {
+  border-color: #00e5ff;
+  box-shadow: 0 0 0 1.5px #00e5ff;
+}
 
+.asset-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none; /* 关键：禁止 video/img 拦截鼠标悬浮与拖拽事件，彻底杜绝画中画弹窗 */
+}
+
+.audio-wave-thumb {
+  width: 100%;
+  height: 100%;
+  background: #0c2b4e;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: none;
+}
+
+.mini-wave-svg {
+  width: 100%;
+  height: 75%;
+}
 .builtin-badge {
   position: absolute;
   top: 4px;

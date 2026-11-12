@@ -1,118 +1,264 @@
 <template>
-  <div class="player-preview-pane">
-    <!-- 顶部状态与画幅切换栏 -->
+  <section class="player-preview-pane">
+    <!-- 顶部画幅比例切换与状态头 -->
     <div class="pane-top-header">
-      <span class="view-indicator">播放器视窗 ({{ timeline.width }} × {{ timeline.height }})</span>
-      
-      <div class="aspect-badges">
-        <!-- 比例切换按钮 -->
-        <span 
-          class="badge" 
-          :class="{ active: timeline.width === 1920 && timeline.height === 1080 }" 
+      <div class="left-info">
+        <span class="preview-title">
+          {{ previewingAsset ? `素材预览: ${previewingAsset.file_name}` : `预览视窗 (${timeline.width} × ${timeline.height})` }}
+        </span>
+        <button 
+          v-if="previewingAsset" 
+          class="exit-asset-preview-btn" 
+          @click="exitAssetPreview"
+        >
+          ← 返回时间轴画面
+        </button>
+      </div>
+
+      <div class="aspect-switcher">
+        <button 
+          class="ratio-btn" 
+          :class="{ active: timeline.width === 1920 && timeline.height === 1080 }"
           @click="$emit('changeAspect', '16:9')"
         >
           16:9 (横屏)
-        </span>
-        <span 
-          class="badge" 
-          :class="{ active: timeline.width === 1080 && timeline.height === 1920 }" 
+        </button>
+        <button 
+          class="ratio-btn" 
+          :class="{ active: timeline.width === 1080 && timeline.height === 1920 }"
           @click="$emit('changeAspect', '9:16')"
         >
           9:16 (竖屏)
-        </span>
-        <span class="badge" @click="toggleFullscreen" title="视窗全屏">⛶</span>
+        </button>
+        <button 
+          class="ratio-btn" 
+          :class="{ active: timeline.width === 1080 && timeline.height === 1080 }"
+          @click="$emit('changeAspect', '1:1')"
+        >
+          1:1
+        </button>
       </div>
     </div>
 
-    <!-- 中间 Canvas 渲染视窗 -->
-    <div class="canvas-viewport" ref="viewportRef">
+    <!-- 中间核心画布视窗 -->
+    <div class="canvas-viewport">
+      <!-- 模式 A：左侧素材独立预览层（单击视频或音频时触发，还原图二、图三） -->
+      <div v-if="previewingAsset" class="standalone-asset-stage" @click="toggleAssetPlay">
+        <!-- 1. 视频素材直接全画幅播放 -->
+        <video 
+          v-if="previewingAsset.kind === 'video' && !isBuiltinMatte(previewingAsset.id)"
+          ref="standaloneVideoRef"
+          :src="previewingAsset.url"
+          class="standalone-video-player"
+          autoplay
+          playsinline
+          disablepictureinpicture
+          @timeupdate="onStandaloneTimeUpdate"
+          @loadedmetadata="onStandaloneMetadata"
+          @ended="isAssetPlaying = false"
+          @play="isAssetPlaying = true"
+          @pause="isAssetPlaying = false"
+        ></video>
+
+        <!-- 2. 图片或内置黑白场预览 -->
+        <img 
+          v-else-if="previewingAsset.kind === 'image' || isBuiltinMatte(previewingAsset.id)"
+          :src="previewingAsset.url"
+          class="standalone-video-player"
+        />
+
+        <!-- 3. 音频素材预览：纯黑背景 + 正中央深灰圆角音符卡片 (还原图二) -->
+        <div v-else-if="previewingAsset.kind === 'audio'" class="standalone-audio-stage">
+          <div class="music-note-card" :class="{ playing: isAssetPlaying }">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="tiktok-note-icon">
+              <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+            </svg>
+          </div>
+          <audio 
+            ref="standaloneAudioRef"
+            :src="previewingAsset.url"
+            autoplay
+            @timeupdate="onStandaloneTimeUpdate"
+            @loadedmetadata="onStandaloneMetadata"
+            @ended="isAssetPlaying = false"
+            @play="isAssetPlaying = true"
+            @pause="isAssetPlaying = false"
+          ></audio>
+        </div>
+
+        <!-- 底部独立进度条（类似图三播放器底部的进度滑杆） -->
+        <div class="standalone-scrubber-bar" @click.stop="handleStandaloneScrub">
+          <div 
+            class="scrubber-progress" 
+            :style="{ width: `${assetDurationMs > 0 ? Math.min(100, (assetCurrentMs / assetDurationMs) * 100) : 0}%` }"
+          ></div>
+          <div 
+            class="scrubber-thumb"
+            :style="{ left: `${assetDurationMs > 0 ? Math.min(100, (assetCurrentMs / assetDurationMs) * 100) : 0}%` }"
+          ></div>
+        </div>
+      </div>
+
+      <!-- 模式 B：时间轴多轨合成 Canvas 画布 -->
       <canvas 
+        v-show="!previewingAsset"
         ref="canvasElRef" 
         class="preview-canvas"
-        :class="{ 'aspect-16-9': timeline.width >= timeline.height, 'aspect-9-16': timeline.width < timeline.height }"
         @mousedown="handleCanvasDragStart"
       ></canvas>
-
-      <!-- 导出合成时的进度遮罩 -->
-      <div v-if="isExporting" class="export-overlay">
-        <div class="spinner"></div>
-        <span>正在纯前端合成 MP4... {{ exportProgress }}%</span>
-      </div>
     </div>
 
-    <!-- 底部播放控制器与时间码 -->
+    <!-- 底部播放控制栏 -->
     <div class="player-controls-bar">
-      <div class="timecode-display">
-        <span class="cur-time">{{ formatTimecode(currentTimeMs) }}</span>
-        <span class="sep">/</span>
-        <span class="total-time">{{ formatTimecode(timeline.duration_ms) }}</span>
+      <!-- 左侧时间码：根据当前是素材预览还是时间轴预览自动切换 -->
+      <div class="timecode-box">
+        <template v-if="previewingAsset">
+          <span class="cur-time asset-mode">{{ formatTimecode(assetCurrentMs) }}</span>
+          <span class="sep">/</span>
+          <span class="total-time">{{ formatTimecode(assetDurationMs) }}</span>
+        </template>
+        <template v-else>
+          <span class="cur-time">{{ formatTimecode(currentTimeMs) }}</span>
+          <span class="sep">/</span>
+          <span class="total-time">{{ formatTimecode(timeline.duration_ms) }}</span>
+        </template>
       </div>
 
-      <div class="playback-buttons">
-        <button class="step-btn" @click="$emit('step', -1)" title="上一帧">⏮</button>
-        <button class="play-main-btn" @click="$emit('togglePlay')" :title="isPlaying ? '暂停 (空格)' : '播放 (空格)'">
-          <svg v-if="!isPlaying" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-            <path d="M8 5v14l11-7z"/>
-          </svg>
-          <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-          </svg>
+      <!-- 中间播放/暂停与单帧步进按钮 -->
+      <div class="transport-btns">
+        <button class="ctrl-btn" title="上一帧" @click="handleStep(-1)">⏮</button>
+        <button class="play-main-btn" @click="handleMainPlayToggle">
+          {{ (previewingAsset ? isAssetPlaying : isPlaying) ? '⏸' : '▶' }}
         </button>
-        <button class="step-btn" @click="$emit('step', 1)" title="下一帧">⏭</button>
+        <button class="ctrl-btn" title="下一帧" @click="handleStep(1)">⏭</button>
       </div>
 
-      <div class="right-aux-status">
-        <span class="engine-tag">● WebAV {{ timeline.fps }}fps</span>
+      <!-- 右侧状态指示 -->
+      <div class="right-status">
+        <span class="engine-dot"></span>
+        <span>WebAV {{ timeline.fps || 30 }}fps</span>
       </div>
     </div>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import type { TimelineDocument, VideoClip } from '../../types/clip';
+import { ref, watch, onMounted, nextTick } from 'vue';
+import type { TimelineDocument, TimelineClip, LibraryAssetView } from '../../types/clip';
 
-// 只保留唯一一次 defineProps 声明
 const props = defineProps<{
   timeline: TimelineDocument;
   currentTimeMs: number;
   isPlaying: boolean;
-  isExporting: boolean;
-  exportProgress: number;
-  activeClip?: any;
+  activeClip?: TimelineClip | null;
+  previewingAsset?: LibraryAssetView | null;
 }>();
 
-// 只保留唯一一次 defineEmits 声明
 const emit = defineEmits<{
-  (e: 'setCanvas', canvas: HTMLCanvasElement): void;
   (e: 'togglePlay'): void;
-  (e: 'step', frameCount: number): void;
+  (e: 'stepFrame', frames: number): void;
   (e: 'changeAspect', ratio: '16:9' | '9:16' | '1:1'): void;
+  (e: 'canvasReady', el: HTMLCanvasElement | null): void;
+  (e: 'closeAssetPreview'): void;
 }>();
 
 const canvasElRef = ref<HTMLCanvasElement | null>(null);
-const viewportRef = ref<HTMLElement | null>(null);
+const standaloneVideoRef = ref<HTMLVideoElement | null>(null);
+const standaloneAudioRef = ref<HTMLAudioElement | null>(null);
 
-// 格式化时间码 00:00:00.00
-function formatTimecode(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) ms = 0;
-  const totalSeconds = Math.floor(ms / 1000);
-  const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
-  const s = (totalSeconds % 60).toString().padStart(2, '0');
-  const f = Math.floor((ms % 1000) / 10).toString().padStart(2, '0');
-  return `00:${m}:${s}.${f}`;
+// 独立素材预览状态
+const isAssetPlaying = ref(false);
+const assetCurrentMs = ref(0);
+const assetDurationMs = ref(0);
+
+function isBuiltinMatte(id?: string): boolean {
+  return id === 'builtin_black_5s' || id === 'builtin_white_5s';
 }
 
-// 全屏控制
-function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    viewportRef.value?.requestFullscreen?.();
-  } else {
-    document.exitFullscreen?.();
+// 当外部传入新的 previewingAsset 时，立即重置并启动播放
+watch(
+  () => props.previewingAsset,
+  async (newAsset) => {
+    if (!newAsset) {
+      isAssetPlaying.value = false;
+      return;
+    }
+    assetCurrentMs.value = 0;
+    assetDurationMs.value = newAsset.duration_ms || 5000;
+    await nextTick();
+
+    const mediaEl = standaloneVideoRef.value || standaloneAudioRef.value;
+    if (mediaEl) {
+      mediaEl.currentTime = 0;
+      mediaEl.play().then(() => {
+        isAssetPlaying.value = true;
+      }).catch(() => {
+        isAssetPlaying.value = false;
+      });
+    }
+  }
+);
+
+function onStandaloneTimeUpdate(e: Event) {
+  const el = e.target as HTMLMediaElement;
+  assetCurrentMs.value = Math.round(el.currentTime * 1000);
+}
+
+function onStandaloneMetadata(e: Event) {
+  const el = e.target as HTMLMediaElement;
+  if (Number.isFinite(el.duration) && el.duration > 0) {
+    assetDurationMs.value = Math.round(el.duration * 1000);
   }
 }
 
-// 画布上按住鼠标左键自由拖动【视频画面】或【文本字幕】的 position_x 和 position_y
+function toggleAssetPlay() {
+  const mediaEl = standaloneVideoRef.value || standaloneAudioRef.value;
+  if (!mediaEl) return;
+  if (mediaEl.paused) {
+    void mediaEl.play();
+  } else {
+    mediaEl.pause();
+  }
+}
+
+function handleStandaloneScrub(e: MouseEvent) {
+  const bar = e.currentTarget as HTMLElement;
+  const rect = bar.getBoundingClientRect();
+  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+  const targetMs = Math.round(ratio * assetDurationMs.value);
+  assetCurrentMs.value = targetMs;
+
+  const mediaEl = standaloneVideoRef.value || standaloneAudioRef.value;
+  if (mediaEl) {
+    mediaEl.currentTime = targetMs / 1000;
+  }
+}
+
+function exitAssetPreview() {
+  emit('closeAssetPreview');
+}
+
+function handleMainPlayToggle() {
+  if (props.previewingAsset) {
+    toggleAssetPlay();
+  } else {
+    emit('togglePlay');
+  }
+}
+
+function handleStep(frames: number) {
+  if (props.previewingAsset) {
+    const mediaEl = standaloneVideoRef.value || standaloneAudioRef.value;
+    if (mediaEl) {
+      const stepSec = frames / (props.timeline.fps || 30);
+      mediaEl.currentTime = Math.max(0, Math.min(mediaEl.duration || 0, mediaEl.currentTime + stepSec));
+    }
+  } else {
+    emit('stepFrame', frames);
+  }
+}
+
+// 画布上按住鼠标左键自由拖动【视频画面】或【文本字幕】
 function handleCanvasDragStart(e: MouseEvent) {
   if (!props.activeClip || (props.activeClip.type !== 'video' && props.activeClip.type !== 'text')) return;
 
@@ -122,7 +268,6 @@ function handleCanvasDragStart(e: MouseEvent) {
   const initialX = clip.position_x || 0;
   const initialY = clip.position_y || 0;
 
-  // 根据预览画布的显示尺寸与实际分辨率换算拖拽比例，确保鼠标跟手
   const canvasEl = canvasElRef.value;
   const scaleX = canvasEl ? (props.timeline.width / Math.max(1, canvasEl.clientWidth)) : 2;
   const scaleY = canvasEl ? (props.timeline.height / Math.max(1, canvasEl.clientHeight)) : 2;
@@ -143,10 +288,16 @@ function handleCanvasDragStart(e: MouseEvent) {
   window.addEventListener('mouseup', onMouseUp);
 }
 
+function formatTimecode(ms: number) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
+  const s = (totalSec % 60).toString().padStart(2, '0');
+  const f = Math.floor((ms % 1000) / (1000 / (props.timeline.fps || 30))).toString().padStart(2, '0');
+  return `00:${m}:${s}.${f}`;
+}
+
 onMounted(() => {
-  if (canvasElRef.value) {
-    emit('setCanvas', canvasElRef.value);
-  }
+  emit('canvasReady', canvasElRef.value);
 });
 </script>
 
@@ -156,7 +307,7 @@ onMounted(() => {
   flex-direction: column;
   background-color: #0b0a0f;
   height: 100%;
-  min-height: 0; /* 关键修复 */
+  min-height: 0;
   position: relative;
   overflow: hidden;
   user-select: none;
@@ -164,7 +315,7 @@ onMounted(() => {
 
 .pane-top-header {
   height: 38px;
-  flex-shrink: 0; /* 禁止顶部栏被挤压 */
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -175,9 +326,50 @@ onMounted(() => {
   color: #71717a;
 }
 
+.left-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.exit-asset-preview-btn {
+  background: rgba(0, 229, 255, 0.12);
+  border: 1px solid rgba(0, 229, 255, 0.35);
+  color: #00e5ff;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.exit-asset-preview-btn:hover {
+  background: rgba(0, 229, 255, 0.22);
+}
+
+.aspect-switcher {
+  display: flex;
+  gap: 6px;
+}
+
+.ratio-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #a1a1aa;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ratio-btn.active {
+  background: #6366f1;
+  color: #fff;
+  border-color: #6366f1;
+}
+
 .canvas-viewport {
   flex: 1;
-  min-height: 0; /* 关键修复：允许画布容器随剩余空间自适应缩放，绝不把底部播放栏顶出去 */
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -194,50 +386,6 @@ onMounted(() => {
   box-sizing: border-box;
 }
 
-.player-controls-bar {
-  height: 48px;
-  flex-shrink: 0; /* 关键修复：锁死底部播放控制条高度，任何情况下都不允许被挤没 */
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 16px;
-  background-color: #121118;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  z-index: 10;
-}
-
-.aspect-badges {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.aspect-badges .badge {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 2px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  color: #a1a1aa;
-  font-size: 11px;
-  transition: all 0.2s;
-}
-
-.aspect-badges .badge:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-}
-
-.aspect-badges .badge.active {
-  background: #6366f1;
-  border-color: #818cf8;
-  color: #fff;
-}
-
-
-
-
-/* 核心画布：内部视频展示区域改为全黑背景，外部工作台保持棋盘格 */
 .preview-canvas {
   background-color: #000000 !important;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -248,100 +396,158 @@ onMounted(() => {
   cursor: crosshair;
 }
 
-.preview-canvas.aspect-16-9 {
-  aspect-ratio: 16 / 9;
-}
-
-.preview-canvas.aspect-9-16 {
-  aspect-ratio: 9 / 16;
-}
-
-.export-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.75);
+/* ================= 独立素材预览舞台（还原图二、图三） ================= */
+.standalone-asset-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background-color: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  color: #fff;
-  font-size: 13px;
-  z-index: 50;
-  backdrop-filter: blur(4px);
+  overflow: hidden;
+  cursor: pointer;
 }
 
-.spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid rgba(255, 255, 255, 0.15);
-  border-top-color: #6366f1;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+.standalone-video-player {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  pointer-events: none;
 }
 
-@keyframes spin {
-  100% { transform: rotate(360deg); }
-}
-
-
-.timecode-display {
+/* 图二同款：纯黑背景 + 中央深灰圆角音符卡片 */
+.standalone-audio-stage {
+  width: 100%;
+  height: 100%;
+  background: #000000;
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+}
+
+.music-note-card {
+  width: 136px;
+  height: 136px;
+  background-color: #202024;
+  border-radius: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e4e4e7;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  transition: transform 0.3s ease;
+}
+
+.music-note-card.playing {
+  animation: pulseNote 2s infinite ease-in-out;
+}
+
+@keyframes pulseNote {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+.tiktok-note-icon {
+  width: 48px;
+  height: 48px;
+}
+
+/* 底部独立进度条（还原图三） */
+.standalone-scrubber-bar {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 8px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+  cursor: pointer;
+  z-index: 20;
+}
+
+.scrubber-progress {
+  height: 100%;
+  background: #00e5ff;
+  border-radius: 3px;
+}
+
+.scrubber-thumb {
+  position: absolute;
+  top: 50%;
+  width: 4px;
+  height: 12px;
+  background: #ffffff;
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+}
+
+.player-controls-bar {
+  height: 48px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background-color: #121118;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  z-index: 10;
+}
+
+.timecode-box {
   font-family: monospace;
-  font-size: 13px;
+  font-size: 12px;
+  display: flex;
+  gap: 6px;
 }
 
-.cur-time { color: #f43f5e; font-weight: 600; }
-.sep { color: #52525b; }
-.total-time { color: #a1a1aa; }
+.cur-time { color: #ef4444; font-weight: 600; }
+.cur-time.asset-mode { color: #00e5ff; }
+.sep, .total-time { color: #71717a; }
 
-.playback-buttons {
+.transport-btns {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
-.step-btn {
+.ctrl-btn {
   background: transparent;
   border: none;
   color: #a1a1aa;
   font-size: 14px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.15s;
 }
-
-.step-btn:hover { color: #fff; }
 
 .play-main-btn {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
-  background: #6366f1;
   border: none;
+  background: #6366f1;
   color: #fff;
+  font-size: 13px;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  transition: transform 0.2s, background-color 0.2s;
 }
 
-.play-main-btn:hover {
-  background: #4f46e5;
-  transform: scale(1.08);
-}
-
-.right-aux-status {
+.right-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
-}
-
-.engine-tag {
   color: #10b981;
   font-family: monospace;
+}
+
+.engine-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
 }
 </style>

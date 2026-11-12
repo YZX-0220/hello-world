@@ -1,6 +1,7 @@
 """剪辑工程表 (ClipProject) 数据库模型。"""
 
 from datetime import datetime
+
 from sqlalchemy import Column, Text
 from sqlmodel import Field, SQLModel
 
@@ -24,9 +25,7 @@ class ClipProject(SQLModel, table=True):
     width: int = Field(default=1080)
     height: int = Field(default=1920)
 
-    cover_asset_id: str | None = Field(
-        default=None, foreign_key="assets.id", ondelete="SET NULL"
-    )
+    cover_asset_id: str | None = Field(default=None, foreign_key="assets.id", ondelete="SET NULL")
     exported_asset_id: str | None = Field(
         default=None, foreign_key="assets.id", ondelete="SET NULL"
     )

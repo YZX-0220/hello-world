@@ -20,7 +20,11 @@ ENDPOINT = "https://ark.cn-beijing.volces.com/api/plan/v3/images/generations"
 STANDARD_ENDPOINT = "https://ark.cn-beijing.volces.com/api/v3/images/generations"
 MODELS = [
     {"id": "doubao-seedream-5-0-pro-260628", "label": "Seedream 5.0 Pro", "api_type": "standard"},
-    {"id": "doubao-seedream-5-0-flash-260915", "label": "Seedream 5.0 Flash", "api_type": "standard"},
+    {
+        "id": "doubao-seedream-5-0-flash-260915",
+        "label": "Seedream 5.0 Flash",
+        "api_type": "standard",
+    },
     {"id": "doubao-seedream-5.0-pro", "label": "Seedream 5.0 Pro", "api_type": "subscription"},
     {"id": "doubao-seedream-5.0-flash", "label": "Seedream 5.0 Flash", "api_type": "subscription"},
 ]
@@ -132,7 +136,10 @@ async def generate_image(
         # Never log credentials, request bodies or signed image URLs.
         logger.warning(
             "Image request failed: error=%s status=%s content_type=%s response_bytes=%s",
-            type(exc).__name__, status, content_type, response_size,
+            type(exc).__name__,
+            status,
+            content_type,
+            response_size,
         )
         # A timeout cannot prove that the vendor did not charge/generate. Never auto-resubmit.
         raise ImageProviderError(

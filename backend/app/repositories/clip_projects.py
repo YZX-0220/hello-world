@@ -17,7 +17,7 @@ class ClipProjectRepository:
             .where(ClipProject.user_id == user_id)
             .order_by(col(ClipProject.updated_at).desc())
         )
-        return (await self._session.exec(stmt)).all()
+        return list((await self._session.exec(stmt)).all())
 
     async def get_for_user(self, project_id: str, user_id: str) -> ClipProject | None:
         stmt = select(ClipProject).where(

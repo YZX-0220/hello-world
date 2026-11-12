@@ -1,6 +1,6 @@
 """会话仓储：创建 / 校验 / 撤销 Session。"""
 
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.security import token_sha256
@@ -32,9 +32,9 @@ class SessionRepository:
         """按 token 查找有效会话（未过期、未撤销）。"""
         digest = token_sha256(token)
         stmt = select(UserSession).where(
-            UserSession.token_hash == digest,
-            UserSession.expires_at > now(),
-            UserSession.revoked_at.is_(None),  # type: ignore[union-attr]
+            col(UserSession.token_hash) == digest,
+            col(UserSession.expires_at) > now(),
+            col(UserSession.revoked_at).is_(None),
         )
         result = await self._session.exec(stmt)
         return result.first()
@@ -48,8 +48,8 @@ class SessionRepository:
     async def revoke_all_for_user(self, user_id: str) -> None:
         """撤销用户全部未撤销会话（重置密码后调用）。"""
         stmt = select(UserSession).where(
-            UserSession.user_id == user_id,
-            UserSession.revoked_at.is_(None),  # type: ignore[union-attr]
+            col(UserSession.user_id) == user_id,
+            col(UserSession.revoked_at).is_(None),
         )
         result = await self._session.exec(stmt)
         for record in result.all():

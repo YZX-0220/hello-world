@@ -84,16 +84,24 @@ async def test_models_send_exact_payload_to_their_fixed_route(monkeypatch, model
 
     install_transport(monkeypatch, handle)
     result = await ark_plan.generate_image(
-        api_key=SECRET, model=model, prompt="Blue coat", size="1536x1536",
-        images=images, watermark=editing,
+        api_key=SECRET,
+        model=model,
+        prompt="Blue coat",
+        size="1536x1536",
+        images=images,
+        watermark=editing,
     )
     assert result.data == raw
     assert len(calls) == 1
     assert str(calls[0].url) == (STANDARD_URL if model in STANDARD_MODELS else SUBSCRIPTION_URL)
     assert calls[0].headers["Authorization"] == f"Bearer {SECRET}"
     assert json.loads(calls[0].content) == {
-        "model": model, "prompt": "Blue coat", "size": "1536x1536",
-        "response_format": "url", "output_format": "png", "watermark": editing,
+        "model": model,
+        "prompt": "Blue coat",
+        "size": "1536x1536",
+        "response_format": "url",
+        "output_format": "png",
+        "watermark": editing,
         **({"image": images} if editing else {}),
     }
 
@@ -128,7 +136,9 @@ async def test_unknown_model_fails_before_constructing_http_client(monkeypatch, 
 
     monkeypatch.setattr(httpx, "AsyncClient", forbidden_client)
     with pytest.raises(ark_plan.ImageProviderError) as raised:
-        await ark_plan.generate_image(api_key=SECRET, model=model, prompt="Portrait", size="1536x1536")
+        await ark_plan.generate_image(
+            api_key=SECRET, model=model, prompt="Portrait", size="1536x1536"
+        )
     assert raised.value.uncertain is False
     assert SECRET not in str(raised.value)
 

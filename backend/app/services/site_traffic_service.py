@@ -237,7 +237,7 @@ class SiteTrafficService:
             # This must be the FIRST SQL statement of a write request: acquire SQLite's
             # write reservation before reading the event/visit. Competing tabs serialize
             # here instead of both observing an expired/missing visit.
-            await self.session.execute(
+            await self.session.exec(  # type: ignore[call-overload]
                 insert(SiteTrafficTotal)
                 .values(
                     id=1,
@@ -286,7 +286,7 @@ class SiteTrafficService:
                     referrer_host=referrer_host(payload.referrer_origin, request),
                 )
                 self.session.add(visit)
-                await self.session.execute(
+                await self.session.exec(  # type: ignore[call-overload]
                     update(SiteTrafficTotal)
                     .where(col(SiteTrafficTotal.id) == 1)
                     .values(

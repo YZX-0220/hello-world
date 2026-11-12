@@ -46,6 +46,8 @@ _UPLOAD_KIND_BY_PURPOSE = {
     "reference": "image",
     "source_video": "video",
     "audio": "audio",
+    "material_library_video": "video",
+    "material_library_cover": "image",
 }
 
 _MAX_BYTES_BY_KIND = {
@@ -282,11 +284,7 @@ class AssetService:
 
         # 2. 未命中秒传：签发 OBS 预签名 PUT URL
         asset_id = new_id()
-        ext = (
-            effective_filename.rsplit(".", 1)[-1].lower()
-            if "." in effective_filename
-            else "bin"
-        )
+        ext = effective_filename.rsplit(".", 1)[-1].lower() if "." in effective_filename else "bin"
         object_key = f"assets/{user_id}/{suggested}s/{asset_id}.{ext}"
 
         upload_url = None
@@ -319,7 +317,7 @@ class AssetService:
             upload_url=upload_url,
             object_key=object_key,
             is_duplicate=False,
-            content_type=req.content_type,
+            content_type=req.content_type or "application/octet-stream",
             asset=None,
         )
 

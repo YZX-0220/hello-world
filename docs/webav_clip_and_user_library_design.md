@@ -256,6 +256,14 @@ if used_bytes + request.byte_size > max_bytes:
                        关联 clip_projects.exported_asset_id
 ```
 
+### 6.4 公共 TV 示例库与用户个人剪辑资料库严格隔离（2026-11-12 补充）
+平台 TV 频道展示的视频属于全站公开作品，在管理后台录入发布；用户剪辑工作台的【我的素材】属于用户私人媒体库：
+1. **用途标识解耦**：
+   - 官方 TV 视频与封面上传使用专有用途：`material_library_video` 与 `material_library_cover`。
+2. **检索与配额硬隔离**：
+   - `GET /api/v1/library/assets` 查询时，自动过滤并排除所有已在 `material_library_items`（TV 示例表）中被引用的视频和封面，防止管理员个人剪辑库出现公共展示视频；
+   - 用户存储配额 `GET /api/v1/library/quota` 聚合已用空间时，同样排除 TV 公共示例资产，**确保管理员为全站上传 TV 视频不挤占个人 1GB 存储配额**。
+
 ---
 
 ## 7. 经济性与运维价值总结

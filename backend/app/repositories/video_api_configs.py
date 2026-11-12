@@ -5,7 +5,7 @@ config 表只存「配置身份」，实际协议/地址/凭据/能力在 revisi
 """
 
 from sqlalchemy import and_, or_
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.cursor import decode_cursor_pair, parse_ts
@@ -52,11 +52,11 @@ class VideoApiConfigRepository:
             ts = parse_ts(t)
             stmt = stmt.where(
                 or_(
-                    VideoApiConfig.created_at < ts,  # type: ignore[arg-type]
-                    and_(VideoApiConfig.created_at == ts, VideoApiConfig.id < cid),  # type: ignore[arg-type]
+                    col(VideoApiConfig.created_at) < ts,
+                    and_(col(VideoApiConfig.created_at) == ts, col(VideoApiConfig.id) < cid),
                 )
             )
-        stmt = stmt.order_by(VideoApiConfig.created_at.desc(), VideoApiConfig.id.desc())  # type: ignore[attr-defined]
+        stmt = stmt.order_by(col(VideoApiConfig.created_at).desc(), col(VideoApiConfig.id).desc())
         if limit is not None:
             stmt = stmt.limit(limit)
         result = await self._session.exec(stmt)
@@ -99,7 +99,7 @@ class VideoApiConfigRevisionRepository:
         stmt = (
             select(VideoApiConfigRevision)
             .where(VideoApiConfigRevision.config_id == config_id)
-            .order_by(VideoApiConfigRevision.revision.desc())  # type: ignore[attr-defined]
+            .order_by(col(VideoApiConfigRevision.revision).desc())
             .limit(1)
         )
         result = await self._session.exec(stmt)
@@ -109,7 +109,7 @@ class VideoApiConfigRevisionRepository:
         stmt = (
             select(VideoApiConfigRevision.revision)
             .where(VideoApiConfigRevision.config_id == config_id)
-            .order_by(VideoApiConfigRevision.revision.desc())  # type: ignore[attr-defined]
+            .order_by(col(VideoApiConfigRevision.revision).desc())
             .limit(1)
         )
         result = await self._session.exec(stmt)

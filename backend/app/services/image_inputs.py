@@ -38,7 +38,7 @@ def inspect_reference(data: bytes, *, formats=("PNG", "JPEG")):
             meta = {
                 "width": im.width,
                 "height": im.height,
-                "mime_type": Image.MIME[im.format],
+                "mime_type": Image.MIME[im.format] if im.format else "image/png",
                 "sha256": hashlib.sha256(data).hexdigest(),
                 "size_bytes": len(data),
             }

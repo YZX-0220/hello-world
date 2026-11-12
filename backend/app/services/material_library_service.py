@@ -78,7 +78,7 @@ class MaterialLibraryService:
                 or Path(file.filename or "").suffix.lower() != ".mp4"
             ):
                 raise AppError(ASSET_CONTENT_INVALID, "示例视频需要 MP4 文件")
-        purpose = "source_video" if kind == "video" else "reference"
+        purpose = "material_library_video" if kind == "video" else "material_library_cover"
         return await AssetService(self._session).upload(
             user_id, raw, file.filename or "", purpose, None
         )

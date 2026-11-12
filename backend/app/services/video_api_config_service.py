@@ -464,7 +464,7 @@ class VideoApiConfigService:
             source_type=source_type,
             protocol_code=refs.preset.code,
             template_code=refs.template.template_code if refs.template else None,
-            template_version=refs.template.version if refs.template else None,
+            template_version=str(refs.template.version) if refs.template else None,
             base_url=base_url,
             remote_model_id=remote_model_id,
             encrypted_auth_json=encrypt_secret(

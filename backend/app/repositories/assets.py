@@ -1,7 +1,7 @@
 """素材仓储。"""
 
 from sqlalchemy import and_, or_
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.cursor import decode_cursor_pair, parse_ts
@@ -52,11 +52,11 @@ class AssetRepository:
             ts = parse_ts(t)
             stmt = stmt.where(
                 or_(
-                    Asset.created_at < ts,  # type: ignore[arg-type]
-                    and_(Asset.created_at == ts, Asset.id < cid),  # type: ignore[arg-type]
+                    col(Asset.created_at) < ts,
+                    and_(col(Asset.created_at) == ts, col(Asset.id) < cid),
                 )
             )
-        stmt = stmt.order_by(Asset.created_at.desc(), Asset.id.desc())  # type: ignore[attr-defined]
+        stmt = stmt.order_by(col(Asset.created_at).desc(), col(Asset.id).desc())
         if limit is not None:
             stmt = stmt.limit(limit + 1)
         result = await self._session.exec(stmt)

@@ -3,8 +3,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 ImageModel = Literal[
-    "doubao-seedream-5.0-pro", "doubao-seedream-5.0-flash",
-    "doubao-seedream-5-0-pro-260628", "doubao-seedream-5-0-flash-260915",
+    "doubao-seedream-5.0-pro",
+    "doubao-seedream-5.0-flash",
+    "doubao-seedream-5-0-pro-260628",
+    "doubao-seedream-5-0-flash-260915",
 ]
 ImageRatio = Literal["1:1", "16:9", "9:16", "4:3", "3:4"]
 

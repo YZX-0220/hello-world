@@ -84,8 +84,8 @@ class MaterialLibraryRepository:
             .values(**values, version=expected_version + 1)
             .execution_options(synchronize_session=False)
         )
-        result = await self._session.execute(stmt)
-        if result.rowcount != 1:  # type: ignore[attr-defined]
+        result = await self._session.exec(stmt)  # type: ignore[call-overload]
+        if result.rowcount != 1:
             await self._session.rollback()
             raise AppError(LIBRARY_VERSION_CONFLICT)
         await self._session.commit()

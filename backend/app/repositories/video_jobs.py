@@ -1,7 +1,7 @@
 """视频任务三张表仓储。"""
 
 from sqlalchemy import and_, or_
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.cursor import decode_cursor_pair, parse_ts
@@ -46,11 +46,11 @@ class VideoJobRepository:
             ts = parse_ts(t)
             stmt = stmt.where(
                 or_(
-                    VideoJob.created_at < ts,  # type: ignore[arg-type]
-                    and_(VideoJob.created_at == ts, VideoJob.id < cid),  # type: ignore[arg-type]
+                    col(VideoJob.created_at) < ts,
+                    and_(col(VideoJob.created_at) == ts, col(VideoJob.id) < cid),
                 )
             )
-        stmt = stmt.order_by(VideoJob.created_at.desc(), VideoJob.id.desc())  # type: ignore[attr-defined]
+        stmt = stmt.order_by(col(VideoJob.created_at).desc(), col(VideoJob.id).desc())
         if limit is not None:
             stmt = stmt.limit(limit + 1)
         result = await self._session.exec(stmt)
@@ -74,8 +74,8 @@ class VideoJobEventRepository:
     async def list_for_job(self, job_id: str) -> list[VideoJobEvent]:
         stmt = (
             select(VideoJobEvent)
-            .where(VideoJobEvent.video_job_id == job_id)
-            .order_by(VideoJobEvent.created_at.asc())  # type: ignore[attr-defined]
+            .where(col(VideoJobEvent.video_job_id) == job_id)
+            .order_by(col(VideoJobEvent.created_at).asc())
         )
         result = await self._session.exec(stmt)
         return list(result.all())

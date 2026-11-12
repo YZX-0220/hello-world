@@ -1,7 +1,8 @@
 """剪辑工程与资料库 Schemas。"""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 

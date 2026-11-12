@@ -75,13 +75,13 @@ class ConversationRepository:
             ts = parse_ts(t)
             stmt = stmt.where(
                 or_(
-                    Conversation.updated_at < ts,  # type: ignore[arg-type]
-                    and_(Conversation.updated_at == ts, Conversation.id < cid),  # type: ignore[arg-type]
+                    col(Conversation.updated_at) < ts,
+                    and_(col(Conversation.updated_at) == ts, col(Conversation.id) < cid),
                 )
             )
-        stmt = stmt.order_by(col(Conversation.updated_at).desc(), col(Conversation.id).desc()).limit(
-            limit + 1
-        )
+        stmt = stmt.order_by(
+            col(Conversation.updated_at).desc(), col(Conversation.id).desc()
+        ).limit(limit + 1)
         result = await self._session.exec(stmt)
         return list(result.all())
 
@@ -146,11 +146,11 @@ class ConversationRepository:
             ts = parse_ts(t)
             stmt = stmt.where(
                 or_(
-                    Message.created_at > ts,  # type: ignore[arg-type]
-                    and_(Message.created_at == ts, Message.id > cid),  # type: ignore[arg-type]
+                    col(Message.created_at) > ts,
+                    and_(col(Message.created_at) == ts, col(Message.id) > cid),
                 )
             )
-        stmt = stmt.order_by(Message.created_at.asc(), Message.id.asc()).limit(limit + 1)  # type: ignore[attr-defined]
+        stmt = stmt.order_by(col(Message.created_at).asc(), col(Message.id).asc()).limit(limit + 1)
         result = await self._session.exec(stmt)
         return list(result.all())
 
@@ -170,7 +170,7 @@ class ConversationRepository:
             .where(Message.role != MessageRole.SYSTEM.value)
             .where(Message.status != MessageStatus.PENDING.value)
             .where(Message.content != "")
-            .order_by(Message.created_at.asc(), Message.id.asc())  # type: ignore[attr-defined]
+            .order_by(col(Message.created_at).asc(), col(Message.id).asc())
         )
         result = await self._session.exec(stmt)
         return list(result.all())
@@ -179,7 +179,7 @@ class ConversationRepository:
         stmt = (
             select(MessageCitation)
             .where(MessageCitation.message_id == message_id)
-            .order_by(MessageCitation.position.asc())  # type: ignore[attr-defined]
+            .order_by(col(MessageCitation.position).asc())
         )
         result = await self._session.exec(stmt)
         return list(result.all())

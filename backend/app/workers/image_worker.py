@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 from sqlalchemy import or_
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.core.time import now
 from app.db.models.image_generation import ImageJob
@@ -24,10 +24,13 @@ async def image_worker():
                     await session.exec(
                         select(ImageJob.id)
                         .where(
-                            ImageJob.status.in_(["queued", "saving"]),
-                            or_(ImageJob.lease_until.is_(None), ImageJob.lease_until < now()),
+                            col(ImageJob.status).in_(["queued", "saving"]),
+                            or_(
+                                col(ImageJob.lease_until).is_(None),
+                                col(ImageJob.lease_until) < now(),
+                            ),
                         )
-                        .order_by(ImageJob.created_at)
+                        .order_by(col(ImageJob.created_at).asc())
                         .limit(1)
                     )
                 ).first()

@@ -1,6 +1,7 @@
 import uuid
-import pytest
+
 import httpx
+import pytest
 from app.providers.email.fake import fake_instance
 
 PASSWORD = "Password123!"
@@ -91,7 +92,6 @@ async def test_clip_project_lifecycle(client: httpx.AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_library_quota_and_assets(client: httpx.AsyncClient) -> None:
     await _register(client, "clip2")
-    headers = _csrf(client)
 
     # 1. 查询配额
     quota_res = await client.get("/api/v1/library/quota")
@@ -107,4 +107,3 @@ async def test_library_quota_and_assets(client: httpx.AsyncClient) -> None:
     data = assets_res.json()
     assert "items" in data
     assert isinstance(data["items"], list)
-

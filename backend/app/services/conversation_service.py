@@ -6,6 +6,7 @@ MVP 采用同步处理（发消息请求内等待模型返回并落库）。
 import hashlib
 import json
 import logging
+from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -146,7 +147,7 @@ class ConversationService:
         model_content = content
         canvas_service = CanvasService(self._session)
         canvas_brief = None
-        canvas_images = []
+        canvas_images: list[dict[str, Any]] = []
         if canvas_collaboration is not None:
             original, canvas_context, canvas_brief, canvas_images = await canvas_service.begin(
                 user_id, conversation_id, client_request_id, canvas_collaboration

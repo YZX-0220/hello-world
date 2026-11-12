@@ -15,9 +15,13 @@ def test_httpx_formatted_url_query_is_redacted_before_handler_output(query_key):
     secret = "fake-sensitive-value%2F20261107%2Fscope"
     url = f"https://example.invalid/image.png?{query_key}={secret}&width=512"
     record = logging.LogRecord(
-        "httpx", logging.INFO, __file__, 1,
+        "httpx",
+        logging.INFO,
+        __file__,
+        1,
         'HTTP Request: %s %s "%s %d %s"',
-        ("GET", url, "HTTP/1.1", 200, "OK"), None,
+        ("GET", url, "HTTP/1.1", 200, "OK"),
+        None,
     )
     output = io.StringIO()
     handler = logging.StreamHandler(output)
@@ -34,10 +38,20 @@ def test_httpx_formatted_url_query_is_redacted_before_handler_output(query_key):
 
 def test_mapping_args_all_signed_query_fields_and_request_context_survive_repeat_filter():
     record = logging.LogRecord(
-        "httpx", logging.INFO, __file__, 1, "download %(url)s", ({"url": (
-            "https://example.invalid/image?X-Tos-Signature=fake-signature"
-            "&X-Tos-Credential=fake-credential&token=fake-token&width=64"
-        )},), None,
+        "httpx",
+        logging.INFO,
+        __file__,
+        1,
+        "download %(url)s",
+        (
+            {
+                "url": (
+                    "https://example.invalid/image?X-Tos-Signature=fake-signature"
+                    "&X-Tos-Credential=fake-credential&token=fake-token&width=64"
+                )
+            },
+        ),
+        None,
     )
     record.request_id = "request-test-123"
     sensitive_filter = SensitiveFilter()
@@ -52,9 +66,13 @@ def test_mapping_args_all_signed_query_fields_and_request_context_survive_repeat
     assert first.endswith("&width=64")
 
 
-@pytest.mark.parametrize("key", ["password", "api_key", "apikey", "token", "secret", "code", "auth"])
+@pytest.mark.parametrize(
+    "key", ["password", "api_key", "apikey", "token", "secret", "code", "auth"]
+)
 def test_plain_key_value_and_formatted_value_keep_existing_redaction(key):
-    record = logging.LogRecord("app", logging.INFO, __file__, 1, f"{key}=%s, action=save", ("fake-secret",), None)
+    record = logging.LogRecord(
+        "app", logging.INFO, __file__, 1, f"{key}=%s, action=save", ("fake-secret",), None
+    )
     assert SensitiveFilter().filter(record)
     assert record.getMessage() == f"{key}=***REDACTED***, action=save"
 

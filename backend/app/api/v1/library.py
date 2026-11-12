@@ -1,12 +1,14 @@
 """用户资料库与存储配额路由 (/api/v1/library)。"""
 
 from typing import Literal
+
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import db_session, get_current_user
 from app.db.models.asset import Asset
+from app.db.models.material_library import MaterialLibraryItem
 from app.db.models.user import User
 from app.schemas.clip import LibraryAssetView, StorageQuotaView
 from app.services.library_service import LibraryService
@@ -37,10 +39,22 @@ async def list_library_assets(
 ) -> dict:
     svc = LibraryService(session)
 
+    # 无论查询什么 purpose，公共示例库中引用的素材都不应作为个人剪辑素材出现
+    tv_videos_subquery = select(MaterialLibraryItem.video_asset_id).where(
+        MaterialLibraryItem.status != "deleted"
+    )
+    tv_covers_subquery = select(MaterialLibraryItem.cover_asset_id).where(
+        MaterialLibraryItem.status != "deleted",
+        col(MaterialLibraryItem.cover_asset_id).is_not(None),
+    )
+
     stmt = select(Asset).where(
         Asset.user_id == user.id,
         Asset.status == "ready",
-        Asset.deleted_at.is_(None),
+        col(Asset.deleted_at).is_(None),
+        col(Asset.purpose).notin_(["material_library_video", "material_library_cover"]),
+        col(Asset.id).notin_(tv_videos_subquery),
+        col(Asset.id).notin_(tv_covers_subquery),
     )
 
     if kind:

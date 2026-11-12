@@ -9,7 +9,7 @@ from datetime import timedelta
 
 from PIL import Image
 from sqlalchemy import case, or_, update
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.core.config import settings
 from app.core.errors import IDEMPOTENCY_KEY_REUSED, AppError, ErrorCode
@@ -221,8 +221,11 @@ class ImageGenerationService:
         rows = (
             await self.session.exec(
                 select(ImageApiConfig)
-                .where(ImageApiConfig.user_id == user_id, ImageApiConfig.status == "active")
-                .order_by(ImageApiConfig.created_at)
+                .where(
+                    col(ImageApiConfig.user_id) == user_id,
+                    col(ImageApiConfig.status) == "active",
+                )
+                .order_by(col(ImageApiConfig.created_at).asc())
             )
         ).all()
         return {"items": [config_view(row) for row in rows], "next_cursor": None}
@@ -257,10 +260,10 @@ class ImageGenerationService:
         result = await self.session.execute(
             update(ImageApiConfig)
             .where(
-                ImageApiConfig.id == config_id,
-                ImageApiConfig.user_id == user_id,
-                ImageApiConfig.status == "active",
-                ImageApiConfig.revision == req.expected_revision,
+                col(ImageApiConfig.id) == config_id,
+                col(ImageApiConfig.user_id) == user_id,
+                col(ImageApiConfig.status) == "active",
+                col(ImageApiConfig.revision) == req.expected_revision,
             )
             .values(**values)
         )
@@ -370,8 +373,11 @@ class ImageGenerationService:
         rows = (
             await self.session.exec(
                 select(ImageJob)
-                .where(ImageJob.user_id == user_id, ImageJob.conversation_id == conversation_id)
-                .order_by(ImageJob.created_at.desc())
+                .where(
+                    col(ImageJob.user_id) == user_id,
+                    col(ImageJob.conversation_id) == conversation_id,
+                )
+                .order_by(col(ImageJob.created_at).desc())
                 .limit(100)
             )
         ).all()
@@ -414,7 +420,7 @@ class ImageGenerationService:
         references, _images, history = await self.input_context(user_id, req)
         await self.session.commit()
         await self.session.execute(
-            update(User).where(User.id == user_id).values(status=User.status)
+            update(User).where(col(User.id) == user_id).values(status=User.status)
         )
         await self.conversation(user_id, req.conversation_id)
         concurrent = (
@@ -433,8 +439,8 @@ class ImageGenerationService:
         active = (
             await self.session.exec(
                 select(ImageJob.id).where(
-                    ImageJob.user_id == user_id,
-                    ImageJob.status.in_(["queued", "generating", "saving"]),
+                    col(ImageJob.user_id) == user_id,
+                    col(ImageJob.status).in_(["queued", "generating", "saving"]),
                 )
             )
         ).all()
@@ -499,7 +505,11 @@ class ImageGenerationService:
         await self.get(user_id, job_id)
         result = await self.session.execute(
             update(ImageJob)
-            .where(ImageJob.id == job_id, ImageJob.user_id == user_id, ImageJob.status == "queued")
+            .where(
+                col(ImageJob.id) == job_id,
+                col(ImageJob.user_id) == user_id,
+                col(ImageJob.status) == "queued",
+            )
             .values(status="cancelled", updated_at=now())
         )
         if not result.rowcount:
@@ -516,7 +526,7 @@ class ImageGenerationService:
             raise AppError(IMAGE_CONFLICT, "此任务没有可重试保存的结果，不会重新调用生图模型。")
         result = await self.session.execute(
             update(ImageJob)
-            .where(ImageJob.id == job_id, ImageJob.status == "storage_failed")
+            .where(col(ImageJob.id) == job_id, col(ImageJob.status) == "storage_failed")
             .values(status="saving", lease_until=None, error_message=None, updated_at=now())
         )
         if not result.rowcount:
@@ -529,7 +539,11 @@ class ImageGenerationService:
         row = await self.get(user_id, job_id)
         result = await self.session.execute(
             update(ImageJob)
-            .where(ImageJob.id == job_id, ImageJob.user_id == user_id, ImageJob.status == "unknown")
+            .where(
+                col(ImageJob.id) == job_id,
+                col(ImageJob.user_id) == user_id,
+                col(ImageJob.status) == "unknown",
+            )
             .values(status="unknown_acknowledged", updated_at=now())
         )
         if not result.rowcount:
@@ -542,7 +556,10 @@ class ImageGenerationService:
     async def recover_expired(self):
         await self.session.execute(
             update(ImageJob)
-            .where(ImageJob.status == "generating", ImageJob.lease_until < now())
+            .where(
+                col(ImageJob.status) == "generating",
+                col(ImageJob.lease_until) < now(),
+            )
             .values(
                 status="unknown",
                 lease_until=None,
@@ -558,17 +575,17 @@ class ImageGenerationService:
         await self.session.execute(
             update(ImageJob)
             .where(
-                ImageJob.id == job_id,
-                ImageJob.lease_until == lease_token,
-                ImageJob.status.in_(["generating", "saving"]),
+                col(ImageJob.id) == job_id,
+                col(ImageJob.lease_until) == lease_token,
+                col(ImageJob.status).in_(["generating", "saving"]),
             )
             .values(
                 status=case(
-                    (ImageJob.status == "saving", "storage_failed"), else_=generation_status
+                    (col(ImageJob.status) == "saving", "storage_failed"), else_=generation_status
                 ),
                 error_message=case(
                     (
-                        ImageJob.status == "saving",
+                        col(ImageJob.status) == "saving",
                         "图片已生成但原图保存失败。可重试保存，不会再次调用生图；厂商临时链接可能过期。",
                     ),
                     else_=generation_message,
@@ -587,9 +604,9 @@ class ImageGenerationService:
         claimed = await self.session.execute(
             update(ImageJob)
             .where(
-                ImageJob.id == job_id,
-                ImageJob.status == initial,
-                or_(ImageJob.lease_until.is_(None), ImageJob.lease_until < now()),
+                col(ImageJob.id) == job_id,
+                col(ImageJob.status) == initial,
+                or_(col(ImageJob.lease_until).is_(None), col(ImageJob.lease_until) < now()),
             )
             .values(
                 status="generating" if initial == "queued" else "saving",
@@ -649,9 +666,9 @@ class ImageGenerationService:
                 checkpoint = await self.session.execute(
                     update(ImageJob)
                     .where(
-                        ImageJob.id == job_id,
-                        ImageJob.status == "generating",
-                        ImageJob.lease_until == lease_token,
+                        col(ImageJob.id) == job_id,
+                        col(ImageJob.status) == "generating",
+                        col(ImageJob.lease_until) == lease_token,
                     )
                     .values(
                         generated_at=now(),
@@ -685,9 +702,9 @@ class ImageGenerationService:
             locked = await self.session.execute(
                 update(ImageJob)
                 .where(
-                    ImageJob.id == job_id,
-                    ImageJob.status == "saving",
-                    ImageJob.lease_until == lease_token,
+                    col(ImageJob.id) == job_id,
+                    col(ImageJob.status) == "saving",
+                    col(ImageJob.lease_until) == lease_token,
                 )
                 .values(updated_at=now())
             )
@@ -701,9 +718,9 @@ class ImageGenerationService:
             await self.session.execute(
                 update(ImageJob)
                 .where(
-                    ImageJob.id == job_id,
-                    ImageJob.status == "saving",
-                    ImageJob.lease_until == lease_token,
+                    col(ImageJob.id) == job_id,
+                    col(ImageJob.status) == "saving",
+                    col(ImageJob.lease_until) == lease_token,
                 )
                 .values(
                     asset_id=asset.id,

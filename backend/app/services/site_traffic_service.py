@@ -6,7 +6,7 @@ import hmac
 import re
 import secrets
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
 from fastapi import Request, Response
@@ -28,9 +28,21 @@ from app.core.errors import (
 )
 from app.core.security import token_sha256
 from app.core.time import now
+from app.db.models.agent import AgentRun
+from app.db.models.asset import Asset
+from app.db.models.image_generation import ImageJob
+from app.db.models.material_library import MaterialLibraryItem
 from app.db.models.site_traffic import SiteTrafficTotal, SiteVisit, SiteVisitEvent
 from app.db.models.user import User, UserSession
-from app.schemas.site_traffic import SiteTrafficSummary, TrackSiteVisit, TrackSiteVisitResult
+from app.db.models.video_job import VideoJob
+from app.schemas.site_traffic import (
+    CreationsBreakdown,
+    DailyTokens,
+    SiteTrafficSummary,
+    TrackSiteVisit,
+    TrackSiteVisitResult,
+)
+from app.video_registry import list_enabled_presets, list_profiles, list_templates
 
 VISITOR_COOKIE = "hw_visitor"
 COOKIE_PATH = "/api/v1/site-traffic"
@@ -201,9 +213,108 @@ class SiteTrafficService:
 
     async def summary(self) -> SiteTrafficSummary:
         total = await self.session.get(SiteTrafficTotal, 1)
+
+        # 1. 累计 Token 消耗：统计 agent_runs 中记录的实际 prompt_tokens + completion_tokens 总和
+        #    并兜底合并 messages 中填写的 input_tokens + output_tokens（若有直接落库）
+        agent_tokens_sum = (
+            await self.session.exec(
+                select(
+                    func.coalesce(
+                        func.sum(
+                            func.coalesce(col(AgentRun.input_tokens), 0)
+                            + func.coalesce(col(AgentRun.output_tokens), 0)
+                        ),
+                        0,
+                    )
+                )
+            )
+        ).first() or 0
+
+        # 2. 平台总创作次数（视频 + 图片）
+        video_count = (await self.session.exec(select(func.count(col(VideoJob.id))))).first() or 0
+        image_count = (await self.session.exec(select(func.count(col(ImageJob.id))))).first() or 0
+        total_creations = int(video_count) + int(image_count)
+
+        # 3. 平台总用户量（活跃/正常用户）
+        total_users = (
+            await self.session.exec(
+                select(func.count(col(User.id))).where(col(User.status) == UserStatus.ACTIVE.value)
+            )
+        ).first() or 0
+
+        # 4. 发布作品量（已上架/发布至资料库/TV 的作品数）
+        published_works = (
+            await self.session.exec(
+                select(func.count(col(MaterialLibraryItem.id))).where(
+                    col(MaterialLibraryItem.status) == "published"
+                )
+            )
+        ).first() or 0
+
+        # 5. 素材资产数（状态为 ready 的有效资源）
+        total_assets = (
+            await self.session.exec(
+                select(func.count(col(Asset.id))).where(col(Asset.status) == "ready")
+            )
+        ).first() or 0
+
+        # 6. 模型/模板数量：
+        #    系统注册协议与预设模板、能力模型总数（包含视频协议预设、模板、模型配置及生图模型）
+        unique_models_and_templates = set()
+        for preset in list_enabled_presets():
+            unique_models_and_templates.add(f"preset:{preset.code}")
+            for tpl in list_templates(preset.code):
+                unique_models_and_templates.add(f"template:{preset.code}:{tpl.template_code}")
+            for prof in list_profiles(preset.code):
+                unique_models_and_templates.add(f"profile:{preset.code}:{prof.code}")
+        # 加入图像模型（如默认 Ark / SeedEdit）
+        unique_models_and_templates.add("image_model:ark_seededit")
+        models_and_templates_count = max(len(unique_models_and_templates), 1)
+
+        # 7. 近 14 天每日 Token 消耗序列（连续 14 天补齐 0）
+        current_time = now()
+        today = current_time.date()
+        date_list = [(today - timedelta(days=i)) for i in range(13, -1, -1)]
+        start_date_bound = datetime.combine(date_list[0], datetime.min.time())
+
+        # 聚合最近 14 天的 agent_runs Token 消耗
+        daily_rows = (
+            await self.session.exec(
+                select(
+                    func.date(col(AgentRun.created_at)).label("day"),
+                    func.sum(
+                        func.coalesce(col(AgentRun.input_tokens), 0)
+                        + func.coalesce(col(AgentRun.output_tokens), 0)
+                    ).label("tokens"),
+                )
+                .where(col(AgentRun.created_at) >= start_date_bound)
+                .group_by(func.date(col(AgentRun.created_at)))
+            )
+        ).all()
+
+        tokens_by_day = {str(row[0]): int(row[1] or 0) for row in daily_rows if row[0] is not None}
+        daily_tokens_14d = [
+            DailyTokens(
+                date=d.strftime("%Y-%m-%d"),
+                tokens=tokens_by_day.get(d.strftime("%Y-%m-%d"), 0),
+            )
+            for d in date_list
+        ]
+
         return SiteTrafficSummary(
             total_visits=total.total_visits if total else 0,
             started_at=total.started_at if total else None,
+            total_tokens=int(agent_tokens_sum),
+            total_creations=total_creations,
+            creations_breakdown=CreationsBreakdown(
+                videos=int(video_count),
+                images=int(image_count),
+            ),
+            total_users=int(total_users),
+            published_works=int(published_works),
+            daily_tokens_14d=daily_tokens_14d,
+            total_assets=int(total_assets),
+            models_and_templates_count=models_and_templates_count,
         )
 
     async def _user_id(self, request: Request, timestamp) -> str | None:

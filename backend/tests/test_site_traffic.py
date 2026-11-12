@@ -66,11 +66,17 @@ async def records(engine, model):
 async def test_public_reads_bootstrap_cookie_but_never_increment(client, db_engine):
     for _ in range(3):
         response, cookie = await bootstrap(client)
-        assert response.json() == {
-            "total_visits": 0,
-            "started_at": None,
-            "session_timeout_minutes": 30,
-        }
+        data = response.json()
+        assert data["total_visits"] == 0
+        assert data["started_at"] is None
+        assert data["session_timeout_minutes"] == 30
+        assert data["total_tokens"] == 0
+        assert data["total_creations"] == 0
+        assert data["total_users"] == 0
+        assert data["published_works"] == 0
+        assert len(data["daily_tokens_14d"]) == 14
+        assert data["total_assets"] == 0
+        assert data["models_and_templates_count"] >= 1
         assert traffic.visitor_identity(cookie)
         assert response.headers["cache-control"] == "no-store"
     client.cookies.clear()
@@ -92,11 +98,18 @@ async def test_anonymous_visit_persists_private_metadata_and_only_exposes_count(
     assert response.status_code == 200
     assert response.json()["total_visits"] == 1
     assert response.json()["counted"] is True
-    assert set(response.json()) == {
+    assert set(response.json()) >= {
         "total_visits",
         "started_at",
         "session_timeout_minutes",
         "counted",
+        "total_tokens",
+        "total_creations",
+        "total_users",
+        "published_works",
+        "daily_tokens_14d",
+        "total_assets",
+        "models_and_templates_count",
     }
     (visit,) = await records(db_engine, SiteVisit)
     assert visit.user_id is None

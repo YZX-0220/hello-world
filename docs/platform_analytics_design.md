@@ -141,3 +141,30 @@ GROUP BY storage_provider, kind;
    - 在任务变更事件中（如 `VideoJob` 变为 `succeeded` 时），触发一次 `total_videos_generated += 1` 的原子更新，读取时时间复杂度达到 $O(1)$。
 3. **阶段三（复杂 BI 分析阶段）**：
    - 每日凌晨调度异步定时任务（Cron Worker），跑批量聚合脚本，将每日指标沉淀为 `daily_metric_snapshots` 日快照表，支持快速拉取历史 30 天/一年的趋势图。
+
+---
+
+## 5. 首页公开大盘接口实现落地说明
+
+首页的站点流量与平台统计接口 `GET /api/v1/site-traffic/summary` 现已完成增强，向全站匿名及公开展示开放以下指标字段，供官网落地页及工作台动态读取：
+
+### 5.1 响应字段定义 (`SiteTrafficSummary`)
+
+| 字段 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `total_visits` | `int` | 平台累计访问量（基于 `site_traffic_totals` 表的严格去重计数） |
+| `total_tokens` | `int` | 平台累计消耗 Token 总量（智能体协作、提示词编译及模型推理消耗） |
+| `total_creations` | `int` | 平台总创作次数（视频生成任务数 + 图片生成任务数） |
+| `creations_breakdown` | `object` | 创作细分明细：`{ "videos": int, "images": int }` |
+| `total_users` | `int` | 平台总用户量（活跃/正常状态创作者账号数） |
+| `published_works` | `int` | 平台已上架发布的作品总量（TV / 公共展示素材库） |
+| `total_assets` | `int` | 平台已就绪的媒体资产总量（`status = 'ready'`） |
+| `models_and_templates_count` | `int` | 系统支持接入并开放的能力模型与协议模板总数 |
+| `daily_tokens_14d` | `array` | 近 14 天每日 Token 消耗趋势序列：`[{ "date": "YYYY-MM-DD", "tokens": int }]`（连续 14 天日期完整，无消耗自动补 0） |
+| `started_at` | `string \| null` | 统计开始记录的时间戳 |
+| `session_timeout_minutes` | `int` | 访问合并防抖会话超时时长（默认 30 分钟） |
+
+### 5.2 字段兼容性与无痛迁移
+- 基础字段 `total_visits`、`started_at`、`session_timeout_minutes` 与原结构完全兼容，现有前端逻辑读取不受影响。
+- 新增指标均具备默认值（0 或空数组），在数据库冷启动或空数据时均保证平稳响应。
+

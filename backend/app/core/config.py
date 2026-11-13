@@ -88,6 +88,13 @@ class Settings(BaseSettings):
     # 长对话摘要：对话内部 user/assistant 消息数超过该值时，把较早历史交给文本模型生成摘要并压缩上下文
     history_summary_threshold: int = 20
 
+    # ---- 全片统筹导演 Agent 参数 ----
+    director_outline_temperature: float = 0.75
+    director_outline_max_tokens: int = 2500
+    director_breakdown_temperature: float = 0.3
+    director_breakdown_max_tokens: int = 4096
+    director_timeout: int = 120
+
     # ---- 视频生成（外部厂商调用）----
     # video_provider: fake（开发，返回可控假状态）或 generic_v1（通用异步 JSON 协议）
     video_provider: str = "fake"

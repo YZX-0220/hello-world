@@ -180,6 +180,20 @@ class PromptTemplateRepository:
         result = await self.session.exec(stmt)
         return result.first()
 
+    async def get_accessible_template(self, identifier: str, user_id: str) -> PromptTemplate | None:
+        """按模板 id 或 code 查询当前用户可访问的 active 模板（系统预置或本人创建）。"""
+        key = identifier.strip()
+        if not key:
+            return None
+        await self.ensure_defaults()
+        stmt = select(PromptTemplate).where(
+            PromptTemplate.status == "active",
+            or_(PromptTemplate.id == key, PromptTemplate.code == key),
+            or_(PromptTemplate.scope == "system", PromptTemplate.user_id == user_id),
+        )
+        result = await self.session.exec(stmt)
+        return result.first()
+
     async def create(
         self,
         *,

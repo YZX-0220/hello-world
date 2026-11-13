@@ -61,7 +61,15 @@ class OpenAICompatibleTextProvider(TextProvider):
             supports_vision=self._supports_vision,
         )
 
-    async def _post(self, messages: list[dict[str, Any]], structured: bool) -> tuple[str, dict]:
+    async def _post(
+        self,
+        messages: list[dict[str, Any]],
+        structured: bool,
+        *,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        timeout: int | None = None,
+    ) -> tuple[str, dict]:
         base_url = (
             self._base_url if self._base_url is not None else settings.text_base_url
         ).rstrip("/")
@@ -69,18 +77,23 @@ class OpenAICompatibleTextProvider(TextProvider):
         payload: dict = {
             "model": self._model if self._model is not None else settings.text_model,
             "messages": messages,
-            "temperature": 0.7,
+            "temperature": 0.7 if temperature is None else temperature,
         }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
         if structured:
             payload["response_format"] = {"type": "json_object"}
         headers = {
             "Authorization": f"Bearer {self._api_key if self._api_key is not None else settings.text_api_key}",
             "Content-Type": "application/json",
         }
+        effective_timeout = (
+            timeout
+            if timeout is not None
+            else (self._timeout if self._timeout is not None else settings.text_timeout)
+        )
         try:
-            async with httpx.AsyncClient(
-                timeout=self._timeout if self._timeout is not None else settings.text_timeout
-            ) as client:
+            async with httpx.AsyncClient(timeout=effective_timeout) as client:
                 resp = await client.post(url, json=payload, headers=headers)
         except httpx.TimeoutException as exc:
             raise TextProviderError(
@@ -114,9 +127,21 @@ class OpenAICompatibleTextProvider(TextProvider):
         return content, data
 
     async def generate(
-        self, messages: list[dict[str, Any]], *, structured: bool = False
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        structured: bool = False,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        timeout: int | None = None,
     ) -> TextResult:
-        content, data = await self._post(messages, structured)
+        content, data = await self._post(
+            messages,
+            structured,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
 
         structured_data = None
         if structured and content:
@@ -132,7 +157,13 @@ class OpenAICompatibleTextProvider(TextProvider):
                         "content": "你上次的输出不是合法的 JSON。请重新只输出一个 JSON 对象，不要任何多余文字，也不要 markdown 代码块。",
                     },
                 ]
-                content, data = await self._post(fixed_messages, structured)
+                content, data = await self._post(
+                    fixed_messages,
+                    structured,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    timeout=timeout,
+                )
                 if content:
                     structured_data = _parse_structured(content)
 

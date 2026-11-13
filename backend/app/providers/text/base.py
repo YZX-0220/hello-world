@@ -60,7 +60,13 @@ class TextProvider(ABC):
 
     @abstractmethod
     async def generate(
-        self, messages: list[dict[str, Any]], *, structured: bool = False
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        structured: bool = False,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        timeout: int | None = None,
     ) -> TextResult:
         """给定对话消息，返回非流式生成结果。structured=True 时请求结构化输出。
 

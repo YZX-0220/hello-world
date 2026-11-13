@@ -1,15 +1,15 @@
-import uuid
+from uuid import uuid4
 
-import httpx
-import pytest
 from app.providers.email.fake import fake_instance
+from httpx import AsyncClient
+from pytest import mark
 
 PASSWORD = "Password123!"
 ORIGIN = "http://localhost:5173"
 
 
-async def _register(client: httpx.AsyncClient, tag: str) -> None:
-    email = f"clip-{tag}-{uuid.uuid4().hex[:8]}@test.com"
+async def _register(client: AsyncClient, tag: str) -> None:
+    email = f"clip-{tag}-{uuid4().hex[:8]}@test.com"
     await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
     code = fake_instance.sent[-1]["code"]
     resp = await client.post(
@@ -18,12 +18,12 @@ async def _register(client: httpx.AsyncClient, tag: str) -> None:
     assert resp.status_code == 201, resp.text
 
 
-def _csrf(client: httpx.AsyncClient) -> dict[str, str]:
+def _csrf(client: AsyncClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies.get("hw_csrf", ""), "Origin": ORIGIN}
 
 
-@pytest.mark.asyncio
-async def test_clip_project_lifecycle(client: httpx.AsyncClient) -> None:
+@mark.asyncio
+async def test_clip_project_lifecycle(client: AsyncClient) -> None:
     await _register(client, "clip1")
     headers = _csrf(client)
 
@@ -89,8 +89,8 @@ async def test_clip_project_lifecycle(client: httpx.AsyncClient) -> None:
     assert (await client.get(f"/api/v1/clip-projects/{proj_id}")).status_code == 404
 
 
-@pytest.mark.asyncio
-async def test_library_quota_and_assets(client: httpx.AsyncClient) -> None:
+@mark.asyncio
+async def test_library_quota_and_assets(client: AsyncClient) -> None:
     await _register(client, "clip2")
 
     # 1. 查询配额

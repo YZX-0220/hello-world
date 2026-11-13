@@ -4,10 +4,11 @@
 阶段 9 再补 next_poll_at 锁、结果下载与双轨降级。
 """
 
-import hashlib
-import json
 from contextlib import suppress
 from datetime import datetime, timedelta
+from hashlib import sha256
+from json import dumps as json_dumps
+from json import loads as json_loads
 from typing import Any
 
 from sqlalchemy import update
@@ -95,7 +96,7 @@ def _build_custom_template(custom_template_json: str | None) -> ProtocolTemplate
     """
     if not custom_template_json:
         return None
-    data = json.loads(custom_template_json)
+    data = json_loads(custom_template_json)
     poll_path = data.get("poll_path", "/tasks/{task_id}")
     return ProtocolTemplate(
         template_code="custom",
@@ -126,9 +127,7 @@ def _build_custom_template(custom_template_json: str | None) -> ProtocolTemplate
 
 
 def _fingerprint(payload: dict[str, Any]) -> str:
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()
+    return sha256(json_dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
 def _asset_ids(spec: VideoBrief) -> list[tuple[str, str, int]]:
@@ -163,7 +162,7 @@ class VideoJobService:
     ) -> tuple[VideoJob, bool]:
         existing = await self._repo.get_by_idempotency(user_id, idempotency_key)
         if existing is not None:
-            saved = json.loads(existing.request_json or "{}")
+            saved = json_loads(existing.request_json or "{}")
             config_id = existing.api_config_id or PLATFORM_CONFIG_ID
             if (
                 existing.project_id != command.project_id
@@ -194,7 +193,7 @@ class VideoJobService:
         remote_model_id = target.identity["remote_model_id"]
         protocol_code = target.identity["protocol_code"]
         template_code = revision.template_code if revision else None
-        spec = VideoBrief.model_validate(json.loads(version_row.spec_json))
+        spec = VideoBrief.model_validate(json_loads(version_row.spec_json))
         self._validate_mode(command, spec)
         assets = await self._require_assets(user_id, spec)
         allowed = set(record["settings"]) | {
@@ -287,7 +286,7 @@ class VideoJobService:
             remote_model_id=remote_model_id,
             mode=command.mode,
             status=VideoJobStatus.CREATED.value,
-            request_json=json.dumps(request_json, ensure_ascii=False),
+            request_json=json_dumps(request_json, ensure_ascii=False),
             download_status=DownloadStatus.NOT_STARTED.value,
         )
         await self._repo.add(job)
@@ -546,10 +545,10 @@ class VideoJobService:
         return raw
 
     def _ctx(self, revision: Any) -> AdapterContext:
-        auth = json.loads(
+        auth = json_loads(
             decrypt_secret(revision.encrypted_auth_json, settings.credential_encryption_keys)
         )
-        options = json.loads(revision.public_options_json or "{}")
+        options = json_loads(revision.public_options_json or "{}")
         return AdapterContext(
             base_url=revision.base_url or "",
             auth=auth,
@@ -560,7 +559,7 @@ class VideoJobService:
 
     def _platform_ctx(self, job: VideoJob | None = None) -> AdapterContext:
         """平台自有通道的厂商上下文：直接读 settings.video_platform_*，无 revision/模板。"""
-        snapshot = json.loads(job.request_json or "{}").get("generation_target", {}) if job else {}
+        snapshot = json_loads(job.request_json or "{}").get("generation_target", {}) if job else {}
         return AdapterContext(
             base_url=snapshot.get("base_url") or settings.video_platform_base_url,
             auth={"api_key": settings.video_platform_api_key},
@@ -585,7 +584,7 @@ class VideoJobService:
     async def _provider_request(
         self, job: VideoJob, assets: list[tuple[str, str, int]]
     ) -> dict[str, Any]:
-        request = json.loads(job.request_json or "{}")
+        request = json_loads(job.request_json or "{}")
         for asset_id, role, _pos in assets:
             ttl = max(
                 settings.signed_url_ttl_seconds, int(request.get("input_url_ttl_seconds") or 0)
@@ -677,7 +676,7 @@ class VideoJobService:
         return rows
 
     async def to_view(self, job: VideoJob) -> VideoJobView:
-        request = json.loads(job.request_json or "{}")
+        request = json_loads(job.request_json or "{}")
         revision = (
             await self._session.exec(
                 select(VideoApiConfigRevision).where(
@@ -696,7 +695,7 @@ class VideoJobService:
         result_expires_at = None
         if job.download_status == DownloadStatus.DIRECT.value and job.encrypted_result_ref_json:
             try:
-                ref = json.loads(
+                ref = json_loads(
                     decrypt_secret(
                         job.encrypted_result_ref_json, settings.credential_encryption_keys
                     )

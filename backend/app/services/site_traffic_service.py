@@ -1,12 +1,15 @@
 """Database-authoritative visit counting; no Redis counter can lose the total."""
 
-import asyncio
-import hashlib
-import hmac
-import re
-import secrets
-import time
+from asyncio import timeout as asyncio_timeout
 from datetime import datetime, timedelta
+from hashlib import sha256
+from hmac import compare_digest
+from hmac import new as hmac_new
+from re import IGNORECASE
+from re import compile as regex_compile
+from re import fullmatch as regex_fullmatch
+from secrets import token_urlsafe
+from time import time as unix_time
 from urllib.parse import urlsplit
 
 from fastapi import Request, Response
@@ -48,8 +51,8 @@ VISITOR_COOKIE = "hw_visitor"
 COOKIE_PATH = "/api/v1/site-traffic"
 COOKIE_TTL = 365 * 24 * 60 * 60
 IDLE_TIMEOUT = timedelta(minutes=30)
-_BOT = re.compile(
-    r"bot\b|crawler|spider|headlesschrome|curl/|wget/|python-requests/|python-httpx/", re.I
+_BOT = regex_compile(
+    r"bot\b|crawler|spider|headlesschrome|curl/|wget/|python-requests/|python-httpx/", IGNORECASE
 )
 _RATE_SCRIPT = """
 local n = redis.call('INCR', KEYS[1])
@@ -59,8 +62,8 @@ return n
 
 
 def private_digest(kind: str, value: str) -> str:
-    return hmac.new(
-        settings.app_secret.encode(), f"site-traffic:{kind}:{value}".encode(), hashlib.sha256
+    return hmac_new(
+        settings.app_secret.encode(), f"site-traffic:{kind}:{value}".encode(), sha256
     ).hexdigest()
 
 
@@ -72,19 +75,19 @@ def visitor_identity(cookie: str | None) -> str | None:
         timestamp = int(issued)
     except (ValueError, TypeError):
         return None
-    if not re.fullmatch(r"[A-Za-z0-9_-]{32}", identity):
+    if not regex_fullmatch(r"[A-Za-z0-9_-]{32}", identity):
         return None
-    age = time.time() - timestamp
+    age = unix_time() - timestamp
     if not -60 <= age <= COOKIE_TTL:
         return None
     expected = private_digest("cookie", f"{identity}.{issued}")
-    return identity if hmac.compare_digest(expected, signature) else None
+    return identity if compare_digest(expected, signature) else None
 
 
 def ensure_visitor_cookie(request: Request, response: Response) -> None:
     if visitor_identity(request.cookies.get(VISITOR_COOKIE)):
         return
-    identity, issued = secrets.token_urlsafe(24), str(int(time.time()))
+    identity, issued = token_urlsafe(24), str(int(unix_time()))
     signature = private_digest("cookie", f"{identity}.{issued}")
     response.set_cookie(
         VISITOR_COOKIE,
@@ -197,7 +200,7 @@ async def limit_traffic(redis, request: Request, identity: str) -> None:
     ip = resolve_client_ip(request).address or "unknown"
     for kind, value, maximum in (("ip", ip, 600), ("visitor", identity, 120)):
         try:
-            async with asyncio.timeout(0.3):
+            async with asyncio_timeout(0.3):
                 key = f"site-traffic:rate:{kind}:{private_digest(kind, value)}"
                 count = await redis.eval(_RATE_SCRIPT, 1, key)
             if int(count) > maximum:
@@ -348,7 +351,7 @@ class SiteTrafficService:
             # This must be the FIRST SQL statement of a write request: acquire SQLite's
             # write reservation before reading the event/visit. Competing tabs serialize
             # here instead of both observing an expired/missing visit.
-            await self.session.exec(  # type: ignore[call-overload]
+            await self.session.exec(
                 insert(SiteTrafficTotal)
                 .values(
                     id=1,
@@ -397,7 +400,7 @@ class SiteTrafficService:
                     referrer_host=referrer_host(payload.referrer_origin, request),
                 )
                 self.session.add(visit)
-                await self.session.exec(  # type: ignore[call-overload]
+                await self.session.exec(
                     update(SiteTrafficTotal)
                     .where(col(SiteTrafficTotal.id) == 1)
                     .values(

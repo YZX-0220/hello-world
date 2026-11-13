@@ -1,15 +1,15 @@
-import uuid
+from uuid import uuid4
 
-import httpx
-import pytest
 from app.providers.email.fake import fake_instance
+from httpx import AsyncClient
+from pytest import MonkeyPatch, mark
 
 PASSWORD = "Password123!"
 ORIGIN = "http://127.0.0.1:5173"
 
 
-async def _register(client: httpx.AsyncClient, tag: str) -> None:
-    email = f"tv-admin-{tag}-{uuid.uuid4().hex[:8]}@test.com"
+async def _register(client: AsyncClient, tag: str) -> None:
+    email = f"tv-admin-{tag}-{uuid4().hex[:8]}@test.com"
     await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
     code = fake_instance.sent[-1]["code"]
     resp = await client.post(
@@ -18,7 +18,7 @@ async def _register(client: httpx.AsyncClient, tag: str) -> None:
     assert resp.status_code == 201, resp.text
 
 
-def _csrf(client: httpx.AsyncClient) -> dict[str, str]:
+def _csrf(client: AsyncClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies.get("hw_csrf", ""), "Origin": ORIGIN}
 
 
@@ -30,14 +30,14 @@ def _mp4_bytes() -> bytes:
     return header + b"\x00" * 32
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_tv_materials_not_in_user_clip_library(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: AsyncClient, monkeypatch: MonkeyPatch
 ) -> None:
     # 1. 注册一个账号并配置为管理员
     from app.core.config import settings
 
-    email = f"tv-admin-{uuid.uuid4().hex[:8]}@test.com"
+    email = f"tv-admin-{uuid4().hex[:8]}@test.com"
     await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
     code = fake_instance.sent[-1]["code"]
     resp = await client.post(

@@ -11,11 +11,9 @@
 返回的 7 个 profile code 集合正确。
 """
 
-import json
+from json import dumps as json_dumps
+from json import loads as json_loads
 
-import httpx
-import pytest
-import respx
 from app.core.ssrf import CheckedBaseUrl, validate_public_host
 from app.providers.video.ark_seedance_v1 import ArkSeedanceProvider
 from app.providers.video.base import AdapterContext, VideoProviderError
@@ -25,6 +23,13 @@ from app.providers.video.generic_async_json_v1 import GenericAsyncJsonV1Provider
 from app.services.video_job_service import VideoJobService, _build_custom_template
 from app.video_registry.models import EndpointSpec, ProtocolTemplate
 from app.video_registry.registry import get_preset, list_profiles
+from httpx import Response
+from pytest import MonkeyPatch, mark, raises
+from pytest import fixture as pytest_fixture
+from respx import delete as respx_delete
+from respx import get as respx_get
+from respx import mock as respx_mock
+from respx import post as respx_post
 
 BASE = "https://ark.cn-beijing.volces.com"
 SUBMIT_URL = f"{BASE}/api/v3/contents/generations/tasks"
@@ -32,8 +37,8 @@ TASK_URL = f"{BASE}/api/v3/contents/generations/tasks/cgt-1"
 VIDEO_URL = "https://cdn.example.com/result.mp4"
 
 
-@pytest.fixture(autouse=True)
-def _no_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest_fixture(autouse=True)
+def _no_dns(monkeypatch: MonkeyPatch) -> None:
     """把 check_base_url 打桩成固定返回，避免 Contract Test 触发真实 DNS/外网。
 
     本批测试只验证「请求/响应映射」，SSRF 结构校验已在别处覆盖。
@@ -59,8 +64,8 @@ def _no_dns(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-@pytest.fixture(autouse=True)
-def _no_dns_generic(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest_fixture(autouse=True)
+def _no_dns_generic(monkeypatch: MonkeyPatch) -> None:
     """同 _no_dns，但针对 generic_async_json_v1 模块（避开真实 DNS/外网）。"""
 
     def _fake(url: str, resolver: object = None) -> CheckedBaseUrl:
@@ -105,22 +110,22 @@ def _request(**overrides: object) -> dict:
     return req
 
 
-def _ok_task(body: dict) -> httpx.Response:
+def _ok_task(body: dict) -> Response:
     payload = {"id": "cgt-1", "status": "succeeded", "content": {"video_url": VIDEO_URL}, **body}
-    return httpx.Response(200, json=payload)
+    return Response(200, json=payload)
 
 
-@respx.mock
+@respx_mock
 async def test_submit_builds_correct_body_and_resolves_task_id() -> None:
-    route = respx.post(SUBMIT_URL)
-    route.mock(return_value=httpx.Response(201, json={"id": "cgt-123"}))
+    route = respx_post(SUBMIT_URL)
+    route.mock(return_value=Response(201, json={"id": "cgt-123"}))
     provider = ArkSeedanceProvider()
 
     result = await provider.submit(_request(), _ctx())
 
     assert result.provider_task_id == "cgt-123"
 
-    body = json.loads(route.calls.last.request.content)
+    body = json_loads(route.calls.last.request.content)
     assert body["model"] == "doubao-seedance-1-5-pro-251215"
     assert body["content"] == [
         {"type": "text", "text": "一只猫在草地上奔跑"},
@@ -149,10 +154,10 @@ async def test_submit_builds_correct_body_and_resolves_task_id() -> None:
     assert "camera_fixed" not in body
 
 
-@respx.mock
+@respx_mock
 async def test_submit_text_only_has_only_text_content() -> None:
-    route = respx.post(SUBMIT_URL)
-    route.mock(return_value=httpx.Response(201, json={"id": "cgt-456"}))
+    route = respx_post(SUBMIT_URL)
+    route.mock(return_value=Response(201, json={"id": "cgt-456"}))
     provider = ArkSeedanceProvider()
 
     req = _request(
@@ -163,33 +168,31 @@ async def test_submit_text_only_has_only_text_content() -> None:
     )
     await provider.submit(req, _ctx())
 
-    body = json.loads(route.calls.last.request.content)
+    body = json_loads(route.calls.last.request.content)
     assert body["content"] == [{"type": "text", "text": "一只猫在草地上奔跑"}]
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "addresses", [["127.0.0.1"], ["10.0.0.1"], ["169.254.169.254"], ["1.1.1.1", "192.168.1.1"]]
 )
-@respx.mock
+@respx_mock
 async def test_submit_refuses_private_media_dns_before_sending(monkeypatch, addresses) -> None:
     # Exercise the real validator with deterministic DNS results, including mixed public/private DNS.
     monkeypatch.setattr(
         "app.providers.video.ark_seedance_v1.validate_public_host",
         lambda host: validate_public_host(host, resolver=lambda _: addresses),
     )
-    route = respx.post(SUBMIT_URL).mock(
-        return_value=httpx.Response(201, json={"id": "must-not-submit"})
-    )
-    with pytest.raises(VideoProviderError) as raised:
+    route = respx_post(SUBMIT_URL).mock(return_value=Response(201, json={"id": "must-not-submit"}))
+    with raises(VideoProviderError) as raised:
         await ArkSeedanceProvider().submit(_request(), _ctx())
     assert raised.value.code == "VIDEO_INPUT_UNREACHABLE"
     assert raised.value.retryable is False
     assert not route.called
 
 
-@respx.mock
+@respx_mock
 async def test_poll_maps_succeeded() -> None:
-    respx.get(TASK_URL).mock(return_value=_ok_task({}))
+    respx_get(TASK_URL).mock(return_value=_ok_task({}))
     provider = ArkSeedanceProvider()
 
     status = await provider.poll("cgt-1", _ctx())
@@ -197,11 +200,9 @@ async def test_poll_maps_succeeded() -> None:
     assert status.raw_status == "succeeded"
 
 
-@respx.mock
+@respx_mock
 async def test_poll_maps_expired_to_failed() -> None:
-    respx.get(TASK_URL).mock(
-        return_value=httpx.Response(200, json={"id": "cgt-1", "status": "expired"})
-    )
+    respx_get(TASK_URL).mock(return_value=Response(200, json={"id": "cgt-1", "status": "expired"}))
     provider = ArkSeedanceProvider()
 
     status = await provider.poll("cgt-1", _ctx())
@@ -210,19 +211,19 @@ async def test_poll_maps_expired_to_failed() -> None:
     assert status.extra["remote_status"] == "expired"
 
 
-@respx.mock
+@respx_mock
 async def test_poll_raises_on_http_error() -> None:
-    respx.get(TASK_URL).mock(return_value=httpx.Response(500, json={}))
+    respx_get(TASK_URL).mock(return_value=Response(500, json={}))
     provider = ArkSeedanceProvider()
 
-    with pytest.raises(VideoProviderError) as exc_info:
+    with raises(VideoProviderError) as exc_info:
         await provider.poll("cgt-1", _ctx())
     assert exc_info.value.code == "VIDEO_POLL_FAILED"
 
 
-@respx.mock
+@respx_mock
 async def test_fetch_result_url() -> None:
-    respx.get(TASK_URL).mock(return_value=_ok_task({}))
+    respx_get(TASK_URL).mock(return_value=_ok_task({}))
     provider = ArkSeedanceProvider()
 
     url = await provider.fetch_result_url("cgt-1", _ctx())
@@ -230,18 +231,18 @@ async def test_fetch_result_url() -> None:
     assert url == VIDEO_URL
 
 
-@respx.mock
+@respx_mock
 async def test_fetch_result_url_returns_none_on_http_error() -> None:
-    respx.get(TASK_URL).mock(return_value=httpx.Response(404, json={}))
+    respx_get(TASK_URL).mock(return_value=Response(404, json={}))
     provider = ArkSeedanceProvider()
 
     assert await provider.fetch_result_url("cgt-1", _ctx()) is None
 
 
-@respx.mock
+@respx_mock
 async def test_download_result_returns_bytes() -> None:
-    respx.get(TASK_URL).mock(return_value=_ok_task({}))
-    respx.get(VIDEO_URL).mock(return_value=httpx.Response(200, content=b"VIDEO_BYTES"))
+    respx_get(TASK_URL).mock(return_value=_ok_task({}))
+    respx_get(VIDEO_URL).mock(return_value=Response(200, content=b"VIDEO_BYTES"))
     provider = ArkSeedanceProvider()
 
     data = await provider.download_result("cgt-1", _ctx())
@@ -249,28 +250,28 @@ async def test_download_result_returns_bytes() -> None:
     assert data == b"VIDEO_BYTES"
 
 
-@respx.mock
+@respx_mock
 async def test_cancel_returns_true_on_2xx() -> None:
-    respx.delete(TASK_URL).mock(return_value=httpx.Response(202))
+    respx_delete(TASK_URL).mock(return_value=Response(202))
     provider = ArkSeedanceProvider()
 
     assert await provider.cancel("cgt-1", _ctx()) is True
 
 
-@respx.mock
+@respx_mock
 async def test_submit_non_2xx_raises() -> None:
-    respx.post(SUBMIT_URL).mock(return_value=httpx.Response(401, json={"error": "unauthorized"}))
+    respx_post(SUBMIT_URL).mock(return_value=Response(401, json={"error": "unauthorized"}))
     provider = ArkSeedanceProvider()
 
-    with pytest.raises(VideoProviderError) as exc_info:
+    with raises(VideoProviderError) as exc_info:
         await provider.submit(_request(), _ctx())
     assert exc_info.value.code == "VIDEO_SUBMISSION_FAILED"
 
 
-@respx.mock
+@respx_mock
 async def test_seedance_async_failure_preserves_code_and_sanitizes_asset_url() -> None:
-    respx.get(TASK_URL).mock(
-        return_value=httpx.Response(
+    respx_get(TASK_URL).mock(
+        return_value=Response(
             200,
             json={
                 "status": "failed",
@@ -288,9 +289,9 @@ async def test_seedance_async_failure_preserves_code_and_sanitizes_asset_url() -
     assert "secret-token" not in status.error_message
 
 
-@respx.mock
+@respx_mock
 async def test_seedance_reference_request_explicitly_selects_reference_task() -> None:
-    route = respx.post(SUBMIT_URL).mock(return_value=httpx.Response(200, json={"id": "cgt-1"}))
+    route = respx_post(SUBMIT_URL).mock(return_value=Response(200, json={"id": "cgt-1"}))
     await ArkSeedanceProvider().submit(
         _request(
             remote_model_id="doubao-seedance-2-5-260628",
@@ -302,7 +303,7 @@ async def test_seedance_reference_request_explicitly_selects_reference_task() ->
         ),
         _ctx(),
     )
-    body = json.loads(route.calls.last.request.content)
+    body = json_loads(route.calls.last.request.content)
     assert body["omni_reference_task_type"] == "reference"
     assert body["execution_expires_after"] == 172800
     assert body["content"][1]["role"] == "reference_image"
@@ -380,7 +381,7 @@ def _custom_ctx(template: ProtocolTemplate) -> AdapterContext:
 def test_build_custom_template_from_json() -> None:
     """落库的 custom_template_json → ProtocolTemplate 的字段正确映射。"""
     tpl = _build_custom_template(
-        json.dumps(
+        json_dumps(
             {
                 "submit_method": "POST",
                 "submit_path": "/submit",
@@ -412,11 +413,11 @@ def test_build_custom_template_none_when_absent() -> None:
     assert _build_custom_template("") is None
 
 
-@respx.mock
+@respx_mock
 async def test_generic_custom_submit_uses_user_template() -> None:
     """自定义模板：提交 POST {base}/submit，请求体按 request_template 构造，解析 job_id。"""
-    route = respx.post(f"{CUSTOM_BASE}/submit")
-    route.mock(return_value=httpx.Response(200, json={"job_id": "abc-123"}))
+    route = respx_post(f"{CUSTOM_BASE}/submit")
+    route.mock(return_value=Response(200, json={"job_id": "abc-123"}))
     provider = GenericAsyncJsonV1Provider()
 
     req = {
@@ -432,16 +433,16 @@ async def test_generic_custom_submit_uses_user_template() -> None:
     result = await provider.submit(req, _custom_ctx(_custom_template()))
 
     assert result.provider_task_id == "abc-123"
-    body = json.loads(route.calls.last.request.content)
+    body = json_loads(route.calls.last.request.content)
     # {model} 通过别名解析到 remote_model_id；prompt 普通解析
     assert body == {"model": "custom-model", "prompt": "一只猫"}
 
 
-@respx.mock
+@respx_mock
 async def test_generic_custom_poll_uses_user_template() -> None:
     """自定义模板：轮询 GET {base}/job/{task_id}，按 status_path 读取远端状态。"""
-    respx.get(f"{CUSTOM_BASE}/job/abc-123").mock(
-        return_value=httpx.Response(200, json={"state": "finished", "video": VIDEO_URL})
+    respx_get(f"{CUSTOM_BASE}/job/abc-123").mock(
+        return_value=Response(200, json={"state": "finished", "video": VIDEO_URL})
     )
     provider = GenericAsyncJsonV1Provider()
 
@@ -450,11 +451,11 @@ async def test_generic_custom_poll_uses_user_template() -> None:
     assert status.raw_status == "finished"
 
 
-@respx.mock
+@respx_mock
 async def test_generic_custom_fetch_result_url() -> None:
     """自定义模板：结果地址从查询响应 result_url_path 取（复用 poll 路径）。"""
-    respx.get(f"{CUSTOM_BASE}/job/abc-123").mock(
-        return_value=httpx.Response(200, json={"state": "finished", "video": VIDEO_URL})
+    respx_get(f"{CUSTOM_BASE}/job/abc-123").mock(
+        return_value=Response(200, json={"state": "finished", "video": VIDEO_URL})
     )
     provider = GenericAsyncJsonV1Provider()
 
@@ -467,7 +468,7 @@ def test_generic_custom_status_map_and_passthrough() -> None:
     """自定义 status_map 生效；未列出的远端值原样透传。"""
     service = VideoJobService(session=None)
     tpl = _build_custom_template(
-        json.dumps(
+        json_dumps(
             {
                 "submit_path": "/submit",
                 "task_id_path": "job_id",
@@ -483,17 +484,17 @@ def test_generic_custom_status_map_and_passthrough() -> None:
     assert service._map_status("weird_state", tpl) == "weird_state"
 
 
-@respx.mock
+@respx_mock
 async def test_generic_builtin_template_unchanged() -> None:
     """内置模板（template=None）行为完全不变：/tasks、/tasks/{id}、/tasks/{id}/result。"""
-    respx.post(f"{BUILTIN_BASE}/tasks").mock(
-        return_value=httpx.Response(200, json={"data": {"task_id": "t1"}})
+    respx_post(f"{BUILTIN_BASE}/tasks").mock(
+        return_value=Response(200, json={"data": {"task_id": "t1"}})
     )
-    respx.get(f"{BUILTIN_BASE}/tasks/t1").mock(
-        return_value=httpx.Response(200, json={"data": {"status": "succeeded", "url": VIDEO_URL}})
+    respx_get(f"{BUILTIN_BASE}/tasks/t1").mock(
+        return_value=Response(200, json={"data": {"status": "succeeded", "url": VIDEO_URL}})
     )
-    respx.get(f"{BUILTIN_BASE}/tasks/t1/result").mock(
-        return_value=httpx.Response(200, json={"data": {"url": VIDEO_URL}})
+    respx_get(f"{BUILTIN_BASE}/tasks/t1/result").mock(
+        return_value=Response(200, json={"data": {"url": VIDEO_URL}})
     )
     provider = GenericAsyncJsonV1Provider()
     ctx = AdapterContext(
@@ -521,8 +522,8 @@ DS_TASK_URL = f"{DS_BASE}/api/v1/tasks/tsk-1"
 DS_VIDEO_URL = "https://cdn.example.com/v.mp4"
 
 
-@pytest.fixture(autouse=True)
-def _no_dns_dashscope(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest_fixture(autouse=True)
+def _no_dns_dashscope(monkeypatch: MonkeyPatch) -> None:
     """同 _no_dns，但针对 dashscope_async_v1 模块（避开真实 DNS/外网）。"""
 
     def _fake(url: str, resolver: object = None) -> CheckedBaseUrl:
@@ -560,10 +561,10 @@ def _dash_request(**overrides: object) -> dict:
     return req
 
 
-@respx.mock
+@respx_mock
 async def test_dashscope_submit_builds_correct_body_and_resolves_task_id() -> None:
-    route = respx.post(DS_SUBMIT_URL)
-    route.mock(return_value=httpx.Response(200, json={"output": {"task_id": "tsk-1"}}))
+    route = respx_post(DS_SUBMIT_URL)
+    route.mock(return_value=Response(200, json={"output": {"task_id": "tsk-1"}}))
     provider = DashScopeAsyncV1Provider()
 
     result = await provider.submit(_dash_request(), _dash_ctx())
@@ -573,18 +574,18 @@ async def test_dashscope_submit_builds_correct_body_and_resolves_task_id() -> No
     request = route.calls.last.request
     assert request.headers.get("authorization") == "Bearer sk-dash-test-key"
     assert request.headers.get("x-dashscope-async") == "enable"
-    assert json.loads(request.content) == {
+    assert json_loads(request.content) == {
         "model": "wan2.5-t2v-preview",
         "input": {"prompt": "一只猫在草地上奔跑"},
         "parameters": {"size": "1280*720", "duration": 10},
     }
 
 
-@respx.mock
+@respx_mock
 async def test_dashscope_submit_top_level_task_id_fallback() -> None:
     """顶层 task_id 回退：无 output.task_id 时取顶层 task_id。"""
-    route = respx.post(DS_SUBMIT_URL)
-    route.mock(return_value=httpx.Response(200, json={"task_id": "tsk-top"}))
+    route = respx_post(DS_SUBMIT_URL)
+    route.mock(return_value=Response(200, json={"task_id": "tsk-top"}))
     provider = DashScopeAsyncV1Provider()
 
     result = await provider.submit(_dash_request(), _dash_ctx())
@@ -592,10 +593,10 @@ async def test_dashscope_submit_top_level_task_id_fallback() -> None:
     assert result.provider_task_id == "tsk-top"
 
 
-@respx.mock
+@respx_mock
 async def test_dashscope_poll_maps_succeeded() -> None:
-    respx.get(DS_TASK_URL).mock(
-        return_value=httpx.Response(
+    respx_get(DS_TASK_URL).mock(
+        return_value=Response(
             200, json={"task_status": "SUCCEEDED", "output": {"video_url": DS_VIDEO_URL}}
         )
     )
@@ -607,9 +608,9 @@ async def test_dashscope_poll_maps_succeeded() -> None:
     assert status.extra["remote_status"] == "SUCCEEDED"
 
 
-@respx.mock
+@respx_mock
 async def test_dashscope_poll_maps_pending_to_queued() -> None:
-    respx.get(DS_TASK_URL).mock(return_value=httpx.Response(200, json={"task_status": "PENDING"}))
+    respx_get(DS_TASK_URL).mock(return_value=Response(200, json={"task_status": "PENDING"}))
     provider = DashScopeAsyncV1Provider()
 
     status = await provider.poll("tsk-1", _dash_ctx())
@@ -617,9 +618,9 @@ async def test_dashscope_poll_maps_pending_to_queued() -> None:
     assert status.raw_status == "queued"
 
 
-@respx.mock
+@respx_mock
 async def test_dashscope_poll_maps_failed() -> None:
-    respx.get(DS_TASK_URL).mock(return_value=httpx.Response(200, json={"task_status": "FAILED"}))
+    respx_get(DS_TASK_URL).mock(return_value=Response(200, json={"task_status": "FAILED"}))
     provider = DashScopeAsyncV1Provider()
 
     status = await provider.poll("tsk-1", _dash_ctx())
@@ -628,20 +629,20 @@ async def test_dashscope_poll_maps_failed() -> None:
     assert status.extra["remote_status"] == "FAILED"
 
 
-@respx.mock
+@respx_mock
 async def test_dashscope_poll_raises_on_http_error() -> None:
-    respx.get(DS_TASK_URL).mock(return_value=httpx.Response(500, json={}))
+    respx_get(DS_TASK_URL).mock(return_value=Response(500, json={}))
     provider = DashScopeAsyncV1Provider()
 
-    with pytest.raises(VideoProviderError) as exc_info:
+    with raises(VideoProviderError) as exc_info:
         await provider.poll("tsk-1", _dash_ctx())
     assert exc_info.value.code == "VIDEO_POLL_FAILED"
 
 
-@respx.mock
+@respx_mock
 async def test_dashscope_fetch_result_url() -> None:
-    respx.get(DS_TASK_URL).mock(
-        return_value=httpx.Response(
+    respx_get(DS_TASK_URL).mock(
+        return_value=Response(
             200, json={"task_status": "SUCCEEDED", "output": {"video_url": DS_VIDEO_URL}}
         )
     )
@@ -652,22 +653,22 @@ async def test_dashscope_fetch_result_url() -> None:
     assert url == DS_VIDEO_URL
 
 
-@respx.mock
+@respx_mock
 async def test_dashscope_fetch_result_url_returns_none_on_http_error() -> None:
-    respx.get(DS_TASK_URL).mock(return_value=httpx.Response(404, json={}))
+    respx_get(DS_TASK_URL).mock(return_value=Response(404, json={}))
     provider = DashScopeAsyncV1Provider()
 
     assert await provider.fetch_result_url("tsk-1", _dash_ctx()) is None
 
 
-@respx.mock
+@respx_mock
 async def test_dashscope_download_result_returns_bytes() -> None:
-    respx.get(DS_TASK_URL).mock(
-        return_value=httpx.Response(
+    respx_get(DS_TASK_URL).mock(
+        return_value=Response(
             200, json={"task_status": "SUCCEEDED", "output": {"video_url": DS_VIDEO_URL}}
         )
     )
-    respx.get(DS_VIDEO_URL).mock(return_value=httpx.Response(200, content=b"VIDEO_BYTES"))
+    respx_get(DS_VIDEO_URL).mock(return_value=Response(200, content=b"VIDEO_BYTES"))
     provider = DashScopeAsyncV1Provider()
 
     data = await provider.download_result("tsk-1", _dash_ctx())
@@ -675,7 +676,7 @@ async def test_dashscope_download_result_returns_bytes() -> None:
     assert data == b"VIDEO_BYTES"
 
 
-@respx.mock
+@respx_mock
 async def test_dashscope_cancel_returns_false() -> None:
     provider = DashScopeAsyncV1Provider()
 
@@ -703,8 +704,8 @@ FAL_REQ_URL = f"{FAL_BASE}/fal-ai/requests/req_1"
 FAL_VIDEO_URL = "https://cdn.example.com/v.mp4"
 
 
-@pytest.fixture(autouse=True)
-def _no_dns_fal(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest_fixture(autouse=True)
+def _no_dns_fal(monkeypatch: MonkeyPatch) -> None:
     """同 _no_dns，但针对 fal_queue_v1 模块（避开真实 DNS/外网）。"""
 
     def _fake(url: str, resolver: object = None) -> CheckedBaseUrl:
@@ -743,10 +744,10 @@ def _fal_request(**overrides: object) -> dict:
     return req
 
 
-@respx.mock
+@respx_mock
 async def test_fal_submit_builds_correct_body_and_resolves_task_id() -> None:
-    route = respx.post(FAL_SUBMIT_URL)
-    route.mock(return_value=httpx.Response(200, json={"status": "IN_QUEUE", "request_id": "req_1"}))
+    route = respx_post(FAL_SUBMIT_URL)
+    route.mock(return_value=Response(200, json={"status": "IN_QUEUE", "request_id": "req_1"}))
     provider = FalQueueV1Provider()
 
     result = await provider.submit(_fal_request(), _fal_ctx())
@@ -756,7 +757,7 @@ async def test_fal_submit_builds_correct_body_and_resolves_task_id() -> None:
     request = route.calls.last.request
     # fal 鉴权头是 `Key <key>` 前缀（而非 Bearer）
     assert request.headers.get("authorization") == "Key sk-fal-test"
-    assert json.loads(request.content) == {
+    assert json_loads(request.content) == {
         "prompt": "一只猫在草地上奔跑",
         "resolution": "720p",
         "aspect_ratio": "16:9",
@@ -764,22 +765,20 @@ async def test_fal_submit_builds_correct_body_and_resolves_task_id() -> None:
     }
 
 
-@respx.mock
+@respx_mock
 async def test_fal_submit_non_2xx_raises() -> None:
-    respx.post(FAL_SUBMIT_URL).mock(
-        return_value=httpx.Response(401, json={"error": "unauthorized"})
-    )
+    respx_post(FAL_SUBMIT_URL).mock(return_value=Response(401, json={"error": "unauthorized"}))
     provider = FalQueueV1Provider()
 
-    with pytest.raises(VideoProviderError) as exc_info:
+    with raises(VideoProviderError) as exc_info:
         await provider.submit(_fal_request(), _fal_ctx())
     assert exc_info.value.code == "VIDEO_SUBMISSION_FAILED"
 
 
-@respx.mock
+@respx_mock
 async def test_fal_poll_maps_completed_to_succeeded() -> None:
-    respx.get(f"{FAL_REQ_URL}/status").mock(
-        return_value=httpx.Response(200, json={"status": "COMPLETED"})
+    respx_get(f"{FAL_REQ_URL}/status").mock(
+        return_value=Response(200, json={"status": "COMPLETED"})
     )
     provider = FalQueueV1Provider()
 
@@ -789,11 +788,9 @@ async def test_fal_poll_maps_completed_to_succeeded() -> None:
     assert status.extra["remote_status"] == "COMPLETED"
 
 
-@respx.mock
+@respx_mock
 async def test_fal_poll_maps_in_queue_to_queued() -> None:
-    respx.get(f"{FAL_REQ_URL}/status").mock(
-        return_value=httpx.Response(200, json={"status": "IN_QUEUE"})
-    )
+    respx_get(f"{FAL_REQ_URL}/status").mock(return_value=Response(200, json={"status": "IN_QUEUE"}))
     provider = FalQueueV1Provider()
 
     status = await provider.poll("req_1", _fal_ctx())
@@ -801,11 +798,9 @@ async def test_fal_poll_maps_in_queue_to_queued() -> None:
     assert status.raw_status == "queued"
 
 
-@respx.mock
+@respx_mock
 async def test_fal_poll_maps_failed() -> None:
-    respx.get(f"{FAL_REQ_URL}/status").mock(
-        return_value=httpx.Response(200, json={"status": "FAILED"})
-    )
+    respx_get(f"{FAL_REQ_URL}/status").mock(return_value=Response(200, json={"status": "FAILED"}))
     provider = FalQueueV1Provider()
 
     status = await provider.poll("req_1", _fal_ctx())
@@ -814,20 +809,20 @@ async def test_fal_poll_maps_failed() -> None:
     assert status.extra["remote_status"] == "FAILED"
 
 
-@respx.mock
+@respx_mock
 async def test_fal_poll_raises_on_http_error() -> None:
-    respx.get(f"{FAL_REQ_URL}/status").mock(return_value=httpx.Response(500, json={}))
+    respx_get(f"{FAL_REQ_URL}/status").mock(return_value=Response(500, json={}))
     provider = FalQueueV1Provider()
 
-    with pytest.raises(VideoProviderError) as exc_info:
+    with raises(VideoProviderError) as exc_info:
         await provider.poll("req_1", _fal_ctx())
     assert exc_info.value.code == "VIDEO_POLL_FAILED"
 
 
-@respx.mock
+@respx_mock
 async def test_fal_fetch_result_url() -> None:
-    respx.get(FAL_REQ_URL).mock(
-        return_value=httpx.Response(200, json={"output": {"video": {"url": FAL_VIDEO_URL}}})
+    respx_get(FAL_REQ_URL).mock(
+        return_value=Response(200, json={"output": {"video": {"url": FAL_VIDEO_URL}}})
     )
     provider = FalQueueV1Provider()
 
@@ -836,10 +831,10 @@ async def test_fal_fetch_result_url() -> None:
     assert url == FAL_VIDEO_URL
 
 
-@respx.mock
+@respx_mock
 async def test_fal_fetch_result_url_array_takes_first() -> None:
-    respx.get(FAL_REQ_URL).mock(
-        return_value=httpx.Response(
+    respx_get(FAL_REQ_URL).mock(
+        return_value=Response(
             200,
             json={"output": {"video": {"url": [FAL_VIDEO_URL, "https://cdn.example.com/v2.mp4"]}}},
         )
@@ -851,10 +846,10 @@ async def test_fal_fetch_result_url_array_takes_first() -> None:
     assert url == FAL_VIDEO_URL
 
 
-@respx.mock
+@respx_mock
 async def test_fal_fetch_result_url_string_output() -> None:
-    respx.get(FAL_REQ_URL).mock(
-        return_value=httpx.Response(200, json={"output": {"video": FAL_VIDEO_URL}})
+    respx_get(FAL_REQ_URL).mock(
+        return_value=Response(200, json={"output": {"video": FAL_VIDEO_URL}})
     )
     provider = FalQueueV1Provider()
 
@@ -863,20 +858,20 @@ async def test_fal_fetch_result_url_string_output() -> None:
     assert url == FAL_VIDEO_URL
 
 
-@respx.mock
+@respx_mock
 async def test_fal_fetch_result_url_none_on_http_error() -> None:
-    respx.get(FAL_REQ_URL).mock(return_value=httpx.Response(404, json={}))
+    respx_get(FAL_REQ_URL).mock(return_value=Response(404, json={}))
     provider = FalQueueV1Provider()
 
     assert await provider.fetch_result_url("req_1", _fal_ctx()) is None
 
 
-@respx.mock
+@respx_mock
 async def test_fal_download_result_returns_bytes() -> None:
-    respx.get(FAL_REQ_URL).mock(
-        return_value=httpx.Response(200, json={"output": {"video": {"url": FAL_VIDEO_URL}}})
+    respx_get(FAL_REQ_URL).mock(
+        return_value=Response(200, json={"output": {"video": {"url": FAL_VIDEO_URL}}})
     )
-    respx.get(FAL_VIDEO_URL).mock(return_value=httpx.Response(200, content=b"VIDEO_BYTES"))
+    respx_get(FAL_VIDEO_URL).mock(return_value=Response(200, content=b"VIDEO_BYTES"))
     provider = FalQueueV1Provider()
 
     data = await provider.download_result("req_1", _fal_ctx())
@@ -884,9 +879,9 @@ async def test_fal_download_result_returns_bytes() -> None:
     assert data == b"VIDEO_BYTES"
 
 
-@respx.mock
+@respx_mock
 async def test_fal_cancel_returns_true_on_2xx() -> None:
-    respx.delete(f"{FAL_REQ_URL}/cancel").mock(return_value=httpx.Response(202))
+    respx_delete(f"{FAL_REQ_URL}/cancel").mock(return_value=Response(202))
     provider = FalQueueV1Provider()
 
     assert await provider.cancel("req_1", _fal_ctx()) is True

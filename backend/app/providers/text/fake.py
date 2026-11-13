@@ -4,8 +4,10 @@
 可在测试中通过继承覆写 generate 以模拟特定行为（如返回结构化 JSON、超时、非法 JSON）。
 """
 
+from re import search as regex_search
 from typing import Any
 
+from app.prompts.director import to_cn_index
 from app.providers.text.base import TextCapabilities, TextProvider, TextResult
 
 
@@ -46,14 +48,11 @@ class FakeTextProvider(TextProvider):
             )
 
         if "AI 视觉执行导演" in sys_text and structured:
-            import re
-
-            match = re.search(r"拆解为\s*(\d+)\s*个片段", sys_text)
+            match = regex_search(r"拆解为\s*(\d+)\s*个片段", sys_text)
             seg_count = int(match.group(1)) if match else 3
-            cn_nums = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
             segments = []
             for idx in range(1, seg_count + 1):
-                cn = cn_nums[idx] if idx <= 10 else str(idx)
+                cn = to_cn_index(idx)
                 segments.append(
                     {
                         "index": idx,

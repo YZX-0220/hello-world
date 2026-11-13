@@ -1,7 +1,7 @@
 """全片 AI 统筹规划（AI 导演向导）编排服务。"""
 
-import math
-from typing import Any
+from math import ceil
+from typing import Any, ClassVar
 
 from pydantic import ValidationError
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -9,6 +9,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.config import settings
 from app.core.errors import (
     AGENT_OUTPUT_INVALID,
+    CONVERSATION_NOT_FOUND,
     TEXT_PROVIDER_TIMEOUT,
     TEXT_PROVIDER_UNAVAILABLE,
     AppError,
@@ -21,6 +22,7 @@ from app.prompts.director import (
 )
 from app.providers.text import get_text_provider
 from app.providers.text.base import TextProvider, TextProviderError
+from app.repositories.conversations import ConversationRepository
 from app.repositories.cultural_guidances import CulturalGuidanceRepository
 from app.repositories.prompt_templates import PromptTemplateRepository
 from app.schemas.director import (
@@ -29,13 +31,46 @@ from app.schemas.director import (
     DirectorOutlineRequest,
     DirectorOutlineResponse,
 )
-from app.services.conversation_service import ConversationService
 
 
 class DirectorAgentService:
+    _TOP_WRAPPER_KEYS: ClassVar[tuple[str, ...]] = ("data", "result", "breakdown", "plan")
+    _SEGMENTS_KEYS: ClassVar[tuple[str, ...]] = (
+        "segments",
+        "storyboards",
+        "shots",
+        "clips",
+        "items",
+    )
+    _TIMELINE_KEYS: ClassVar[tuple[str, ...]] = (
+        "timeline_prompt",
+        "prompt",
+        "content",
+        "description",
+        "script",
+    )
+    _STYLE_KEYS: ClassVar[tuple[str, ...]] = (
+        "style_node_content",
+        "style_prompt",
+        "visual_style",
+        "style",
+    )
+    _CULTURAL_KEYS: ClassVar[tuple[str, ...]] = (
+        "cultural_node_content",
+        "cultural_prompt",
+        "cultural_guidance",
+        "cultural",
+    )
+    _IMAGE_KEYS: ClassVar[tuple[str, ...]] = (
+        "image_asset_prompts",
+        "image_prompts",
+        "asset_prompts",
+        "key_frames",
+    )
+
     def __init__(self, session: AsyncSession, provider: TextProvider | None = None) -> None:
         self._session = session
-        self._convs = ConversationService(session)
+        self._convs = ConversationRepository(session)
         self._cultural_repo = CulturalGuidanceRepository(session)
         self._template_repo = PromptTemplateRepository(session)
         self._provider: TextProvider = provider or get_text_provider()
@@ -48,12 +83,38 @@ class DirectorAgentService:
             return AppError(AGENT_OUTPUT_INVALID, exc.message)
         return AppError(TEXT_PROVIDER_UNAVAILABLE, exc.message)
 
+    @staticmethod
+    def _pick_str(data: dict[str, Any], keys: tuple[str, ...]) -> str:
+        for key in keys:
+            val = data.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+            if isinstance(val, list):
+                joined = "\n".join(str(item).strip() for item in val if str(item).strip())
+                if joined:
+                    return joined
+        return ""
+
+    @classmethod
+    def _unwrap_payload(cls, raw: dict[str, Any]) -> dict[str, Any]:
+        for key in cls._TOP_WRAPPER_KEYS:
+            inner = raw.get(key)
+            if isinstance(inner, dict) and any(k in inner for k in cls._SEGMENTS_KEYS):
+                return inner
+        return raw
+
+    async def _require_conversation(self, user_id: str, conversation_id: str) -> None:
+        if await self._convs.get(user_id, conversation_id) is None:
+            raise AppError(CONVERSATION_NOT_FOUND)
+
     async def generate_outline(
         self, user_id: str, conversation_id: str, req: DirectorOutlineRequest
     ) -> DirectorOutlineResponse:
         """Step 1：首次生成或根据用户手改草稿 + 修改意见迭代全片剧本大纲。"""
-        await self._convs.get_or_404(user_id, conversation_id)
-        recommended_segments = max(1, math.ceil(req.total_duration / 15))
+        await self._require_conversation(user_id, conversation_id)
+        # 在调用长耗时文本模型前释放只读查询事务，避免占用 SQLite 连接
+        await self._session.rollback()
+        recommended_segments = max(1, ceil(req.total_duration / 15))
 
         messages = build_outline_messages(
             total_duration=req.total_duration,
@@ -83,8 +144,9 @@ class DirectorAgentService:
             recommended_segments=recommended_segments,
         )
 
-    @staticmethod
+    @classmethod
     def _normalize_breakdown(
+        cls,
         raw: dict[str, Any] | None,
         *,
         segment_count: int,
@@ -95,11 +157,19 @@ class DirectorAgentService:
         if not isinstance(raw, dict):
             raise AppError(AGENT_OUTPUT_INVALID, "AI 分镜拆解输出格式异常，请重试")
 
-        raw_segments = raw.get("segments")
+        payload = cls._unwrap_payload(raw)
+        raw_segments: Any = None
+        for key in cls._SEGMENTS_KEYS:
+            candidate = payload.get(key)
+            if isinstance(candidate, list):
+                raw_segments = candidate
+                break
+
         if not isinstance(raw_segments, list) or len(raw_segments) < segment_count:
+            actual = len(raw_segments) if isinstance(raw_segments, list) else 0
             raise AppError(
                 AGENT_OUTPUT_INVALID,
-                f"AI 返回的分镜片段数量不足（期望 {segment_count} 个），请重试",
+                f"AI 返回的分镜片段数量不足（期望 {segment_count} 个，实际 {actual} 个），请重试",
             )
 
         # 若模型多吐出了片段，截断到精确长度并强制规范 index / title / duration
@@ -107,7 +177,7 @@ class DirectorAgentService:
         for idx, seg in enumerate(raw_segments[:segment_count], start=1):
             if not isinstance(seg, dict):
                 raise AppError(AGENT_OUTPUT_INVALID, "AI 分镜片段条目格式非法，请重试")
-            timeline_prompt = str(seg.get("timeline_prompt") or "").strip()
+            timeline_prompt = cls._pick_str(seg, cls._TIMELINE_KEYS)
             if not timeline_prompt:
                 raise AppError(
                     AGENT_OUTPUT_INVALID, f"片段{to_cn_index(idx)}缺少时间轴提示词，请重试"
@@ -121,9 +191,9 @@ class DirectorAgentService:
                 }
             )
 
-        style_content = str(raw.get("style_node_content") or "").strip()
-        cultural_content = str(raw.get("cultural_node_content") or "").strip()
-        image_prompts = str(raw.get("image_asset_prompts") or "").strip()
+        style_content = cls._pick_str(payload, cls._STYLE_KEYS)
+        cultural_content = cls._pick_str(payload, cls._CULTURAL_KEYS)
+        image_prompts = cls._pick_str(payload, cls._IMAGE_KEYS)
 
         if not style_content:
             style_content = "【整体视觉风格】4K电影级写实质感，自然光线，平稳运镜，色调统一。"
@@ -152,9 +222,9 @@ class DirectorAgentService:
         self, user_id: str, conversation_id: str, req: DirectorBreakdownRequest
     ) -> DirectorBreakdownResponse:
         """Step 2 -> Step 3：结合国别禁忌、负面词与风格模板，将剧本按秒级时间轴拆解为多节点结构。"""
-        await self._convs.get_or_404(user_id, conversation_id)
+        await self._require_conversation(user_id, conversation_id)
 
-        # 1. 查询国别文化库（带空列表防护）
+        # 1. 查询国别文化库（带空列表防护，且按用户勾选顺序排列）
         guidances = await self._cultural_repo.list_by_codes(req.country_codes)
         country_names = "、".join(g.name for g in guidances) or "全球通用受众"
         cultural_taboos = (
@@ -182,6 +252,9 @@ class DirectorAgentService:
         )
         db_negative_prompts = "、".join(dict.fromkeys(neg_parts))
 
+        # 所有数据库查询完成后立即结束事务，避免在等待大模型响应期间持有 SQLite 连接
+        await self._session.rollback()
+
         # 3. 分配各片段时长（对齐 5/10/15s 档位且满足 1~15s 模型限制）
         seg_durations = allocate_segment_durations(req.total_duration, req.segment_count)
 
@@ -207,10 +280,45 @@ class DirectorAgentService:
         except TextProviderError as exc:
             raise self._map_provider_error(exc) from exc
 
-        return self._normalize_breakdown(
-            result.structured,
-            segment_count=req.segment_count,
-            seg_durations=seg_durations,
-            country_names=country_names,
-            db_negative_prompts=db_negative_prompts,
-        )
+        try:
+            return self._normalize_breakdown(
+                result.structured,
+                segment_count=req.segment_count,
+                seg_durations=seg_durations,
+                country_names=country_names,
+                db_negative_prompts=db_negative_prompts,
+            )
+        except AppError as first_err:
+            # 片段数量不足或关键字段缺失时，做一次受控修复重试
+            if first_err.code != str(AGENT_OUTPUT_INVALID):
+                raise
+            repair_messages = [
+                *messages,
+                {"role": "assistant", "content": result.reply or "{}"},
+                {
+                    "role": "user",
+                    "content": (
+                        f"你上次输出的 JSON 未满足结构约束（原因：{first_err.message}）。"
+                        f"请重新输出一个合法的 JSON 对象，确保 `segments` 列表严格包含 {req.segment_count} 个片段，"
+                        "且每个片段都包含非空的 `timeline_prompt` 字段。"
+                    ),
+                },
+            ]
+            try:
+                repaired = await self._provider.generate(
+                    repair_messages,
+                    structured=True,
+                    temperature=settings.director_breakdown_temperature,
+                    max_tokens=settings.director_breakdown_max_tokens,
+                    timeout=settings.director_timeout,
+                )
+            except TextProviderError as exc:
+                raise self._map_provider_error(exc) from exc
+
+            return self._normalize_breakdown(
+                repaired.structured,
+                segment_count=req.segment_count,
+                seg_durations=seg_durations,
+                country_names=country_names,
+                db_negative_prompts=db_negative_prompts,
+            )

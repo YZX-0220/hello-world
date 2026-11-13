@@ -1,16 +1,16 @@
 """阶段 6 测试：视频协议只读接口 + 用户 API 配置 CRUD（密钥掩码 / revision / 乐观锁 / SSRF）。"""
 
-import uuid
+from uuid import uuid4
 
-import httpx
 from app.providers.email.fake import fake_instance
+from httpx import AsyncClient
 
 ORIGIN = "http://127.0.0.1:5173"
 PASSWORD = "password123"
 
 
-async def _register(client: httpx.AsyncClient) -> None:
-    email = f"vapi-{uuid.uuid4().hex[:8]}@test.com"
+async def _register(client: AsyncClient) -> None:
+    email = f"vapi-{uuid4().hex[:8]}@test.com"
     await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
     code = fake_instance.sent[-1]["code"]
     resp = await client.post(
@@ -19,7 +19,7 @@ async def _register(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 201, resp.text
 
 
-def _headers(client: httpx.AsyncClient) -> dict[str, str]:
+def _headers(client: AsyncClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies.get("hw_csrf", ""), "Origin": ORIGIN}
 
 
@@ -38,7 +38,7 @@ def _create_payload() -> dict:
     }
 
 
-async def test_video_protocols_readonly(client: httpx.AsyncClient) -> None:
+async def test_video_protocols_readonly(client: AsyncClient) -> None:
     await _register(client)
 
     presets = await client.get("/api/v1/video-api-presets")
@@ -63,7 +63,7 @@ async def test_video_protocols_readonly(client: httpx.AsyncClient) -> None:
     assert any(p["code"] == "text_reference_media" for p in profiles.json()["items"])
 
 
-async def test_reject_unsafe_base_url(client: httpx.AsyncClient) -> None:
+async def test_reject_unsafe_base_url(client: AsyncClient) -> None:
     await _register(client)
     headers = _headers(client)
     payload = _create_payload()
@@ -74,7 +74,7 @@ async def test_reject_unsafe_base_url(client: httpx.AsyncClient) -> None:
     assert resp.json()["error"]["code"] == "UNSAFE_BASE_URL"
 
 
-async def test_create_config_and_key_mask(client: httpx.AsyncClient) -> None:
+async def test_create_config_and_key_mask(client: AsyncClient) -> None:
     await _register(client)
     headers = _headers(client)
 
@@ -88,7 +88,7 @@ async def test_create_config_and_key_mask(client: httpx.AsyncClient) -> None:
     assert "sk-secret" not in str(body)
 
 
-async def test_duplicate_display_name_conflict(client: httpx.AsyncClient) -> None:
+async def test_duplicate_display_name_conflict(client: AsyncClient) -> None:
     await _register(client)
     headers = _headers(client)
     await client.post("/api/v1/video-api-configs", json=_create_payload(), headers=headers)
@@ -97,7 +97,7 @@ async def test_duplicate_display_name_conflict(client: httpx.AsyncClient) -> Non
     assert resp.json()["error"]["code"] == "VIDEO_CONFIG_NAME_EXISTS"
 
 
-async def test_patch_identity_no_new_revision(client: httpx.AsyncClient) -> None:
+async def test_patch_identity_no_new_revision(client: AsyncClient) -> None:
     await _register(client)
     headers = _headers(client)
     created = (
@@ -116,7 +116,7 @@ async def test_patch_identity_no_new_revision(client: httpx.AsyncClient) -> None
     assert body["current_revision"] == 1  # 不新建连接 revision
 
 
-async def test_patch_connection_creates_revision(client: httpx.AsyncClient) -> None:
+async def test_patch_connection_creates_revision(client: AsyncClient) -> None:
     await _register(client)
     headers = _headers(client)
     created = (
@@ -135,7 +135,7 @@ async def test_patch_connection_creates_revision(client: httpx.AsyncClient) -> N
     assert body["verification_status"] == "unverified"  # 变更后需重新检测
 
 
-async def test_delete_then_not_found(client: httpx.AsyncClient) -> None:
+async def test_delete_then_not_found(client: AsyncClient) -> None:
     await _register(client)
     headers = _headers(client)
     created = (
@@ -152,7 +152,7 @@ async def test_delete_then_not_found(client: httpx.AsyncClient) -> None:
     assert fetched.json()["error"]["code"] == "VIDEO_API_CONFIG_NOT_FOUND"
 
 
-async def test_retest_persisted_config(client: httpx.AsyncClient) -> None:
+async def test_retest_persisted_config(client: AsyncClient) -> None:
     await _register(client)
     headers = _headers(client)
     created = (
@@ -180,7 +180,7 @@ def _custom_template_payload() -> dict:
     return payload
 
 
-async def test_create_config_with_custom_template(client: httpx.AsyncClient) -> None:
+async def test_create_config_with_custom_template(client: AsyncClient) -> None:
     """template_mode="custom" 时把用户模板组装进 custom_template_json 落库，视图可回读。"""
     await _register(client)
     headers = _headers(client)
@@ -196,7 +196,7 @@ async def test_create_config_with_custom_template(client: httpx.AsyncClient) -> 
     assert body["custom_template_json"]["result_url_path"] == "video"
 
 
-async def test_create_config_custom_template_missing_required(client: httpx.AsyncClient) -> None:
+async def test_create_config_custom_template_missing_required(client: AsyncClient) -> None:
     """template_mode="custom" 缺必填字段（submit_path）→ 422 VIDEO_CONFIG_INVALID。"""
     await _register(client)
     headers = _headers(client)
@@ -207,7 +207,7 @@ async def test_create_config_custom_template_missing_required(client: httpx.Asyn
     assert resp.json()["error"]["code"] == "VIDEO_CONFIG_INVALID"
 
 
-async def test_create_config_builtin_ignores_custom_fields(client: httpx.AsyncClient) -> None:
+async def test_create_config_builtin_ignores_custom_fields(client: AsyncClient) -> None:
     """builtin 场景（默认）忽略自定义模板字段：custom_template_json 为 None，不污染 builtin。"""
     await _register(client)
     headers = _headers(client)

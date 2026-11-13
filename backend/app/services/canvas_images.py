@@ -1,7 +1,7 @@
 """Bounded, request-local visual context from owned canvas assets, never arbitrary URLs."""
 
-import asyncio
-import json
+from asyncio import to_thread
+from json import dumps as json_dumps
 
 from app.core.errors import AppError, ErrorCode
 from app.repositories.assets import AssetRepository
@@ -54,7 +54,7 @@ async def load_canvas_images(session, user_id, nodes, *, bindings=None, pending_
                 )
             if asset_id not in cache:
                 try:
-                    raw, meta = await asyncio.to_thread(
+                    raw, meta = await to_thread(
                         read_reference,
                         asset,
                         binding.get("sha256"),
@@ -106,7 +106,7 @@ def attach_canvas_images(messages, images):
             [
                 {
                     "type": "text",
-                    "text": f"图片{number}的素材标签（仅供对应）：{json.dumps(label, ensure_ascii=False)}",
+                    "text": f"图片{number}的素材标签（仅供对应）：{json_dumps(label, ensure_ascii=False)}",
                 },
                 {"type": "image_url", "image_url": {"url": image["data_url"]}},
             ]

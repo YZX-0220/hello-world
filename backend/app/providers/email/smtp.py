@@ -5,7 +5,7 @@
 
 from email.message import EmailMessage
 
-import aiosmtplib
+from aiosmtplib import SMTP
 
 from app.core.config import settings
 from app.core.enums import EmailCodePurpose
@@ -36,7 +36,7 @@ class SmtpEmailProvider(EmailProvider):
         message["Subject"] = subject
         message.set_content(body)
 
-        smtp = aiosmtplib.SMTP(
+        smtp = SMTP(
             hostname=settings.smtp_host,
             port=settings.smtp_port,
             username=settings.smtp_username or None,

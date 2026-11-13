@@ -2,7 +2,6 @@
 
 from datetime import datetime, timedelta
 
-import pytest
 from app.core.enums import AgentRunStatus, UserStatus
 from app.db.models.agent import AgentRun
 from app.db.models.asset import Asset
@@ -11,12 +10,13 @@ from app.db.models.material_library import MaterialLibraryItem
 from app.db.models.site_traffic import SiteTrafficTotal
 from app.db.models.user import User
 from app.db.models.video_job import VideoJob
+from pytest import mark
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 SUMMARY_URL = "/api/v1/site-traffic/summary"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_platform_metrics_aggregation(client, db_engine):
     # 1. 准备测试数据
     now_dt = datetime.now()

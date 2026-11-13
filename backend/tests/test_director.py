@@ -1,15 +1,14 @@
 """全片 AI 统筹规划（AI 导演向导）接口与服务测试。"""
 
-import httpx
-import pytest
 from app.core.config import settings
 from app.providers.email.fake import fake_instance
-from app.providers.text import openai_compatible as openai_mod
+from httpx import AsyncClient, Response
+from pytest import MonkeyPatch, mark
 
 ORIGIN = "http://127.0.0.1:5173"
 
 
-async def _register(client: httpx.AsyncClient, email: str = "director@test.com") -> None:
+async def _register(client: AsyncClient, email: str = "director@test.com") -> None:
     await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
     code = fake_instance.sent[-1]["code"]
     resp = await client.post(
@@ -19,11 +18,11 @@ async def _register(client: httpx.AsyncClient, email: str = "director@test.com")
     assert resp.status_code == 201
 
 
-def _csrf_headers(client: httpx.AsyncClient) -> dict[str, str]:
+def _csrf_headers(client: AsyncClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies.get("hw_csrf", ""), "Origin": ORIGIN}
 
 
-async def _create_conversation(client: httpx.AsyncClient, title: str = "竹编出海短片") -> str:
+async def _create_conversation(client: AsyncClient, title: str = "竹编出海短片") -> str:
     resp = await client.post(
         "/api/v1/conversations", json={"title": title}, headers=_csrf_headers(client)
     )
@@ -31,8 +30,8 @@ async def _create_conversation(client: httpx.AsyncClient, title: str = "竹编�
     return resp.json()["conversation"]["id"]
 
 
-@pytest.mark.asyncio
-async def test_director_auth_csrf_and_ownership(client: httpx.AsyncClient) -> None:
+@mark.asyncio
+async def test_director_auth_csrf_and_ownership(client: AsyncClient) -> None:
     # 1. 未登录访问（带或不带 CSRF 均应被拦截，不能返回 200/404）
     res_unauth = await client.post(
         "/api/v1/conversations/conv_any/director/outline",
@@ -78,8 +77,8 @@ async def test_director_auth_csrf_and_ownership(client: httpx.AsyncClient) -> No
     assert res_other.json()["error"]["code"] == "CONVERSATION_NOT_FOUND"
 
 
-@pytest.mark.asyncio
-async def test_director_schema_extra_forbid_and_validation(client: httpx.AsyncClient) -> None:
+@mark.asyncio
+async def test_director_schema_extra_forbid_and_validation(client: AsyncClient) -> None:
     await _register(client, "schema@test.com")
     conv_id = await _create_conversation(client)
 
@@ -104,8 +103,8 @@ async def test_director_schema_extra_forbid_and_validation(client: httpx.AsyncCl
     assert res_range.status_code == 422
 
 
-@pytest.mark.asyncio
-async def test_director_outline_and_breakdown_happy_path(client: httpx.AsyncClient) -> None:
+@mark.asyncio
+async def test_director_outline_and_breakdown_happy_path(client: AsyncClient) -> None:
     await _register(client, "happy@test.com")
     conv_id = await _create_conversation(client)
 
@@ -181,9 +180,9 @@ async def test_director_outline_and_breakdown_happy_path(client: httpx.AsyncClie
     assert bd_12["segments"][11]["title"] == "片段十二"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_director_openai_compatible_markdown_fence_and_error_format(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    client: AsyncClient, monkeypatch: MonkeyPatch
 ) -> None:
     await _register(client, "llm@test.com")
     conv_id = await _create_conversation(client)
@@ -193,7 +192,7 @@ async def test_director_openai_compatible_markdown_fence_and_error_format(
     monkeypatch.setattr(settings, "text_api_key", "sk-test")
     monkeypatch.setattr(settings, "text_model", "deepseek-v3")
 
-    # 1. 模拟 LLM 返回带 ```json 代码围栏的响应 + 片段数超出时截断 + 验证 temperature/max_tokens 透传
+    # 1. 模拟 LLM 返回带 ```json 代码围栏的包装对象 + 别名字段（shots/prompt）+ 片段数超出时截断 + 验证 temperature/max_tokens 透传
     captured_payload: dict = {}
 
     async def mock_post_fence(self, url, *, json=None, headers=None, **kwargs):
@@ -202,37 +201,39 @@ async def test_director_openai_compatible_markdown_fence_and_error_format(
         content = (
             "```json\n"
             "{\n"
-            '  "style_node_content": "暖调写实电影质感",\n'
-            '  "cultural_node_content": "法国受众适配",\n'
-            '  "image_asset_prompts": "老匠人首帧图",\n'
-            '  "segments": [\n'
-            '    {"index": 1, "title": "Seg1", "duration": 15, "timeline_prompt": "0-5秒：全景竹林"},\n'
-            '    {"index": 2, "title": "Seg2", "duration": 15, "timeline_prompt": "0-5秒：欧洲客厅"},\n'
-            '    {"index": 3, "title": "Seg3", "duration": 15, "timeline_prompt": "多余片段"}\n'
-            "  ]\n"
+            '  "data": {\n'
+            '    "style_prompt": "暖调写实电影质感",\n'
+            '    "cultural_prompt": "法国受众适配",\n'
+            '    "key_frames": "老匠人首帧图",\n'
+            '    "shots": [\n'
+            '      {"index": 1, "title": "Seg1", "duration": 15, "prompt": "0-5秒：全景竹林"},\n'
+            '      {"index": 2, "title": "Seg2", "duration": 15, "prompt": "0-5秒：欧洲客厅"},\n'
+            '      {"index": 3, "title": "Seg3", "duration": 15, "prompt": "多余片段"}\n'
+            "    ]\n"
+            "  }\n"
             "}\n"
             "```"
         )
-        return httpx.Response(
+        return Response(
             200,
             json={"model": "deepseek-v3", "choices": [{"message": {"content": content}}]},
         )
 
-    orig_post = httpx.AsyncClient.post
+    orig_post = AsyncClient.post
 
     async def dispatch_post(self, url, *args, **kwargs):
         if str(url).startswith("https://mock-llm.example.com"):
             return await mock_post_fence(self, url, *args, **kwargs)
         return await orig_post(self, url, *args, **kwargs)
 
-    monkeypatch.setattr(httpx.AsyncClient, "post", dispatch_post)
+    monkeypatch.setattr(AsyncClient, "post", dispatch_post)
     res_ok = await client.post(
         f"/api/v1/conversations/{conv_id}/director/breakdown",
         json={
             "total_duration": 30,
             "segment_count": 2,
             "script_draft": "【核心立意】东方匠心走进欧洲家庭的跨文化微电影",
-            "country_codes": ["FR"],
+            "country_codes": ["fr", " "],
         },
         headers=_csrf_headers(client),
     )
@@ -242,8 +243,47 @@ async def test_director_openai_compatible_markdown_fence_and_error_format(
     data_ok = res_ok.json()
     assert len(data_ok["segments"]) == 2
     assert [s["title"] for s in data_ok["segments"]] == ["片段一", "片段二"]
+    assert data_ok["style_node_content"] == "暖调写实电影质感"
+    assert "老匠人首帧图" in data_ok["image_asset_prompts"]
 
-    # 2. 模拟 LLM 返回的片段数量不足（只返回 1 个，请求要 2 个）-> 返回统一 error 信封
+    # 2. 模拟首次片段数量不足，但在自动受控修复重试后成功补齐
+    attempt_calls = 0
+
+    async def mock_post_repaired(self, url, *, json=None, headers=None, **kwargs):
+        nonlocal attempt_calls
+        if not str(url).startswith("https://mock-llm.example.com"):
+            return await orig_post(self, url, json=json, headers=headers, **kwargs)
+        attempt_calls += 1
+        if attempt_calls == 1:
+            content = (
+                '{"style_node_content": "a", "cultural_node_content": "b", "image_asset_prompts": "c",'
+                ' "segments": [{"index": 1, "title": "片段一", "duration": 15, "timeline_prompt": "0-5秒：首段"}]}'
+            )
+        else:
+            content = (
+                '{"style_node_content": "a", "cultural_node_content": "b", "image_asset_prompts": "c",'
+                ' "segments": ['
+                '{"index": 1, "title": "片段一", "duration": 15, "timeline_prompt": "0-5秒：首段"},'
+                '{"index": 2, "title": "片段二", "duration": 15, "timeline_prompt": "0-5秒：次段"}'
+                "]}"
+            )
+        return Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    monkeypatch.setattr(AsyncClient, "post", mock_post_repaired)
+    res_repaired = await client.post(
+        f"/api/v1/conversations/{conv_id}/director/breakdown",
+        json={
+            "total_duration": 30,
+            "segment_count": 2,
+            "script_draft": "【核心立意】东方匠心走进欧洲家庭的跨文化微电影",
+        },
+        headers=_csrf_headers(client),
+    )
+    assert res_repaired.status_code == 200
+    assert attempt_calls == 2
+    assert len(res_repaired.json()["segments"]) == 2
+
+    # 3. 模拟修复重试后片段数量仍不足 -> 返回统一 error 信封
     async def mock_post_short(self, url, *, json=None, headers=None, **kwargs):
         if not str(url).startswith("https://mock-llm.example.com"):
             return await orig_post(self, url, json=json, headers=headers, **kwargs)
@@ -251,9 +291,9 @@ async def test_director_openai_compatible_markdown_fence_and_error_format(
             '{"style_node_content": "a", "cultural_node_content": "b", "image_asset_prompts": "c",'
             ' "segments": [{"index": 1, "title": "片段一", "duration": 15, "timeline_prompt": "0-5秒：..."}]}'
         )
-        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+        return Response(200, json={"choices": [{"message": {"content": content}}]})
 
-    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post_short)
+    monkeypatch.setattr(AsyncClient, "post", mock_post_short)
     res_err = await client.post(
         f"/api/v1/conversations/{conv_id}/director/breakdown",
         json={
@@ -267,4 +307,3 @@ async def test_director_openai_compatible_markdown_fence_and_error_format(
     err_body = res_err.json()
     assert err_body["error"]["code"] == "AGENT_OUTPUT_INVALID"
     assert "request_id" in err_body["error"]
-    assert openai_mod is not None

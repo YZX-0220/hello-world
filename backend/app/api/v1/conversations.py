@@ -3,7 +3,8 @@
 写接口要求登录 + CSRF；读接口要求登录。
 """
 
-import json
+from json import dumps as json_dumps
+from json import loads as json_loads
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -45,8 +46,8 @@ _LIMIT_MAX = 100
 
 
 def _project_view(project: VideoProject, suggested_prompt: str | None = None) -> VideoProjectView:
-    spec = json.loads(project.current_spec_json or "{}")
-    canvas = json.loads(project.canvas_data_json) if project.canvas_data_json else None
+    spec = json_loads(project.current_spec_json or "{}")
+    canvas = json_loads(project.canvas_data_json) if project.canvas_data_json else None
     if canvas and isinstance(canvas.get("nodes"), list):
         for node in canvas["nodes"]:
             # 兼容处理：确保有 asset_id 的节点具有正确的相对路径 url
@@ -181,7 +182,7 @@ async def send_message(
 
 def _sse_event(event: str, data: dict) -> str:
     """SSE 编码：`event:` 一行 + `data:` 一行（JSON）+ 空行分隔，便于前端逐帧解析。"""
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+    return f"event: {event}\ndata: {json_dumps(data, ensure_ascii=False)}\n\n"
 
 
 @router.post("/conversations/{conversation_id}/messages/stream")
@@ -250,7 +251,7 @@ async def confirm_project(
     if project is None:
         raise AppError(CONVERSATION_NOT_FOUND)
     await ConversationService(session).get_or_404(user.id, conversation_id)
-    data = json.loads(project.canvas_data_json or "{}")
+    data = json_loads(project.canvas_data_json or "{}")
     if data.get("generation_spec_version") == payload.spec_version:
         await reviewed_version(session, project, payload.spec_version)
     else:
@@ -357,7 +358,7 @@ async def save_canvas(
     await ConversationService(session).get_or_404(user.id, conversation_id)
     project = await repo.save_canvas(
         project,
-        json.dumps(
+        json_dumps(
             await restore_review_metadata(session, project, payload.canvas_data.to_data()),
             ensure_ascii=False,
         ),

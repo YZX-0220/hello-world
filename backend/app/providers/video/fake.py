@@ -3,7 +3,7 @@
 不进行任何真实调用；result_url 为占位地址，阶段 8 只验证状态机流转，阶段 9 才做下载/双轨。
 """
 
-import secrets
+from secrets import token_hex
 
 from app.providers.video.base import (
     AdapterContext,
@@ -22,7 +22,7 @@ class FakeVideoProvider(VideoProvider):
         self._steps: dict[str, int] = {}
 
     async def submit(self, request: dict, ctx: AdapterContext) -> VideoSubmitResult:
-        task_id = f"fake-{secrets.token_hex(4)}"
+        task_id = f"fake-{token_hex(4)}"
         self._steps[task_id] = 0
         return VideoSubmitResult(provider_task_id=task_id, provider_context_id=None)
 

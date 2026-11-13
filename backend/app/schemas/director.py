@@ -23,6 +23,14 @@ class DirectorOutlineRequest(BaseModel):
             raise ValueError("核心创意描述至少需要 2 个有效字符")
         return stripped
 
+    @field_validator("current_draft", "revision_instruction")
+    @classmethod
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
 
 class DirectorOutlineResponse(BaseModel):
     script_draft: str
@@ -52,6 +60,19 @@ class DirectorBreakdownRequest(BaseModel):
         if len(stripped) < 10:
             raise ValueError("确认后的剧本正文至少需要 10 个有效字符")
         return stripped
+
+    @field_validator("country_codes")
+    @classmethod
+    def normalize_country_codes(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(c.strip().upper() for c in value if c and c.strip()))
+
+    @field_validator("style_template_id", "custom_style_desc")
+    @classmethod
+    def strip_optional_fields(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class SegmentNodeSchema(BaseModel):

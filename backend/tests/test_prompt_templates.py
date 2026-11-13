@@ -2,16 +2,17 @@
 
 from datetime import datetime, timedelta
 
-import pytest
 from app.core.enums import UserStatus
 from app.core.security import new_session_token, token_sha256
 from app.db.models.user import User, UserSession
+from pytest import fixture as pytest_fixture
+from pytest import mark
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 TEMPLATES_URL = "/api/v1/prompt-templates"
 
 
-@pytest.fixture
+@pytest_fixture
 async def auth_client(client, db_engine):
     """准备已登录的客户端会话。"""
     async with AsyncSession(db_engine) as session:
@@ -36,7 +37,7 @@ async def auth_client(client, db_engine):
     return client
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_prompt_templates_full_lifecycle_and_versioning(client, auth_client):
     # 1. 列表查询（自动加载系统预置模板）
     list_res = await client.get(TEMPLATES_URL)

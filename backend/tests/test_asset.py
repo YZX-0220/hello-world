@@ -1,16 +1,16 @@
 """阶段 7 测试：素材上传检测 / 权限下载 / 列表 / 删除 / 厂商签名素材 URL。"""
 
-import io
-import uuid
+from io import BytesIO
+from uuid import uuid4
 
-import httpx
-import pytest_asyncio
 from app.core.config import settings
 from app.db.models.asset import Asset
 from app.db.models.video_job import VideoJob, VideoJobAsset
 from app.providers.email.fake import fake_instance
 from app.services.provider_asset_url import sign_provider_asset
+from httpx import AsyncClient
 from PIL import Image
+from pytest_asyncio import fixture as async_fixture
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -20,13 +20,13 @@ PASSWORD = "password123"
 
 
 def _png(w: int = 4, h: int = 4) -> bytes:
-    buf = io.BytesIO()
+    buf = BytesIO()
     Image.new("RGB", (w, h), (255, 0, 0)).save(buf, format="PNG")
     return buf.getvalue()
 
 
-async def _register(client: httpx.AsyncClient, tag: str) -> None:
-    email = f"asset-{tag}-{uuid.uuid4().hex[:8]}@test.com"
+async def _register(client: AsyncClient, tag: str) -> None:
+    email = f"asset-{tag}-{uuid4().hex[:8]}@test.com"
     await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
     code = fake_instance.sent[-1]["code"]
     resp = await client.post(
@@ -35,18 +35,18 @@ async def _register(client: httpx.AsyncClient, tag: str) -> None:
     assert resp.status_code == 201, resp.text
 
 
-def _csrf(client: httpx.AsyncClient) -> dict[str, str]:
+def _csrf(client: AsyncClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies.get("hw_csrf", ""), "Origin": ORIGIN}
 
 
-@pytest_asyncio.fixture
+@async_fixture
 async def db_session(db_engine):
     sf = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
     async with sf() as s:
         yield s
 
 
-async def test_upload_png_and_read_content(client: httpx.AsyncClient) -> None:
+async def test_upload_png_and_read_content(client: AsyncClient) -> None:
     await _register(client, "u1")
     headers = _csrf(client)
     data = _png()
@@ -73,7 +73,7 @@ async def test_upload_png_and_read_content(client: httpx.AsyncClient) -> None:
         assert content.content == data
 
 
-async def test_reject_mismatched_content(client: httpx.AsyncClient) -> None:
+async def test_reject_mismatched_content(client: AsyncClient) -> None:
     await _register(client, "u2")
     headers = _csrf(client)
     # 声明 reference（图片）却传入非图片字节
@@ -87,7 +87,7 @@ async def test_reject_mismatched_content(client: httpx.AsyncClient) -> None:
     assert resp.json()["error"]["code"] == "ASSET_CONTENT_INVALID"
 
 
-async def test_asset_inaccessible_to_other_user(client: httpx.AsyncClient) -> None:
+async def test_asset_inaccessible_to_other_user(client: AsyncClient) -> None:
     await _register(client, "owner")
     headers = _csrf(client)
     created = (
@@ -106,7 +106,7 @@ async def test_asset_inaccessible_to_other_user(client: httpx.AsyncClient) -> No
     assert resp.json()["error"]["code"] == "ASSET_CONTENT_INVALID"
 
 
-async def test_list_and_delete(client: httpx.AsyncClient) -> None:
+async def test_list_and_delete(client: AsyncClient) -> None:
     await _register(client, "u3")
     headers = _csrf(client)
     for i in range(2):
@@ -129,7 +129,7 @@ async def test_list_and_delete(client: httpx.AsyncClient) -> None:
     assert all(item["id"] != aid for item in remaining["items"])
 
 
-async def test_provider_asset_token_flow(client: httpx.AsyncClient, db_session) -> None:
+async def test_provider_asset_token_flow(client: AsyncClient, db_session) -> None:
     """厂商签名 URL：绑定 asset+job → 单次可读；篡改 / 重放 → 404。"""
     await _register(client, "u4")
     headers = _csrf(client)

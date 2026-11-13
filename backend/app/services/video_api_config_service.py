@@ -7,8 +7,9 @@
   - 修改用乐观锁 expected_version，不匹配即冲突。
 """
 
-import json
 from datetime import datetime
+from json import dumps as json_dumps
+from json import loads as json_loads
 from typing import Any
 
 from app.core.config import settings
@@ -55,7 +56,7 @@ def _filter_options(options: dict[str, Any], refs: ProtocolReferences) -> str:
     """保留协议白名单内的公开选项（避免把秘密字段塞进 options）。"""
     allowed = {f.name for f in refs.preset.option_fields}
     filtered = {k: v for k, v in options.items() if k in allowed}
-    return json.dumps(filtered, ensure_ascii=False)
+    return json_dumps(filtered, ensure_ascii=False)
 
 
 def _stored_base_url(payload_base_url: str | None, refs: ProtocolReferences) -> str | None:
@@ -101,7 +102,7 @@ def _assemble_custom_template(fields: dict[str, Any]) -> str:
     missing = [k for k in _CUSTOM_TEMPLATE_REQUIRED if not fields.get(k)]
     if missing:
         raise AppError(VIDEO_CONFIG_INVALID, f"自定义模板缺少必填字段：{', '.join(missing)}")
-    return json.dumps(
+    return json_dumps(
         {
             "submit_method": fields.get("submit_method") or "POST",
             "submit_path": fields["submit_path"],
@@ -340,7 +341,7 @@ class VideoApiConfigService:
     ) -> TestVideoApiConfigResult:
         config = await self._require_config(user_id, config_id)
         revision = await self._require_revision(config)
-        auth = json.loads(
+        auth = json_loads(
             decrypt_secret(revision.encrypted_auth_json, settings.credential_encryption_keys)
         )
         payload = TestVideoApiConfigRequest(
@@ -350,7 +351,7 @@ class VideoApiConfigService:
             base_url=revision.base_url,
             remote_model_id=revision.remote_model_id,
             auth=auth,
-            options=json.loads(revision.public_options_json or "{}"),
+            options=json_loads(revision.public_options_json or "{}"),
             capability_profile_code=revision.capability_profile_code,
             relay_risk_accepted=revision.relay_risk_accepted_at is not None,
         )
@@ -384,7 +385,7 @@ class VideoApiConfigService:
         self, base: VideoApiConfigRevision, payload: VideoApiConfigPatchRequest
     ) -> TestVideoApiConfigRequest:
         """以当前 revision 为基准，用 patch 显式提供的覆盖，构造完整检测 payload。"""
-        current_auth = json.loads(
+        current_auth = json_loads(
             decrypt_secret(base.encrypted_auth_json, settings.credential_encryption_keys)
         )
         return TestVideoApiConfigRequest(
@@ -396,7 +397,7 @@ class VideoApiConfigService:
             base_url=payload.base_url if payload.base_url is not None else base.base_url,
             remote_model_id=payload.remote_model_id or base.remote_model_id,
             auth=payload.auth if payload.auth is not None else current_auth,
-            options=payload.options or json.loads(base.public_options_json or "{}"),
+            options=payload.options or json_loads(base.public_options_json or "{}"),
             capability_profile_code=payload.capability_profile_code
             if payload.capability_profile_code is not None
             else base.capability_profile_code,
@@ -421,7 +422,7 @@ class VideoApiConfigService:
         )
         if effective_mode != "custom":
             return None
-        current = json.loads(base.custom_template_json) if base.custom_template_json else {}
+        current = json_loads(base.custom_template_json) if base.custom_template_json else {}
         merged = {
             "submit_method": payload.submit_method or current.get("submit_method"),
             "submit_path": payload.submit_path or current.get("submit_path"),
@@ -468,14 +469,14 @@ class VideoApiConfigService:
             base_url=base_url,
             remote_model_id=remote_model_id,
             encrypted_auth_json=encrypt_secret(
-                json.dumps(auth, ensure_ascii=False), settings.credential_encryption_keys
+                json_dumps(auth, ensure_ascii=False), settings.credential_encryption_keys
             ),
             public_options_json=_filter_options(options, refs),
             capability_profile_code=capability_profile_code,
-            capabilities_json=json.dumps(list(refs.profile.modes)) if refs.profile else "[]",
+            capabilities_json=json_dumps(list(refs.profile.modes)) if refs.profile else "[]",
             capability_source=refs.capability_source,
             verification_status=verification_status,
-            key_hint_json=json.dumps(build_key_hint(auth), ensure_ascii=False),
+            key_hint_json=json_dumps(build_key_hint(auth), ensure_ascii=False),
             relay_risk_accepted_at=now() if source_type == "relay" else None,
             last_verified_at=last_verified_at,
             custom_template_json=custom_template_json,
@@ -485,7 +486,7 @@ class VideoApiConfigService:
         self, config: VideoApiConfig, revision: VideoApiConfigRevision
     ) -> VideoApiConfigView:
         custom = (
-            json.loads(revision.custom_template_json) if revision.custom_template_json else None
+            json_loads(revision.custom_template_json) if revision.custom_template_json else None
         )
         return VideoApiConfigView(
             id=config.id,
@@ -498,9 +499,9 @@ class VideoApiConfigService:
             template_code=revision.template_code,
             base_url=revision.base_url,
             remote_model_id=revision.remote_model_id,
-            key_hint_json=json.loads(revision.key_hint_json) if revision.key_hint_json else {},
+            key_hint_json=json_loads(revision.key_hint_json) if revision.key_hint_json else {},
             capability_profile_code=revision.capability_profile_code,
-            capabilities=json.loads(revision.capabilities_json or "[]"),
+            capabilities=json_loads(revision.capabilities_json or "[]"),
             verification_status=revision.verification_status,
             capability_source=revision.capability_source,
             relay_risk_accepted_at=revision.relay_risk_accepted_at,

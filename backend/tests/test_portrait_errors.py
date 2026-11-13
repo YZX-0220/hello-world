@@ -2,16 +2,18 @@
 
 from unittest.mock import AsyncMock
 
-import httpx
-import pytest
-import respx
 from app.providers.video.ark_seedance_v1 import ArkSeedanceProvider, _failure, _response_failure
 from app.providers.video.base import VideoProviderError
+from httpx import Response
+from pytest import mark, raises
+from respx import get as respx_get
+from respx import mock as respx_mock
+from respx import post as respx_post
 
 from test_video_adapters import SUBMIT_URL, TASK_URL, _ctx, _request
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "code,message",
     [
         (
@@ -37,7 +39,7 @@ def test_explicit_portrait_rejections_keep_vendor_code_in_message(code, message)
     assert "未接入专用人像通道" not in detail
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "code,message",
     [
         ("InvalidParameter", "Unsupported parameter in prompt: images of real people"),
@@ -71,12 +73,12 @@ async def test_submit_and_poll_normalize_portrait_errors_without_exposing_signed
         "code": "InputImageSensitiveContentDetected",
         "message": "The input image contains a real person, which is not supported. https://assets.invalid/secret-token Bearer private-key",
     }
-    with respx.mock:
-        respx.post(SUBMIT_URL).mock(return_value=httpx.Response(400, json={"error": vendor}))
-        respx.get(TASK_URL).mock(
-            return_value=httpx.Response(200, json={"status": "failed", "error": vendor})
+    with respx_mock:
+        respx_post(SUBMIT_URL).mock(return_value=Response(400, json={"error": vendor}))
+        respx_get(TASK_URL).mock(
+            return_value=Response(200, json={"status": "failed", "error": vendor})
         )
-        with pytest.raises(VideoProviderError) as raised:
+        with raises(VideoProviderError) as raised:
             await ArkSeedanceProvider().submit(_request(), _ctx())
         assert raised.value.code == "VIDEO_PORTRAIT_REJECTED"
         assert "InputImageSensitiveContentDetected" in raised.value.message
@@ -87,5 +89,5 @@ async def test_submit_and_poll_normalize_portrait_errors_without_exposing_signed
 
 
 def test_non_json_vendor_error_remains_ordinary_submission_failure():
-    code, _detail = _response_failure(httpx.Response(500, text="portrait"))
+    code, _detail = _response_failure(Response(500, text="portrait"))
     assert code == "VIDEO_SUBMISSION_FAILED"

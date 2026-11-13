@@ -3,9 +3,9 @@
 MVP 采用同步处理（发消息请求内等待模型返回并落库）。
 """
 
-import hashlib
-import json
-import logging
+from hashlib import sha256
+from json import dumps as json_dumps
+from logging import getLogger
 from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -27,7 +27,7 @@ from app.services.canvas_service import CanvasService
 from app.services.context_builder import build_summary_prompt
 from app.services.project_service import ProjectService
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
 
 
 class ConversationService:
@@ -43,12 +43,12 @@ class ConversationService:
         value = (
             content
             if collaboration is None
-            else json.dumps(
+            else json_dumps(
                 {"content": content, "canvas_collaboration": collaboration.model_dump()},
                 sort_keys=True,
             )
         )
-        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+        return sha256(value.encode("utf-8")).hexdigest()
 
     async def create_conversation(self, user_id: str, title: str | None) -> Conversation:
         return await self._convs.create(user_id, title)
@@ -389,7 +389,7 @@ class ConversationService:
                     agent_run_id=agent_run_id,
                     sequence=sequence,
                     tool_name="web_search",
-                    input_json=json.dumps({"query": query}, ensure_ascii=False),
+                    input_json=json_dumps({"query": query}, ensure_ascii=False),
                     status=ToolExecutionStatus.REQUESTED.value,
                     started_at=now(),
                 )
@@ -401,13 +401,13 @@ class ConversationService:
                     tool.status = ToolExecutionStatus.FAILED.value
                     tool.error_code = exc.code
                     tool.completed_at = now()
-                    tool.result_json = json.dumps({"error": exc.message[:2000]}, ensure_ascii=False)
+                    tool.result_json = json_dumps({"error": exc.message[:2000]}, ensure_ascii=False)
                     tools.append(tool)
                 continue
             if tool is not None:
                 tool.status = ToolExecutionStatus.SUCCEEDED.value
                 tool.completed_at = now()
-                tool.result_json = json.dumps(
+                tool.result_json = json_dumps(
                     {
                         "query": query,
                         "results": [

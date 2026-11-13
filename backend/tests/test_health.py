@@ -4,12 +4,12 @@
 异步 engine 跨事件循环复用导致的不稳定。
 """
 
-import pytest
 from app.main import app
 from fastapi.testclient import TestClient
+from pytest import fixture as pytest_fixture
 
 
-@pytest.fixture(scope="module")
+@pytest_fixture(scope="module")
 def client() -> TestClient:
     with TestClient(app) as c:
         yield c

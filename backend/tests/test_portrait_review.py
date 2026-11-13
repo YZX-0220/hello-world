@@ -1,14 +1,15 @@
 """Portrait notes derive from current visual observations and remain outside creative prompts."""
 
-import json
+from json import dumps as json_dumps
+from json import loads as json_loads
 
-import pytest
 from app.db.models.project import VideoProjectVersion
 from app.providers.text.base import TextResult
 from app.schemas.agent import AgentOutput, VideoBrief
 from app.services.agent_service import AgentService
 from app.services.video_review import PORTRAIT_REFERENCE_NOTICE, REVIEW_CLOSING, review_markdown
 from pydantic import ValidationError
+from pytest import mark, raises
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -19,7 +20,7 @@ from test_canvas_vision import isolated_network as isolated_network
 from test_canvas_vision import providers as providers
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "value,expected",
     [
         (True, True),
@@ -48,13 +49,13 @@ def test_old_output_schema_and_direct_patch_remain_compatible():
     assert direct.state_patch.subject == "人物"
 
 
-@pytest.mark.parametrize("invalid", ["true", "false", 1, None])
+@mark.parametrize("invalid", ["true", "false", 1, None])
 def test_output_field_is_strict_boolean(invalid):
-    with pytest.raises(ValidationError):
+    with raises(ValidationError):
         AgentOutput(contains_portrait=invalid)
 
 
-@pytest.mark.parametrize("blocked", [True, False])
+@mark.parametrize("blocked", [True, False])
 def test_portrait_notice_is_exactly_last_even_when_review_is_blocked(blocked):
     spec = VideoBrief(duration_seconds=5, aspect_ratio="16:9", **PATCH)
     output = AgentOutput(contains_portrait=True)
@@ -78,7 +79,7 @@ async def record_for(db_engine, project):
                 )
             )
         ).one()
-    return json.loads(row.generation_review_json)
+    return json_loads(row.generation_review_json)
 
 
 async def review(client, headers, cid, project):
@@ -91,7 +92,7 @@ async def review(client, headers, cid, project):
     return response.json()
 
 
-@pytest.mark.parametrize("detected", [True, False, "true", None])
+@mark.parametrize("detected", [True, False, "true", None])
 async def test_visual_portrait_flag_controls_tail_notice_and_persists_without_polluting_prompt(
     client, db_engine, providers, detected
 ):
@@ -117,7 +118,7 @@ async def test_visual_portrait_flag_controls_tail_notice_and_persists_without_po
     assert PORTRAIT_REFERENCE_NOTICE not in stored["compiled_prompt"]
     assert "订阅通道" not in stored["compiled_prompt"]
     assert urls(visual.generate.call_args.args[0])
-    instructions = json.dumps(visual.generate.call_args.args[0], ensure_ascii=False)
+    instructions = json_dumps(visual.generate.call_args.args[0], ensure_ascii=False)
     assert "contains_portrait" in instructions and "不得根据正文" in instructions
     loaded = (await client.get(f"/api/v1/conversations/{cid}/project")).json()
     assert loaded["canvas_data"]["generation_review"] == rendered
@@ -147,7 +148,7 @@ async def test_no_image_cannot_activate_portrait_notice_even_if_model_says_true(
     visual.generate.assert_not_awaited()
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "first_detected,second_detected,blocked",
     [(True, False, False), (False, True, False), (True, False, True)],
 )
@@ -200,11 +201,11 @@ async def test_legacy_review_record_without_portrait_field_restores_as_false(
                 )
             )
         ).one()
-        record = json.loads(row.generation_review_json)
+        record = json_loads(row.generation_review_json)
         record.pop("contains_portrait")
         record.pop("fingerprint")
         record["fingerprint"] = digest(record)
-        row.generation_review_json = json.dumps(record, ensure_ascii=False)
+        row.generation_review_json = json_dumps(record, ensure_ascii=False)
         session.add(row)
         await session.commit()
     document = result["canvas_data"]

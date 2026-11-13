@@ -5,14 +5,14 @@
 （不依赖每个 fixture 单独设置 / 事后还原，避免 .env 的 smtp 值在收集阶段泄漏到测试。）
 """
 
-import fakeredis.aioredis as fakeredis_async
-import httpx
-import pytest_asyncio
 from app.api import deps
 from app.core.config import settings
 from app.core.security import generate_fernet_key
 from app.db.redis import get_redis
 from app.main import app
+from fakeredis.aioredis import FakeRedis
+from httpx import ASGITransport, AsyncClient
+from pytest_asyncio import fixture as async_fixture
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -29,7 +29,7 @@ settings.video_poll_interval_seconds = 0  # 测试内快速推进轮询状态
 settings.huawei_cloud_obs_bucket = ""  # 测试默认使用 LocalStorage，避免把真实/未配置的 OBS 带入单测
 
 
-@pytest_asyncio.fixture
+@async_fixture
 async def db_engine(tmp_path):
     """每次测试一个独立的临时 SQLite 数据库（自动建表）。"""
     url = f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
@@ -40,13 +40,13 @@ async def db_engine(tmp_path):
     await engine.dispose()
 
 
-@pytest_asyncio.fixture
+@async_fixture
 async def client(db_engine, tmp_path):
     """覆盖数据库/Redis 依赖后的 AsyncClient。"""
     # 隔离存储目录，避免测试素材写入真实 ./data
     settings.storage_root = str(tmp_path / "media")
     session_factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
-    fake_redis = fakeredis_async.FakeRedis(decode_responses=True)
+    fake_redis = FakeRedis(decode_responses=True)
 
     async def override_db_session():
         async with session_factory() as s:
@@ -59,8 +59,8 @@ async def client(db_engine, tmp_path):
         {deps.db_session: override_db_session, get_redis: override_redis}
     )
 
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
         yield c
 
     app.dependency_overrides.clear()

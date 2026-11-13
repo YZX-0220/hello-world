@@ -51,10 +51,10 @@ class ObsStorage(Storage):
 
     def write_stream(self, data: bytes, key: str, *, final_key: str) -> StoredFile:
         """把内存数据直接上传至 OBS，不落本地磁盘。"""
-        import hashlib
+        from hashlib import sha256
 
         object_key = final_key.lstrip("/")
-        digest = hashlib.sha256(data).hexdigest()
+        digest = sha256(data).hexdigest()
         try:
             resp = self._client.putContent(self._bucket, object_key, data)
             if resp.status >= 300:
@@ -216,9 +216,9 @@ class ObsStorage(Storage):
             pass
 
         # 若当前区域不支持 setBucketFetchJob 或权限受限，平滑回退至流式转储（Pipe）
-        import httpx
+        from httpx import stream as httpx_stream
 
-        with httpx.stream("GET", remote_url, timeout=120) as stream_resp:
+        with httpx_stream("GET", remote_url, timeout=120) as stream_resp:
             stream_resp.raise_for_status()
             content = stream_resp.read()
             self.write_stream(content, clean_key, final_key=clean_key)

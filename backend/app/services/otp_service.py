@@ -7,11 +7,11 @@
 - 发送前对邮箱 + IP 做原子限流。
 """
 
-import hashlib
-import hmac
-import secrets
+from hashlib import sha256
+from hmac import new as hmac_new
+from secrets import randbelow
 
-import redis.asyncio as aioredis
+from redis.asyncio import Redis as AsyncRedis
 
 from app.core.config import settings
 from app.core.constants import Limits
@@ -22,7 +22,7 @@ from app.core.errors import RATE_LIMITED, AppError
 _SEND_WINDOW_SECONDS = 60
 _SEND_MAX_PER_WINDOW = 1
 # 跨窗口累计上限（如 300 秒内 3 次）作为额外保护，简化起见，仅用短窗口
-_HMAC_DIGEST_ALGO = hashlib.sha256
+_HMAC_DIGEST_ALGO = sha256
 
 
 def _otp_key(purpose: EmailCodePurpose, email: str) -> str:
@@ -39,12 +39,12 @@ def _send_rate_key(email: str, ip: str) -> str:
 
 def generate_code() -> str:
     """生成 6 位数字验证码。"""
-    return f"{secrets.randbelow(1_000_000):06d}"
+    return f"{randbelow(1_000_000):06d}"
 
 
 def hash_code(code: str) -> str:
     """计算验证码的 HMAC 摘要（使用应用密钥作为签名密钥）。"""
-    digest = hmac.new(
+    digest = hmac_new(
         settings.app_secret.encode("utf-8"),
         code.encode("utf-8"),
         _HMAC_DIGEST_ALGO,
@@ -88,18 +88,18 @@ return n
 
 
 async def store_code(
-    redis: aioredis.Redis,
+    redis: AsyncRedis,
     email: str,
     purpose: EmailCodePurpose,
     code: str,
     ttl: int = Limits.EMAIL_CODE_TTL_SECONDS,
 ) -> None:
     """把验证码 HMAC 摘要写入 Redis，并设置 TTL。"""
-    await redis.setex(_otp_key(purpose, email), int(ttl), hash_code(code))
+    await redis.set(_otp_key(purpose, email), hash_code(code), ex=int(ttl))
 
 
 async def consume_code(
-    redis: aioredis.Redis,
+    redis: AsyncRedis,
     email: str,
     purpose: EmailCodePurpose,
     submitted_code: str,
@@ -126,7 +126,7 @@ async def consume_code(
 
 
 async def enforce_send_rate(
-    redis: aioredis.Redis,
+    redis: AsyncRedis,
     email: str,
     ip: str,
     window: int = _SEND_WINDOW_SECONDS,
@@ -138,6 +138,6 @@ async def enforce_send_rate(
         raise AppError(RATE_LIMITED)
 
 
-async def clear_code(redis: aioredis.Redis, email: str, purpose: EmailCodePurpose) -> None:
+async def clear_code(redis: AsyncRedis, email: str, purpose: EmailCodePurpose) -> None:
     """删除验证码（如发送失败、重置后清理）。"""
     await redis.delete(_otp_key(purpose, email), _attempts_key(purpose, email))

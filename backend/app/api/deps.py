@@ -2,8 +2,8 @@
 
 from collections.abc import AsyncGenerator
 
-import redis.asyncio as aioredis
 from fastapi import Depends, Request
+from redis.asyncio import Redis as AsyncRedis
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import settings
@@ -22,7 +22,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
 async def get_auth_service(
     session: AsyncSession = Depends(db_session),
-    redis: aioredis.Redis = Depends(get_redis),
+    redis: AsyncRedis = Depends(get_redis),
 ) -> AuthService:
     """构造认证服务，供认证路由使用。"""
     return AuthService(session, redis)
@@ -36,7 +36,7 @@ def _read_session_token(request: Request) -> str | None:
 async def get_current_user(
     request: Request,
     session: AsyncSession = Depends(db_session),
-    redis: aioredis.Redis = Depends(get_redis),
+    redis: AsyncRedis = Depends(get_redis),
 ) -> User:
     """根据 Cookie 中的 Session Token 解析当前用户；无效则抛 AUTH_REQUIRED。"""
     token = _read_session_token(request)

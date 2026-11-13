@@ -4,11 +4,11 @@ Only profiles with audited image_constraints opt in. No LLM decides image validi
 Bindings are saved with the review and checked against the actual bytes at submission.
 """
 
-import asyncio
-import hashlib
-import io
-import math
+from asyncio import CancelledError, create_task, shield, to_thread
 from contextlib import suppress
+from hashlib import sha256
+from io import BytesIO
+from math import ceil, sqrt
 
 from anyio import CancelScope
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -35,7 +35,7 @@ def image_refs(spec: VideoBrief):
 
 def _metadata(data, image, mime):
     return {
-        "sha256": hashlib.sha256(data).hexdigest(),
+        "sha256": sha256(data).hexdigest(),
         "width": image.width,
         "height": image.height,
         "mime_type": mime,
@@ -61,7 +61,7 @@ def image_issues(meta: dict, rules: ImageConstraints) -> list[str]:
 
 
 def _open(data):
-    image = Image.open(io.BytesIO(data))
+    image = Image.open(BytesIO(data))
     if image.width * image.height > settings.image_max_pixels:
         image.close()
         raise ValueError("图片超过平台解码像素上限，请缩小后上传")
@@ -83,12 +83,12 @@ def adapt_image(data: bytes, rules: ImageConstraints):
         if orientation in range(2, 9):
             actions.append("按图片方向信息纠正旋转或镜像")
         width, height = image.size
-        canvas_w = max(width, math.ceil(height * rules.min_ratio))
-        canvas_h = max(height, math.ceil(width / rules.max_ratio))
+        canvas_w = max(width, ceil(height * rules.min_ratio))
+        canvas_h = max(height, ceil(width / rules.max_ratio))
         upper = min(
             rules.max_width / canvas_w,
             rules.max_height / canvas_h,
-            math.sqrt(settings.image_max_pixels / (canvas_w * canvas_h)),
+            sqrt(settings.image_max_pixels / (canvas_w * canvas_h)),
         )
         lower = max(rules.min_width / canvas_w, rules.min_height / canvas_h)
         scale = max(lower, min(1.0, upper))
@@ -103,8 +103,8 @@ def adapt_image(data: bytes, rules: ImageConstraints):
             actions.append(
                 f"等比{'放大' if scale > 1 else '缩小'}：{width}×{height} → {image.width}×{image.height}"
             )
-        canvas_w = max(image.width, rules.min_width, math.ceil(image.height * rules.min_ratio))
-        canvas_h = max(image.height, rules.min_height, math.ceil(image.width / rules.max_ratio))
+        canvas_w = max(image.width, rules.min_width, ceil(image.height * rules.min_ratio))
+        canvas_h = max(image.height, rules.min_height, ceil(image.width / rules.max_ratio))
         padding = (canvas_w, canvas_h) != image.size
         needs_conversion = mime not in ("image/jpeg", "image/png", "image/webp") or animated
         if padding or needs_conversion or actions or len(data) >= rules.max_bytes_exclusive:
@@ -120,7 +120,7 @@ def adapt_image(data: bytes, rules: ImageConstraints):
             if mime != "image/jpeg" or animated:
                 actions.append("转换为 JPEG 格式")
             for quality in (92, 85, 75, 60):
-                stream = io.BytesIO()
+                stream = BytesIO()
                 background.save(stream, format="JPEG", quality=quality, optimize=True)
                 encoded = stream.getvalue()
                 if len(encoded) < rules.max_bytes_exclusive:
@@ -144,7 +144,7 @@ def _read_asset(asset):
     data = get_asset_storage(asset).read_bytes(asset.storage_key, max_bytes=29_999_999)
     if len(data) != asset.size_bytes:
         raise ValueError("素材文件大小已变化或超出处理范围，请重新上传")
-    if hashlib.sha256(data).hexdigest() != asset.sha256:
+    if sha256(data).hexdigest() != asset.sha256:
         raise ValueError("素材文件内容已变化，请重新上传")
     return data
 
@@ -177,10 +177,10 @@ async def prepare_images(session, user_id, profile, spec, titles, pending=None):
                 source = await repo.get_for_user(source_id, user_id)
                 if source is None or source.status != "ready" or source.kind != "image":
                     raise ValueError("素材不存在、未就绪或无权使用，请重新上传")
-                data = await asyncio.to_thread(_read_asset, source)
+                data = await to_thread(_read_asset, source)
                 if source.purpose == "generated_image":
                     # Provenance depends on unchanged original bytes, not on the display thumbnail.
-                    meta = await asyncio.to_thread(_inspect_bytes, data)
+                    meta = await to_thread(_inspect_bytes, data)
                     if image_issues(meta, rules):
                         issues.append(
                             f"图片【{title}】的生成原图不符合当前模型要求；为保留原始产物不会自动改图，请重新生图或更换模式。"
@@ -188,7 +188,7 @@ async def prepare_images(session, user_id, profile, spec, titles, pending=None):
                         continue
                     encoded, actions = data, []
                 else:
-                    encoded, meta, actions = await asyncio.to_thread(adapt_image, data, rules)
+                    encoded, meta, actions = await to_thread(adapt_image, data, rules)
                 prepared = source
                 if any(getattr(source, k) != v for k, v in meta.items()):
                     # Reuse identical derived bytes owned by this user; never infer cross-user files.
@@ -202,9 +202,7 @@ async def prepare_images(session, user_id, profile, spec, titles, pending=None):
                             )
                         )
                     ).first()
-                    if prepared is None or not await asyncio.to_thread(
-                        _cached_matches, prepared, meta
-                    ):
+                    if prepared is None or not await to_thread(_cached_matches, prepared, meta):
                         aid = new_id()
                         ext = {"image/png": "png", "image/webp": "webp"}.get(
                             meta["mime_type"], "jpg"
@@ -223,12 +221,12 @@ async def prepare_images(session, user_id, profile, spec, titles, pending=None):
                             **meta,
                         )
                         # Do not hold a database write lock while the text AI is running.
-                        write = asyncio.create_task(
-                            asyncio.to_thread(storage.write_stream, encoded, key, final_key=key)
+                        write = create_task(
+                            to_thread(storage.write_stream, encoded, key, final_key=key)
                         )
                         try:
-                            await asyncio.shield(write)
-                        except asyncio.CancelledError:
+                            await shield(write)
+                        except CancelledError:
                             # Wait for a remote upload before the caller cleans staged assets.
                             with CancelScope(shield=True), suppress(Exception):
                                 await write
@@ -236,7 +234,7 @@ async def prepare_images(session, user_id, profile, spec, titles, pending=None):
                             raise
                         except Exception:
                             with suppress(Exception):
-                                await asyncio.to_thread(storage.delete, key)
+                                await to_thread(storage.delete, key)
                             raise
                         pending.append(prepared)
                 cache[source_id] = source, prepared, meta, actions
@@ -299,12 +297,12 @@ async def validate_review_images(session, user_id, profile, spec, bindings):
                 if row is None or row.status != "ready" or row.kind != "image" or row.sha256 != sha:
                     raise ValueError("素材已变化")
                 if aid not in checked:
-                    data = await asyncio.to_thread(_read_asset, row)
+                    data = await to_thread(_read_asset, row)
                     checked.add(aid)
                 else:
                     data = None
                 if aid == binding["asset_id"] and data is not None:
-                    meta = await asyncio.to_thread(_inspect_bytes, data)
+                    meta = await to_thread(_inspect_bytes, data)
                     if any(meta[k] != binding[k] for k in meta) or image_issues(meta, rules):
                         raise ValueError("素材不符合审理快照或模型要求")
         except (

@@ -4,9 +4,9 @@
 首期提供认证所需的最小能力；视频 API 密钥加解密（Fernet）与 SSRF 防护在后续批次实现。
 """
 
-import hashlib
-import hmac
-import secrets
+from hashlib import sha256
+from hmac import compare_digest
+from secrets import token_urlsafe
 
 from cryptography.fernet import Fernet, InvalidToken
 from pwdlib import PasswordHash
@@ -27,22 +27,22 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def new_session_token() -> str:
     """生成不透明 Session Token（随机 32 字节）。数据库只保存其摘要。"""
-    return secrets.token_urlsafe(32)
+    return token_urlsafe(32)
 
 
 def token_sha256(token: str) -> str:
     """计算 Token 的 SHA-256 摘要，用于落库与校验，绝不保存原始 Token。"""
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return sha256(token.encode("utf-8")).hexdigest()
 
 
 def new_csrf_token() -> str:
     """生成防跨站令牌的随机值，随后端 Cookie 下发，服务端校验签名与绑定。"""
-    return secrets.token_urlsafe(32)
+    return token_urlsafe(32)
 
 
 def constant_time_compare(a: str, b: str) -> bool:
     """常量时间字符串比较，用于验证码、Token 等敏感值的比对。"""
-    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+    return compare_digest(a.encode("utf-8"), b.encode("utf-8"))
 
 
 # ---- 视频 API 密钥加解密（Fernet，双钥轮换）----

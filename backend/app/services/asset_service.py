@@ -6,9 +6,9 @@
   - 读取内容需登录+归属校验；产品级视频/音频的 ffprobe 时长检测在后补，demo 以图片为主。
 """
 
-import io
 from contextlib import suppress
 from dataclasses import dataclass
+from io import BytesIO
 from typing import Any
 
 from PIL import Image
@@ -101,9 +101,9 @@ def _inspect(data: bytes, suggested_kind: str) -> InspectedFile:
 
     if suggested_kind == "image":
         try:
-            with Image.open(io.BytesIO(data)) as im:
+            with Image.open(BytesIO(data)) as im:
                 im.verify()
-            with Image.open(io.BytesIO(data)) as im:
+            with Image.open(BytesIO(data)) as im:
                 width, height = im.size
         except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as exc:
             raise AppError(ASSET_CONTENT_INVALID, "图片无法解码") from exc

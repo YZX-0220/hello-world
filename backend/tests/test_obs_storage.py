@@ -1,18 +1,19 @@
 """OBS 存储层与直传/秒传链路集成测试。"""
 
-import uuid
+from uuid import uuid4
 
-import pytest
 from app.providers.email.fake import fake_instance
 from app.storage.obs import ObsStorage
 from httpx import AsyncClient
+from pytest import fixture as pytest_fixture
+from pytest import mark
 
 ORIGIN = "http://127.0.0.1:5173"
 PASSWORD = "password123"
 
 
 async def _register(client: AsyncClient, tag: str) -> None:
-    email = f"obs-{tag}-{uuid.uuid4().hex[:8]}@test.com"
+    email = f"obs-{tag}-{uuid4().hex[:8]}@test.com"
     await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
     code = fake_instance.sent[-1]["code"]
     resp = await client.post(
@@ -25,7 +26,7 @@ def _csrf(client: AsyncClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies.get("hw_csrf") or "", "Origin": ORIGIN}
 
 
-@pytest.fixture
+@pytest_fixture
 def mock_obs(monkeypatch):
     from unittest.mock import MagicMock, patch
 
@@ -69,7 +70,7 @@ def mock_obs(monkeypatch):
         yield client
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_obs_storage_methods(mock_obs):
     """测试 ObsStorage 驱动的基础方法。"""
     storage = ObsStorage(
@@ -110,7 +111,7 @@ async def test_obs_storage_methods(mock_obs):
     assert job_id == "job-fetch-123"
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_upload_intent_and_complete_flow(client: AsyncClient, mock_obs):
     """测试 POST /assets/upload-intent ➔ /assets/{id}/complete 完整两阶段链路与秒传。"""
     await _register(client, "obs-user")

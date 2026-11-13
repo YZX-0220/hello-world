@@ -4,8 +4,10 @@
 logging_filter 拦截日志记录的 dict 参数与 message，将敏感键替换为掩码。
 """
 
-import logging
-import re
+from logging import INFO, Filter, Formatter, LogRecord, StreamHandler, getLevelName, getLogger
+from re import IGNORECASE
+from re import compile as regex_compile
+from re import sub as regex_sub
 
 from app.core.config import settings
 
@@ -28,8 +30,8 @@ _SENSITIVE_KEYS = {
     "signed_token",
 }
 
-_SENSITIVE_KEY_RE = re.compile(
-    r"(_password|api[_-]?key|token|secret|code|auth|signature|credential)", re.IGNORECASE
+_SENSITIVE_KEY_RE = regex_compile(
+    r"(_password|api[_-]?key|token|secret|code|auth|signature|credential)", IGNORECASE
 )
 
 
@@ -40,21 +42,21 @@ def _mask(key: str) -> str:
     return key
 
 
-class SensitiveFilter(logging.Filter):
+class SensitiveFilter(Filter):
     """过滤日志记录中的敏感字段。"""
 
-    def filter(self, record: logging.LogRecord) -> bool:
+    def filter(self, record: LogRecord) -> bool:
         # Third-party loggers (e.g. httpx during real AI requests) have no request context.
         if not hasattr(record, "request_id"):
             record.request_id = "-"
         # Render positional/mapping args first: httpx logs signed URLs via %s.
         # Clear args after rendering so handlers cannot reinsert the original secrets.
         message = record.getMessage()
-        record.msg = re.sub(
+        record.msg = regex_sub(
             r"((?:password|api_key|apikey|token|secret|code|auth|signature|credential)[^:=&]*[:=]\s*)[^\s,}&\"']+",
             r"\1***REDACTED***",
             message,
-            flags=re.IGNORECASE,
+            flags=IGNORECASE,
         )
         record.args = ()
         return True
@@ -62,16 +64,17 @@ class SensitiveFilter(logging.Filter):
 
 def setup_logging() -> None:
     """配置根日志器：级别、统一格式、敏感过滤。"""
-    level = getattr(logging, settings.log_level.upper(), logging.INFO)
-    handler = logging.StreamHandler()
+    resolved = getLevelName(settings.log_level.upper())
+    level = resolved if isinstance(resolved, int) else INFO
+    handler = StreamHandler()
     handler.setFormatter(
-        logging.Formatter(
+        Formatter(
             fmt="%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s",
             datefmt="%Y-%m-%dT%H:%M:%S",
         )
     )
     handler.addFilter(SensitiveFilter())
-    root = logging.getLogger()
+    root = getLogger()
     root.handlers = [handler]
     root.setLevel(level)
     root.addFilter(SensitiveFilter())

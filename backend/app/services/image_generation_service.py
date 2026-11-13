@@ -1,11 +1,12 @@
 """Durable single-image jobs. Generation is never automatically retried after an ambiguous result."""
 
-import asyncio
-import hashlib
-import io
-import json
+from asyncio import CancelledError, create_task, shield, to_thread
 from contextlib import suppress
 from datetime import timedelta
+from hashlib import sha256
+from io import BytesIO
+from json import dumps as json_dumps
+from json import loads as json_loads
 
 from PIL import Image
 from sqlalchemy import case, or_, update
@@ -140,7 +141,7 @@ def job_view(row):
             "original_name": item["original_name"],
             "content_url": f"/api/v1/assets/{item['asset_id']}/content?thumbnail=raw",
         }
-        for item in json.loads(row.reference_images_json or "[]")
+        for item in json_loads(row.reference_images_json or "[]")
     ]
     return result
 
@@ -167,7 +168,7 @@ class ImageGenerationService:
             ):
                 raise AppError(IMAGE_INPUT_INVALID, "请选择本对话中已完成的图片继续修改。")
             ids = [parent.asset_id, *[ident for ident in ids if ident != parent.asset_id]]
-            previous = json.loads(parent.edit_context_json or "[]")
+            previous = json_loads(parent.edit_context_json or "[]")
             history = [*previous, {"job_id": parent.id, "prompt": parent.prompt}]
             if len(history) > 6:
                 history = [history[0], *history[-5:]]
@@ -184,7 +185,7 @@ class ImageGenerationService:
                 or asset.deleted_at
             ):
                 raise AppError(IMAGE_INPUT_INVALID, "参考图片不存在、未就绪或无权使用。")
-            data, meta = await asyncio.to_thread(read_reference, asset)
+            data, meta = await to_thread(read_reference, asset)
             snapshots.append({"asset_id": asset.id, "original_name": asset.original_name, **meta})
             encoded.append(data_url(data, meta["mime_type"]))
         return snapshots, encoded, history
@@ -193,7 +194,7 @@ class ImageGenerationService:
         from app.services.asset_service import AssetService
 
         await self.conversation(user_id, conversation_id)
-        await asyncio.to_thread(inspect_reference, data)
+        await to_thread(inspect_reference, data)
         asset = await AssetService(self.session).upload(
             user_id, data, filename, "reference", conversation_id
         )
@@ -326,7 +327,7 @@ class ImageGenerationService:
             "reference_image_count": len(images),
             "max_reference_images": MAX_REFERENCE_IMAGES,
         }
-        text = f"本次模型与固定设置：{json.dumps(constraints, ensure_ascii=False)}\n{compile_edit_prompt(req.prompt, history)}"
+        text = f"本次模型与固定设置：{json_dumps(constraints, ensure_ascii=False)}\n{compile_edit_prompt(req.prompt, history)}"
         content = (
             [
                 {"type": "text", "text": text},
@@ -347,7 +348,7 @@ class ImageGenerationService:
                 ],
                 structured=True,
             )
-            value = result.structured or json.loads(
+            value = result.structured or json_loads(
                 result.reply.strip().removeprefix("```json").removesuffix("```")
             )
             prompt = value.get("suggested_prompt")
@@ -387,8 +388,8 @@ class ImageGenerationService:
         if settings.is_production and settings.image_provider == "fake":
             raise AppError(IMAGE_UNAVAILABLE, "生产环境禁止使用模拟生图。")
         await self.conversation(user_id, req.conversation_id)
-        fingerprint = hashlib.sha256(
-            json.dumps(req.model_dump(), sort_keys=True, ensure_ascii=False).encode()
+        fingerprint = sha256(
+            json_dumps(req.model_dump(), sort_keys=True, ensure_ascii=False).encode()
         ).hexdigest()
         existing = (
             await self.session.exec(
@@ -403,8 +404,8 @@ class ImageGenerationService:
                 legacy = req.model_dump(
                     exclude={"reference_asset_ids", "parent_job_id", "watermark"}
                 )
-                legacy_fingerprint = hashlib.sha256(
-                    json.dumps(legacy, sort_keys=True, ensure_ascii=False).encode()
+                legacy_fingerprint = sha256(
+                    json_dumps(legacy, sort_keys=True, ensure_ascii=False).encode()
                 ).hexdigest()
                 if not (
                     not req.reference_asset_ids
@@ -489,8 +490,8 @@ class ImageGenerationService:
             user_id=user_id,
             **req.model_dump(exclude={"reference_asset_ids"}),
             **snapshot,
-            reference_images_json=json.dumps(references, ensure_ascii=False),
-            edit_context_json=json.dumps(history, ensure_ascii=False),
+            reference_images_json=json_dumps(references, ensure_ascii=False),
+            edit_context_json=json_dumps(history, ensure_ascii=False),
             compiled_prompt=compile_edit_prompt(req.prompt, history),
             size=SIZES[req.aspect_ratio],
             simulation=simulation,
@@ -625,7 +626,7 @@ class ImageGenerationService:
             if initial == "queued":
                 images = []
                 try:
-                    for ref in json.loads(row.reference_images_json or "[]"):
+                    for ref in json_loads(row.reference_images_json or "[]"):
                         asset = await self.session.get(Asset, ref["asset_id"])
                         if (
                             asset is None
@@ -637,9 +638,7 @@ class ImageGenerationService:
                             raise AppError(
                                 IMAGE_INPUT_INVALID, "参考图片已被删除或无权使用，请重新选择。"
                             )
-                        original, meta = await asyncio.to_thread(
-                            read_reference, asset, ref["sha256"]
-                        )
+                        original, meta = await to_thread(read_reference, asset, ref["sha256"])
                         images.append(data_url(original, meta["mime_type"]))
                 except AppError as exc:
                     raise ImageProviderError(
@@ -649,7 +648,7 @@ class ImageGenerationService:
                     if settings.is_production:
                         raise ImageProviderError("生产环境禁止执行模拟任务。")
                     result = ImageResult(
-                        data=await asyncio.to_thread(
+                        data=await to_thread(
                             fake_image, row.compiled_prompt or row.prompt, row.size
                         )
                     )
@@ -686,9 +685,7 @@ class ImageGenerationService:
                 data = result.data
             if data is None:
                 if row.simulation:
-                    data = await asyncio.to_thread(
-                        fake_image, row.compiled_prompt or row.prompt, row.size
-                    )
+                    data = await to_thread(fake_image, row.compiled_prompt or row.prompt, row.size)
                 elif row.encrypted_result_url:
                     data = await download_image(
                         decrypt_secret(
@@ -711,8 +708,8 @@ class ImageGenerationService:
             if not locked.rowcount:
                 await self.session.rollback()
                 return
-            pending_store = asyncio.create_task(asyncio.to_thread(self._store_original, row, data))
-            asset = await asyncio.shield(pending_store)
+            pending_store = create_task(to_thread(self._store_original, row, data))
+            asset = await shield(pending_store)
             self.session.add(asset)
             await self.session.flush()
             await self.session.execute(
@@ -731,7 +728,7 @@ class ImageGenerationService:
                 )
             )
             await self.session.commit()
-        except asyncio.CancelledError:
+        except CancelledError:
             # A thread cannot be canceled: finish its write before releasing the DB lock.
             if pending_store is not None:
                 with suppress(Exception):
@@ -759,7 +756,7 @@ class ImageGenerationService:
     def _store_original(job, data):
         if not data or len(data) > settings.image_max_result_bytes:
             raise ValueError("invalid image size")
-        with Image.open(io.BytesIO(data)) as im:
+        with Image.open(BytesIO(data)) as im:
             if (
                 im.format not in ("PNG", "JPEG", "WEBP")
                 or im.width * im.height > settings.image_max_pixels

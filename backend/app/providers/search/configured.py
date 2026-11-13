@@ -10,7 +10,7 @@
 
 from datetime import datetime
 
-import httpx
+from httpx import AsyncClient, HTTPError
 from pydantic import ValidationError
 
 from app.core.config import settings
@@ -41,9 +41,9 @@ class ConfiguredSearchProvider(SearchProvider):
             "Content-Type": "application/json",
         }
         try:
-            async with httpx.AsyncClient(timeout=settings.search_timeout) as client:
+            async with AsyncClient(timeout=settings.search_timeout) as client:
                 resp = await client.post(url, json=payload, headers=headers)
-        except httpx.HTTPError as exc:
+        except HTTPError as exc:
             raise SearchProviderError(
                 "SEARCH_UNAVAILABLE", "搜索服务暂时不可用", retryable=True
             ) from exc

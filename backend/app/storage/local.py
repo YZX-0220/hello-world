@@ -6,8 +6,9 @@
     避免中途失败留下半成品或用户可见的中间文件。
 """
 
-import hashlib
-import os
+from hashlib import sha256
+from os import replace as os_replace
+from os import urandom
 from pathlib import Path
 
 from app.storage.base import Storage, StorageError, StoredFile
@@ -31,14 +32,14 @@ class LocalStorage(Storage):
     def _temp_key(self, key: str) -> str:
         """同目录下的随机临时路径（与最终文件同目录，保证同文件系统可原子重命名）。"""
         path = self._resolve(key)
-        tmp = path.with_name(f".tmp-{os.urandom(8).hex()}-{path.name}")
+        tmp = path.with_name(f".tmp-{urandom(8).hex()}-{path.name}")
         return str(tmp.relative_to(self._root))
 
     def write_stream(self, data: bytes, key: str, *, final_key: str) -> StoredFile:
         tmp_key = self._temp_key(key if final_key == key else final_key)
         tmp_path = self._resolve(tmp_key)
         tmp_path.parent.mkdir(parents=True, exist_ok=True)
-        digest = hashlib.sha256()
+        digest = sha256()
         try:
             tmp_path.write_bytes(b"")  # 创建文件
             with tmp_path.open("wb") as fh:
@@ -50,7 +51,7 @@ class LocalStorage(Storage):
         final_path = self._resolve(final_key)
         final_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            os.replace(tmp_path, final_path)  # 原子移动
+            os_replace(tmp_path, final_path)  # 原子移动
         except OSError as exc:
             tmp_path.unlink(missing_ok=True)
             raise StorageError("素材落盘失败") from exc

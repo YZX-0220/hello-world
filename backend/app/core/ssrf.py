@@ -10,10 +10,10 @@
 本模块只返回「结构已被校验」的结果，真正的请求超时/trust_env/跳转等由 Provider 层落地。
 """
 
-import ipaddress
-import socket
 from collections.abc import Callable
 from dataclasses import dataclass
+from ipaddress import IPv4Address, IPv6Address, ip_address
+from socket import AF_INET, AF_INET6, SOCK_STREAM, gaierror, getaddrinfo
 from urllib.parse import urlsplit, urlunsplit
 
 _MAX_HOST_LEN = 253
@@ -37,7 +37,7 @@ class CheckedBaseUrl:
     path_prefix: str  # 路径前缀，如 /v1，可能为空串
 
 
-def _is_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+def _is_public_ip(ip: IPv4Address | IPv6Address) -> bool:
     """判断解析出的 IP 是否为可访问的公网地址。
 
     对任一 IP，只要落在下列任一不安全段即判为不可信：
@@ -104,12 +104,12 @@ def normalize_base_url(url: str) -> str:
 def _default_resolver(host: str) -> list[str]:
     """真实 DNS 解析，返回去重的 IP 字符串列表；失败抛 UnsafeUrlError。"""
     try:
-        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-    except socket.gaierror as exc:
+        infos = getaddrinfo(host, None, type=SOCK_STREAM)
+    except gaierror as exc:
         raise UnsafeUrlError("接口地址无法解析主机名") from exc
     addrs: list[str] = []
     for family, _socktype, _proto, _canon, sockaddr in infos:
-        if family in (socket.AF_INET, socket.AF_INET6):
+        if family in (AF_INET, AF_INET6):
             addrs.append(str(sockaddr[0]))
     return list(dict.fromkeys(addrs))
 
@@ -127,7 +127,7 @@ def validate_public_host(host: str, resolver: Callable[[str], list[str]] | None 
         raise UnsafeUrlError("接口地址无可解析的地址")
     for addr in addrs:
         try:
-            ip = ipaddress.ip_address(addr)
+            ip = ip_address(addr)
         except ValueError as exc:
             raise UnsafeUrlError("接口地址包含无法识别的地址") from exc
         if not _is_public_ip(ip):

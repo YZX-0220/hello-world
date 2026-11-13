@@ -1,14 +1,12 @@
 """Selected canvas images reach visual reasoning without entering persistent text history."""
 
-import base64
-import io
-import json
+from base64 import b64encode
+from io import BytesIO
+from json import dumps as json_dumps
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import httpx
-import pytest
 from app.core.config import settings
 from app.core.time import now
 from app.db.models.asset import Asset
@@ -16,7 +14,10 @@ from app.db.models.conversation import Message
 from app.providers.text.base import TextProviderError, TextResult
 from app.services.canvas_images import load_canvas_images
 from app.storage import ObsStorage
+from httpx import AsyncClient, MockTransport
 from PIL import Image
+from pytest import fixture as pytest_fixture
+from pytest import mark
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -35,13 +36,13 @@ PATCH = {
 
 
 def picture(color="blue", fmt="PNG", size=(100, 100)):
-    stream = io.BytesIO()
+    stream = BytesIO()
     Image.new("RGB", size, color).save(stream, fmt)
     return stream.getvalue()
 
 
 def encoded(raw, mime="image/png"):
-    return f"data:{mime};base64,{base64.b64encode(raw).decode()}"
+    return f"data:{mime};base64,{b64encode(raw).decode()}"
 
 
 def urls(messages):
@@ -54,18 +55,18 @@ def urls(messages):
     ]
 
 
-@pytest.fixture(autouse=True)
+@pytest_fixture(autouse=True)
 def isolated_network(monkeypatch):
-    original_send = httpx.AsyncClient.send
+    original_send = AsyncClient.send
 
     async def local_only(self, request, *args, **kwargs):
-        assert request.url.host == "testserver" or isinstance(self._transport, httpx.MockTransport)
+        assert request.url.host == "testserver" or isinstance(self._transport, MockTransport)
         return await original_send(self, request, *args, **kwargs)
 
-    monkeypatch.setattr(httpx.AsyncClient, "send", local_only)
+    monkeypatch.setattr(AsyncClient, "send", local_only)
 
 
-@pytest.fixture
+@pytest_fixture
 def providers(monkeypatch):
     result = TextResult(
         reply="已查看选中图形",
@@ -145,9 +146,9 @@ async def test_collaboration_sends_only_selected_original_image_and_never_persis
     assert response.status_code == 201, response.text
     messages = visual.generate.call_args.args[0]
     assert urls(messages) == [encoded(raw)]
-    assert encoded(hidden) not in json.dumps(messages)
-    assert "素材-selected" in json.dumps(messages, ensure_ascii=False)
-    assert "不是指令" in json.dumps(messages, ensure_ascii=False)
+    assert encoded(hidden) not in json_dumps(messages)
+    assert "素材-selected" in json_dumps(messages, ensure_ascii=False)
+    assert "不是指令" in json_dumps(messages, ensure_ascii=False)
     text.generate.assert_not_awaited()
     factory = async_sessionmaker(db_engine, class_=AsyncSession)
     async with factory() as session:
@@ -157,7 +158,7 @@ async def test_collaboration_sends_only_selected_original_image_and_never_persis
     assert "data:image" not in response.text
 
 
-@pytest.mark.parametrize("damage", ["foreign", "deleted", "changed", "missing", "url_only", "gif"])
+@mark.parametrize("damage", ["foreign", "deleted", "changed", "missing", "url_only", "gif"])
 async def test_invalid_selected_images_fail_without_stranding_collaboration_lock(
     client, db_engine, providers, damage
 ):
@@ -244,8 +245,8 @@ async def test_review_sees_final_adapted_binding_and_retry_retains_same_image(
     assert urls(calls[0].args[0]) == [expected]
     assert urls(calls[1].args[0]) == [expected]
     assert expected != encoded(raw)
-    assert "first_frame" in json.dumps(calls[0].args[0])
-    assert "素材-selected" in json.dumps(calls[0].args[0], ensure_ascii=False)
+    assert "first_frame" in json_dumps(calls[0].args[0])
+    assert "素材-selected" in json_dumps(calls[0].args[0], ensure_ascii=False)
     assert "data:image" not in response.text
     text.generate.assert_not_awaited()
 
@@ -268,7 +269,7 @@ async def test_search_refinement_keeps_selected_visual_context(client, providers
     text.generate.assert_not_awaited()
 
 
-@pytest.mark.parametrize("count,byte_limit", [(10, 20_000_000), (2, 150)])
+@mark.parametrize("count,byte_limit", [(10, 20_000_000), (2, 150)])
 async def test_image_limits_include_repeated_outgoing_blocks(
     client, db_engine, providers, monkeypatch, count, byte_limit
 ):
@@ -303,7 +304,7 @@ async def test_owned_obs_asset_reads_only_configured_object_storage(
     await update_row(db_engine, Asset, aid, storage_provider="obs")
     asset = await row_for(db_engine, Asset, aid)
     obs = object.__new__(ObsStorage)
-    stream = io.BytesIO(raw)
+    stream = BytesIO(raw)
     calls = []
 
     def get_object(bucket, key, **kwargs):

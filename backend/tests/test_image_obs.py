@@ -1,20 +1,21 @@
 """Real storage/routing code with an in-memory OBS SDK; never contact external services."""
 
-import asyncio
-import base64
-import hashlib
-import io
+from asyncio import CancelledError, create_task, gather, sleep, to_thread, wait_for
+from base64 import b64decode
+from hashlib import sha256
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import pytest
 from app.core.config import settings
 from app.db.models.asset import Asset
 from app.db.models.image_generation import ImageJob
 from app.services.canvas_images import load_canvas_images
 from app.services.image_inputs import read_reference
 from app.storage import ObsStorage, StorageError
+from pytest import fixture as pytest_fixture
+from pytest import mark, raises
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -25,7 +26,7 @@ from test_image_editing import data_url, reference
 from test_model_bound_review import confirm, prepare, save, submit
 
 
-@pytest.fixture
+@pytest_fixture
 def obs_memory(monkeypatch):
     objects, streams = {}, []
     sdk = Mock()
@@ -48,7 +49,7 @@ def obs_memory(monkeypatch):
     def get(bucket, key, **kwargs):
         if key not in objects:
             return SimpleNamespace(status=404, body=None)
-        stream = io.BytesIO(objects[key])
+        stream = BytesIO(objects[key])
         streams.append(stream)
         return SimpleNamespace(status=200, body=SimpleNamespace(response=stream))
 
@@ -104,7 +105,7 @@ async def test_obs_reference_generation_editing_and_visual_context(
     result = await generation.row_for(db_engine, Asset, job["id"])
     assert result.storage_provider == "obs"
     assert obs_memory.objects[result.storage_key] == generated
-    assert result.sha256 == hashlib.sha256(generated).hexdigest()
+    assert result.sha256 == sha256(generated).hexdigest()
     assert not Path(settings.storage_root, result.storage_key).exists()
 
     child = await generation.create_job(client, cid, parent_job_id=job["id"], prompt="蓝色背景")
@@ -115,11 +116,11 @@ async def test_obs_reference_generation_editing_and_visual_context(
         images = await load_canvas_images(
             session, asset.user_id, [{"id": "image", "type": "image", "asset_id": result.id}]
         )
-    assert base64.b64decode(images[0]["data_url"].split(",", 1)[1]) == generated
+    assert b64decode(images[0]["data_url"].split(",", 1)[1]) == generated
     assert all(stream.closed for stream in obs_memory.streams)
 
 
-@pytest.mark.parametrize("source_storage", ["obs", "local"])
+@mark.parametrize("source_storage", ["obs", "local"])
 async def test_video_review_checks_and_serves_obs_derived_image(
     client, db_engine, monkeypatch, obs_memory, source_storage
 ):
@@ -134,7 +135,7 @@ async def test_video_review_checks_and_serves_obs_derived_image(
     derived = await generation.row_for(db_engine, Asset, aid)
     assert derived.storage_provider == "obs"
     assert not Path(settings.storage_root, derived.storage_key).exists()
-    with io.BytesIO(obs_memory.objects[derived.storage_key]) as stream:
+    with BytesIO(obs_memory.objects[derived.storage_key]) as stream:
         from PIL import Image
 
         with Image.open(stream) as image:
@@ -168,7 +169,7 @@ async def test_stale_review_cleans_only_new_obs_derivatives(client, monkeypatch,
     originals = set(obs_memory.objects)
     provider = ControlledProvider(blocked=True)
     monkeypatch.setattr("app.services.agent_service.get_vision_provider", lambda: provider)
-    work = asyncio.create_task(
+    work = create_task(
         client.post(
             f"/api/v1/conversations/{cid}/canvas/prepare-video",
             headers=headers,
@@ -179,19 +180,19 @@ async def test_stale_review_cleans_only_new_obs_derivatives(client, monkeypatch,
         )
     )
     try:
-        await asyncio.wait_for(provider.started.wait(), 5)
+        await wait_for(provider.started.wait(), 5)
         assert set(obs_memory.objects) > originals
         document = project["canvas_data"]
         document["nodes"][0]["content"] = "changed during review"
         await save(client, cid, headers, project, document)
         provider.release.set()
-        assert (await asyncio.wait_for(work, 5)).status_code == 409
+        assert (await wait_for(work, 5)).status_code == 409
         assert set(obs_memory.objects) == originals
     finally:
         provider.release.set()
         if not work.done():
             work.cancel()
-            await asyncio.gather(work, return_exceptions=True)
+            await gather(work, return_exceptions=True)
 
 
 async def test_obs_upload_failure_does_not_silently_write_local(client, obs_memory):
@@ -244,10 +245,10 @@ async def test_obs_result_failure_retries_storage_without_generating_again(
 def test_obs_bounded_reads_close_stream_and_reject_missing_objects(obs_memory):
     storage = ObsStorage()
     obs_memory.objects["large"] = b"12345"
-    with pytest.raises(StorageError):
+    with raises(StorageError):
         storage.read_bytes("large", max_bytes=4)
     assert obs_memory.streams[-1].closed
-    with pytest.raises(StorageError):
+    with raises(StorageError):
         storage.read_bytes("missing", max_bytes=4)
 
 
@@ -277,7 +278,7 @@ async def test_obs_prompt_suggestions_send_actual_image(client, db_engine, monke
     assert obs_memory.sdk.getObject.called
 
 
-@pytest.mark.parametrize("size,valid", [((864, 1536), True), ((200, 200), False)])
+@mark.parametrize("size,valid", [((864, 1536), True), ((200, 200), False)])
 async def test_generated_obs_original_is_preserved_for_video(
     client, db_engine, monkeypatch, obs_memory, size, valid
 ):
@@ -305,7 +306,7 @@ async def test_generated_obs_original_is_preserved_for_video(
     assert bool(issues) is not valid
     if valid:
         assert bindings[0]["asset_id"] == asset.id
-        assert bindings[0]["sha256"] == hashlib.sha256(raw).hexdigest()
+        assert bindings[0]["sha256"] == sha256(raw).hexdigest()
         assert not bindings[0]["actions"]
     else:
         assert not bindings
@@ -340,11 +341,11 @@ async def test_historical_local_images_readable_with_obs_enabled(
 async def test_cancel_during_obs_upload_waits_then_cleans_staged_object(
     client, monkeypatch, obs_memory
 ):
-    import threading
+    from threading import Event as ThreadEvent
 
     cid, headers, project, _ = await video.image_project(client)
     originals = set(obs_memory.objects)
-    started, release = threading.Event(), threading.Event()
+    started, release = ThreadEvent(), ThreadEvent()
     original_put = obs_memory.sdk.putContent.side_effect
 
     def blocked_put(bucket, key, data):
@@ -353,7 +354,7 @@ async def test_cancel_during_obs_upload_waits_then_cleans_staged_object(
         return original_put(bucket, key, data)
 
     obs_memory.sdk.putContent.side_effect = blocked_put
-    work = asyncio.create_task(
+    work = create_task(
         client.post(
             f"/api/v1/conversations/{cid}/canvas/prepare-video",
             headers=headers,
@@ -364,15 +365,15 @@ async def test_cancel_during_obs_upload_waits_then_cleans_staged_object(
         )
     )
     try:
-        assert await asyncio.to_thread(started.wait, 5)
+        assert await to_thread(started.wait, 5)
         work.cancel()
-        await asyncio.sleep(0)
+        await sleep(0)
         release.set()
-        with pytest.raises(asyncio.CancelledError):
+        with raises(CancelledError):
             await work
         assert set(obs_memory.objects) == originals
     finally:
         release.set()
         if not work.done():
             work.cancel()
-            await asyncio.gather(work, return_exceptions=True)
+            await gather(work, return_exceptions=True)

@@ -1,15 +1,15 @@
 """对话与消息链路测试：注册 → 建对话 → 发消息（Fake 模型）→ 读消息/项目。"""
 
-import json
-import uuid
 from datetime import timedelta
+from json import loads as json_loads
+from uuid import uuid4
 
-import httpx
 from app.core.enums import MessageRole, MessageStatus
 from app.core.ids import new_id
 from app.core.time import now
 from app.db.models.conversation import Message
 from app.providers.email.fake import fake_instance
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -18,7 +18,7 @@ PASSWORD = "password123"
 ORIGIN = "http://127.0.0.1:5173"
 
 
-async def _register(client: httpx.AsyncClient) -> None:
+async def _register(client: AsyncClient) -> None:
     await client.post("/api/v1/auth/email-codes", json={"email": EMAIL, "purpose": "register"})
     code = fake_instance.sent[-1]["code"]
     resp = await client.post(
@@ -27,7 +27,7 @@ async def _register(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 201
 
 
-def _csrf_headers(client: httpx.AsyncClient) -> dict[str, str]:
+def _csrf_headers(client: AsyncClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies.get("hw_csrf", ""), "Origin": ORIGIN}
 
 
@@ -53,9 +53,7 @@ def _parse_sse(text: str) -> list[dict[str, str]]:
     return events
 
 
-async def _read_sse(
-    client: httpx.AsyncClient, method: str, url: str, json: dict, headers: dict
-) -> str:
+async def _read_sse(client: AsyncClient, method: str, url: str, json: dict, headers: dict) -> str:
     """用 httpx stream 方式读取 SSE 响应体并返回全文。"""
     body = b""
     async with client.stream(method, url, json=json, headers=headers) as resp:
@@ -66,7 +64,7 @@ async def _read_sse(
     return body.decode("utf-8")
 
 
-async def test_create_conversation_and_send_message(client: httpx.AsyncClient) -> None:
+async def test_create_conversation_and_send_message(client: AsyncClient) -> None:
     await _register(client)
 
     # 创建对话（登录后写接口需 CSRF）
@@ -80,7 +78,7 @@ async def test_create_conversation_and_send_message(client: httpx.AsyncClient) -
     content = "拍摄雨夜中的古城门，电影感"
     msg = await client.post(
         f"/api/v1/conversations/{conversation_id}/messages",
-        json={"content": content, "client_request_id": str(uuid.uuid4())},
+        json={"content": content, "client_request_id": str(uuid4())},
         headers=_csrf_headers(client),
     )
     assert msg.status_code == 201
@@ -100,7 +98,7 @@ async def test_create_conversation_and_send_message(client: httpx.AsyncClient) -
     assert proj.json()["current_spec_version"] >= 1
 
 
-async def test_delete_conversation(client: httpx.AsyncClient) -> None:
+async def test_delete_conversation(client: AsyncClient) -> None:
     """软删除对话：204，列表不显示，再次访问 404。"""
     await _register(client)
     headers = _csrf_headers(client)
@@ -118,7 +116,7 @@ async def test_delete_conversation(client: httpx.AsyncClient) -> None:
     assert got.status_code == 404
 
 
-async def test_confirm_project_and_manual_patch(client: httpx.AsyncClient) -> None:
+async def test_confirm_project_and_manual_patch(client: AsyncClient) -> None:
     await _register(client)
     headers = _csrf_headers(client)
     conv = await client.post(
@@ -129,7 +127,7 @@ async def test_confirm_project_and_manual_patch(client: httpx.AsyncClient) -> No
     # 先发消息让方案版本>=1
     await client.post(
         f"/api/v1/conversations/{cid}/messages",
-        json={"content": "主体是雨夜古城门", "client_request_id": str(uuid.uuid4())},
+        json={"content": "主体是雨夜古城门", "client_request_id": str(uuid4())},
         headers=headers,
     )
     proj = (await client.get(f"/api/v1/conversations/{cid}/project")).json()
@@ -166,7 +164,7 @@ async def test_confirm_project_and_manual_patch(client: httpx.AsyncClient) -> No
     assert stale.status_code == 409
 
 
-async def test_search_tool_records_citations(client: httpx.AsyncClient, monkeypatch) -> None:
+async def test_search_tool_records_citations(client: AsyncClient, monkeypatch) -> None:
     """联网搜索：模型请求 search_requests → 后端搜索 → 检索结果回流给模型二次生成最终回复。
 
     断言证明了"第二次生成确实拿到了检索结果"：
@@ -221,7 +219,7 @@ async def test_search_tool_records_citations(client: httpx.AsyncClient, monkeypa
         f"/api/v1/conversations/{cid}/messages",
         json={
             "content": "帮我查一下故宫夜景宣传片的资料",
-            "client_request_id": str(uuid.uuid4()),
+            "client_request_id": str(uuid4()),
             "web_search_enabled": True,
         },
         headers=headers,
@@ -283,7 +281,7 @@ async def test_agent_run_and_tool_execution_persist(client, db_engine, monkeypat
         f"/api/v1/conversations/{cid}/messages",
         json={
             "content": "帮我查一故宫夜景宣传片的资料",
-            "client_request_id": str(uuid.uuid4()),
+            "client_request_id": str(uuid4()),
             "web_search_enabled": True,
         },
         headers=headers,
@@ -316,9 +314,7 @@ async def test_agent_run_and_tool_execution_persist(client, db_engine, monkeypat
         assert all(c.tool_execution_id == tool.id for c in cites)
 
 
-async def test_search_refine_failure_keeps_original_reply(
-    client: httpx.AsyncClient, monkeypatch
-) -> None:
+async def test_search_refine_failure_keeps_original_reply(client: AsyncClient, monkeypatch) -> None:
     """联网搜索二次生成失败时：保留初版 reply 作为正文，不丢消息、不报错，引用仍结构化落库。"""
     from app.providers.text.base import (
         TextCapabilities,
@@ -365,7 +361,7 @@ async def test_search_refine_failure_keeps_original_reply(
         f"/api/v1/conversations/{cid}/messages",
         json={
             "content": "帮我查一下故宫夜景宣传片资料",
-            "client_request_id": str(uuid.uuid4()),
+            "client_request_id": str(uuid4()),
             "web_search_enabled": True,
         },
         headers=headers,
@@ -397,7 +393,7 @@ async def _insert_messages(db_engine, conversation_id: str, count: int) -> list[
                     role=MessageRole.USER.value,
                     content=f"paging-{i}",
                     status=MessageStatus.COMPLETED.value,
-                    client_request_id=f"paging-{i}-{uuid.uuid4().hex[:8]}",
+                    client_request_id=f"paging-{i}-{uuid4().hex[:8]}",
                     created_at=base + timedelta(seconds=i),
                 )
             )
@@ -558,7 +554,7 @@ async def _backdate_messages(db_engine, conversation_id: str, count: int) -> lis
                     role=MessageRole.USER.value,
                     content=f"paging-{i}",
                     status=MessageStatus.COMPLETED.value,
-                    client_request_id=f"summ-{i}-{uuid.uuid4().hex[:8]}",
+                    client_request_id=f"summ-{i}-{uuid4().hex[:8]}",
                     created_at=base + timedelta(seconds=i),
                 )
             )
@@ -619,7 +615,7 @@ async def test_long_conversation_generates_summary_and_compresses(
     # 第 1 轮：发起一条实时消息 → 本轮结束时应生成摘要
     r1 = await client.post(
         f"/api/v1/conversations/{cid}/messages",
-        json={"content": "补充一点：时长30秒", "client_request_id": str(uuid.uuid4())},
+        json={"content": "补充一点：时长30秒", "client_request_id": str(uuid4())},
         headers=headers,
     )
     assert r1.status_code == 201
@@ -637,7 +633,7 @@ async def test_long_conversation_generates_summary_and_compresses(
     # 第 2 轮：发起一条新消息 → 本轮构建给模型的上下文应已压缩
     r2 = await client.post(
         f"/api/v1/conversations/{cid}/messages",
-        json={"content": "再补充：16:9 画幅", "client_request_id": str(uuid.uuid4())},
+        json={"content": "再补充：16:9 画幅", "client_request_id": str(uuid4())},
         headers=headers,
     )
     assert r2.status_code == 201
@@ -661,7 +657,7 @@ async def test_long_conversation_generates_summary_and_compresses(
     assert any(not structured for structured, _msgs in provider.received)
 
 
-async def test_send_message_stream_events_and_persist(client: httpx.AsyncClient) -> None:
+async def test_send_message_stream_events_and_persist(client: AsyncClient) -> None:
     """SSE 事件流式发消息：收到 run_started / run_completed（及中间阶段事件），data 均合法 JSON，
     且随后 GET /messages 能查到 user + assistant 各 1 条（落库与同步端点一致）。"""
     await _register(client)
@@ -675,7 +671,7 @@ async def test_send_message_stream_events_and_persist(client: httpx.AsyncClient)
         client,
         "POST",
         f"/api/v1/conversations/{cid}/messages/stream",
-        json={"content": "拍摄雨夜中的古城门，电影感", "client_request_id": str(uuid.uuid4())},
+        json={"content": "拍摄雨夜中的古城门，电影感", "client_request_id": str(uuid4())},
         headers=headers,
     )
     events = _parse_sse(text)
@@ -690,11 +686,11 @@ async def test_send_message_stream_events_and_persist(client: httpx.AsyncClient)
 
     # 每条 data 都是合法 JSON
     for e in events:
-        parsed = json.loads(e["data"])
+        parsed = json_loads(e["data"])
         assert isinstance(parsed, dict)
 
     # run_completed 携带 user/assistant 两 id
-    completed = json.loads(events[-1]["data"])
+    completed = json_loads(events[-1]["data"])
     assert completed["user_message_id"]
     assert completed["assistant_message_id"]
 
@@ -704,13 +700,13 @@ async def test_send_message_stream_events_and_persist(client: httpx.AsyncClient)
     assert roles == ["user", "assistant"]
 
 
-async def test_send_message_stream_idempotent_replay(client: httpx.AsyncClient) -> None:
+async def test_send_message_stream_idempotent_replay(client: AsyncClient) -> None:
     """同一 client_request_id 再次发起流式幂等：不重复创建消息/AgentRun，回放已有结果。"""
     await _register(client)
     headers = _csrf_headers(client)
     conv = await client.post("/api/v1/conversations", json={"title": "SSE 幂等"}, headers=headers)
     cid = conv.json()["conversation"]["id"]
-    rid = str(uuid.uuid4())
+    rid = str(uuid4())
     payload = {"content": "主体是雨夜古城门", "client_request_id": rid}
 
     first = await _read_sse(
@@ -735,7 +731,7 @@ async def test_send_message_stream_idempotent_replay(client: httpx.AsyncClient) 
     assert second_types[0] == "run_started"
     assert second_types[-1] == "run_completed"
     # 幂等回放：run_completed 标记 replayed=True 且重复出现不新增消息
-    replayed = json.loads(second_events[-1]["data"])
+    replayed = json_loads(second_events[-1]["data"])
     assert replayed["replayed"] is True
 
     # 仍只有 user + assistant 各 1 条（未因重复请求而重复落库）
@@ -743,7 +739,7 @@ async def test_send_message_stream_idempotent_replay(client: httpx.AsyncClient) 
     assert [m["role"] for m in listed["items"]] == ["user", "assistant"]
 
 
-async def test_send_message_stream_search_event(client: httpx.AsyncClient, monkeypatch) -> None:
+async def test_send_message_stream_search_event(client: AsyncClient, monkeypatch) -> None:
     """web_search_enabled=True 且模型请求了 search_requests：流中产出 searched 事件（带引用数），
     且检索结果回流给模型二次生成最终回复（事件序列正确、端到端可用）。"""
     from app.providers.text.base import TextCapabilities, TextProvider, TextResult
@@ -786,7 +782,7 @@ async def test_send_message_stream_search_event(client: httpx.AsyncClient, monke
         f"/api/v1/conversations/{cid}/messages/stream",
         json={
             "content": "帮我查一下故宫夜景宣传片的资料",
-            "client_request_id": str(uuid.uuid4()),
+            "client_request_id": str(uuid4()),
             "web_search_enabled": True,
         },
         headers=headers,
@@ -797,11 +793,11 @@ async def test_send_message_stream_search_event(client: httpx.AsyncClient, monke
     assert types[-1] == "run_completed"
     assert "searched" in types
 
-    searched = json.loads(next(e["data"] for e in events if e["event"] == "searched"))
+    searched = json_loads(next(e["data"] for e in events if e["event"] == "searched"))
     assert searched["citations"] >= 1  # fake_search 每条查询至少返回 1 条引用
 
     # 最终回复是模型基于检索结果二次生成的（含"根据检索结果"与来源 URL）
-    completed = json.loads(events[-1]["data"])
+    completed = json_loads(events[-1]["data"])
     assert "根据检索结果" in completed["content"]
 
     # 落库：引用结构化返回
@@ -810,13 +806,13 @@ async def test_send_message_stream_search_event(client: httpx.AsyncClient, monke
     assert len(assistant["citations"]) >= 1
 
 
-async def test_sync_endpoint_idempotent_replay(client: httpx.AsyncClient) -> None:
+async def test_sync_endpoint_idempotent_replay(client: AsyncClient) -> None:
     """同步 POST /messages 幂等命中不应因元组解包而报错，且不重复落库。"""
     await _register(client)
     headers = _csrf_headers(client)
     conv = await client.post("/api/v1/conversations", json={"title": "幂等回放"}, headers=headers)
     cid = conv.json()["conversation"]["id"]
-    rid = str(uuid.uuid4())
+    rid = str(uuid4())
     payload = {"content": "雨夜古城门", "client_request_id": rid}
     first = await client.post(
         f"/api/v1/conversations/{cid}/messages", json=payload, headers=headers
@@ -882,7 +878,7 @@ async def test_search_persists_retrieval_notes(client, db_engine, monkeypatch) -
         f"/api/v1/conversations/{cid}/messages",
         json={
             "content": "帮我查一下故宫夜景宣传片资料",
-            "client_request_id": str(uuid.uuid4()),
+            "client_request_id": str(uuid4()),
             "web_search_enabled": True,
         },
         headers=headers,
@@ -967,7 +963,7 @@ async def test_next_turn_sees_retrieval_notes(client, db_engine, monkeypatch) ->
         f"/api/v1/conversations/{cid}/messages",
         json={
             "content": "帮我查一下故宫夜景宣传片资料",
-            "client_request_id": str(uuid.uuid4()),
+            "client_request_id": str(uuid4()),
             "web_search_enabled": True,
         },
         headers=headers,
@@ -978,7 +974,7 @@ async def test_next_turn_sees_retrieval_notes(client, db_engine, monkeypatch) ->
     # 第 2 轮：再次发消息（不联网），主对话上下文应带上累积的检索依据
     r2 = await client.post(
         f"/api/v1/conversations/{cid}/messages",
-        json={"content": "在此基础上继续细化", "client_request_id": str(uuid.uuid4())},
+        json={"content": "在此基础上继续细化", "client_request_id": str(uuid4())},
         headers=headers,
     )
     assert r2.status_code == 201
@@ -1053,7 +1049,7 @@ async def test_retrieval_notes_dedup_same_query(client, db_engine, monkeypatch) 
             f"/api/v1/conversations/{cid}/messages",
             json={
                 "content": f"再查一次故宫夜景宣传片（第{i + 1}轮）",
-                "client_request_id": str(uuid.uuid4()),
+                "client_request_id": str(uuid4()),
                 "web_search_enabled": True,
             },
             headers=headers,

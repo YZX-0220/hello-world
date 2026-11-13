@@ -101,21 +101,18 @@ class CulturalGuidanceRepository:
         return result.first()
 
     async def list_by_codes(self, codes: list[str]) -> list[CulturalGuidance]:
-        """按国家代码列表批量查询已启用的文化指引（空列表直接返回，避免空 IN 子句）。"""
+        """按国家代码列表批量查询已启用的文化指引（保持传入顺序，空列表直接返回）。"""
         norm_codes = list(dict.fromkeys(c.strip().upper() for c in codes if c and c.strip()))
         if not norm_codes:
             return []
         await self.ensure_defaults()
-        stmt = (
-            select(CulturalGuidance)
-            .where(
-                col(CulturalGuidance.code).in_(norm_codes),
-                col(CulturalGuidance.is_enabled).is_(True),
-            )
-            .order_by(col(CulturalGuidance.sort_order).asc(), col(CulturalGuidance.id).asc())
+        stmt = select(CulturalGuidance).where(
+            col(CulturalGuidance.code).in_(norm_codes),
+            col(CulturalGuidance.is_enabled).is_(True),
         )
         result = await self.session.exec(stmt)
-        return list(result.all())
+        by_code = {item.code: item for item in result.all()}
+        return [by_code[code] for code in norm_codes if code in by_code]
 
     async def create(
         self,

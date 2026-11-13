@@ -1,18 +1,19 @@
-import asyncio
-import io
-import uuid
+from asyncio import create_task, wait_for
 from dataclasses import replace
+from io import BytesIO
+from uuid import uuid4
 
-import pytest
 from app.providers.video.ark_seedance_v1 import _build_body
 from app.providers.video.fake import FakeVideoProvider
 from app.video_registry import registry
 from PIL import Image
+from pytest import fixture as pytest_fixture
+from pytest import mark
 
 from test_canvas import ControlledProvider, create_project, preparation, reviewed_options
 
 
-@pytest.fixture(autouse=True)
+@pytest_fixture(autouse=True)
 def mocked_review_vision(monkeypatch):
     from app.services import agent_service
 
@@ -52,7 +53,7 @@ async def confirm(client, cid, headers, project):
 async def submit(client, cid, headers, project, **kwargs):
     return await client.post(
         "/api/v1/video-jobs",
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
         json={
             "conversation_id": cid,
             "project_id": project["id"],
@@ -84,12 +85,12 @@ async def config(client, headers, model="doubao-seedance-2-5", protocol="ark_see
     return result.json()
 
 
-@pytest.mark.parametrize("mode", ["first_frame_to_video", "first_last_frame_to_video"])
+@mark.parametrize("mode", ["first_frame_to_video", "first_last_frame_to_video"])
 async def test_image_review_persists_adaptive_plan_and_real_ark_body_has_no_ratio(
     client, monkeypatch, mode
 ):
     cid, headers, document = await create_project(client)
-    data = io.BytesIO()
+    data = BytesIO()
     Image.new("RGB", (16, 9), "blue").save(data, format="PNG")
     count = 1 if mode == "first_frame_to_video" else 2
     for i in range(count):
@@ -151,7 +152,7 @@ async def test_image_review_persists_adaptive_plan_and_real_ark_body_has_no_rati
     assert len(body["content"]) == count + 1
 
 
-@pytest.mark.parametrize("change", ["channel", "mode", "roles", "rules", "options"])
+@mark.parametrize("change", ["channel", "mode", "roles", "rules", "options"])
 async def test_changed_binding_cannot_submit_the_old_review(client, monkeypatch, change):
     cid, headers, _ = await create_project(client)
     monkeypatch.setattr(
@@ -204,7 +205,7 @@ async def test_client_canvas_cannot_replace_review_content_or_parameters(client,
     assert saved["canvas_data"]["generation_settings"]["duration_seconds"] == 8
 
 
-@pytest.mark.parametrize("kind", ["missing_image", "unknown_model", "unsupported_mode"])
+@mark.parametrize("kind", ["missing_image", "unknown_model", "unsupported_mode"])
 async def test_unresolvable_review_is_persisted_without_calling_ai_or_claiming_ready(
     client, monkeypatch, kind
 ):
@@ -244,14 +245,14 @@ async def test_config_revision_change_during_llm_call_does_not_publish_stale_rev
     cfg = await config(client, headers)
     provider = ControlledProvider(blocked=True)
     monkeypatch.setattr("app.services.agent_service.get_text_provider", lambda: provider)
-    work = asyncio.create_task(
+    work = create_task(
         client.post(
             f"/api/v1/conversations/{cid}/canvas/prepare-video",
             json={**preparation(["target"]), "api_config_id": cfg["id"]},
             headers=headers,
         )
     )
-    await asyncio.wait_for(provider.started.wait(), 5)
+    await wait_for(provider.started.wait(), 5)
     changed = await client.patch(
         f"/api/v1/video-api-configs/{cfg['id']}",
         headers=headers,
@@ -259,7 +260,7 @@ async def test_config_revision_change_during_llm_call_does_not_publish_stale_rev
     )
     assert changed.status_code == 200, changed.text
     provider.release.set()
-    result = await asyncio.wait_for(work, 5)
+    result = await wait_for(work, 5)
     assert result.status_code == 409, result.text
     assert (await client.get(f"/api/v1/conversations/{cid}/project")).json()[
         "current_spec_version"

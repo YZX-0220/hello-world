@@ -7,8 +7,9 @@
   - 两者都不可行（下载失败且不允许直链）→ download_status=failed（不改变生成的 status）。
 """
 
-import json
 from datetime import timedelta
+from json import dumps as json_dumps
+from json import loads as json_loads
 from typing import Any
 
 from sqlmodel import select
@@ -143,7 +144,7 @@ class VideoDownloadService:
         if profile is not None and url and profile.allows_provider_direct_url:
             expires = now() + timedelta(seconds=profile.provider_direct_url_ttl)
             job.encrypted_result_ref_json = encrypt_secret(
-                json.dumps(
+                json_dumps(
                     {"direct_url": url, "expires_at": expires.isoformat()}, ensure_ascii=False
                 ),
                 settings.credential_encryption_keys,
@@ -161,10 +162,10 @@ class VideoDownloadService:
             return AdapterContext(base_url="", auth={}, options={}, remote_model_id="")
         return AdapterContext(
             base_url=revision.base_url or "",
-            auth=json.loads(
+            auth=json_loads(
                 decrypt_secret(revision.encrypted_auth_json, settings.credential_encryption_keys)
             ),
-            options=json.loads(revision.public_options_json or "{}"),
+            options=json_loads(revision.public_options_json or "{}"),
             remote_model_id=revision.remote_model_id,
             template=_custom_template(revision.custom_template_json),
         )
@@ -172,7 +173,7 @@ class VideoDownloadService:
     @staticmethod
     def _platform_ctx(job: VideoJob) -> AdapterContext:
         """平台自有通道的厂商上下文：直接读 settings.video_platform_*，无 revision。"""
-        snapshot = json.loads(job.request_json or "{}").get("generation_target", {})
+        snapshot = json_loads(job.request_json or "{}").get("generation_target", {})
         return AdapterContext(
             base_url=snapshot.get("base_url") or settings.video_platform_base_url,
             auth={"api_key": settings.video_platform_api_key},

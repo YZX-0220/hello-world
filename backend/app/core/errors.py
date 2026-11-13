@@ -236,7 +236,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     """注册全部异常处理器。"""
     # 说明：Starlette 对异常处理回调的泛型签名要求统一为 (Request, Exception)，
     # 此处回调参数为各具体异常类型，属框架泛型限制，故忽略 arg-type 类型告警。
-    app.add_exception_handler(AppError, _app_error_handler)  # ty: ignore[invalid-argument-type] # type: ignore[arg-type]
-    app.add_exception_handler(RequestValidationError, _validation_error_handler)  # ty: ignore[invalid-argument-type] # type: ignore[arg-type]
-    app.add_exception_handler(StarletteHTTPException, _http_error_handler)  # ty: ignore[invalid-argument-type] # type: ignore[arg-type]
+    app.add_exception_handler(AppError, _app_error_handler)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+    app.add_exception_handler(RequestValidationError, _validation_error_handler)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+    app.add_exception_handler(StarletteHTTPException, _http_error_handler)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
     app.add_exception_handler(Exception, _unhandled_error_handler)

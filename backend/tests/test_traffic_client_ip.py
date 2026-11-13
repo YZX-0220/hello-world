@@ -3,14 +3,15 @@
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
-import httpx
-import pytest
 from app.core.client_ip import resolve_client_ip
 from app.core.config import Settings, settings
 from app.db.models.site_traffic import SiteVisit, SiteVisitEvent
 from app.main import app
 from fastapi import Request
+from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
+from pytest import fixture as pytest_fixture
+from pytest import mark, raises
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
@@ -20,7 +21,7 @@ VISITS = "/api/v1/site-traffic/visits"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0.0.0"
 
 
-@pytest.fixture(autouse=True)
+@pytest_fixture(autouse=True)
 def ip_config(monkeypatch):
     monkeypatch.setattr(settings, "traffic_trusted_proxy_cidrs", "")
     monkeypatch.setattr(settings, "app_base_url", "http://testserver")
@@ -43,7 +44,7 @@ def request_from(peer, **headers):
     )
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     ("raw", "canonical", "version", "public"),
     [
         ("8.8.8.8", "8.8.8.8", 4, True),
@@ -61,7 +62,7 @@ def test_address_normalization_and_public_flag(raw, canonical, version, public):
     assert (ip.address, ip.version, ip.is_public, ip.source) == (canonical, version, public, "asgi")
 
 
-@pytest.mark.parametrize("peer", [None, "unknown", "testclient", "fe80::1%eth0", "8.8.8.8:80"])
+@mark.parametrize("peer", [None, "unknown", "testclient", "fe80::1%eth0", "8.8.8.8:80"])
 def test_missing_or_invalid_asgi_ip_is_not_fabricated(peer):
     ip = resolve_client_ip(request_from(peer, x_forwarded_for="8.8.8.8"))
     assert ip.address is None
@@ -94,7 +95,7 @@ def test_trusted_proxy_chain_uses_nearest_untrusted_hop(monkeypatch):
     assert real.source == "real_ip"
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "header", [None, "", "unknown", "10.0.0.7", "8.8.8.8, invalid", ",".join(["8.8.8.8"] * 33)]
 )
 def test_unresolved_trusted_proxy_is_not_mistaken_for_visitor(monkeypatch, header):
@@ -105,16 +106,16 @@ def test_unresolved_trusted_proxy_is_not_mistaken_for_visitor(monkeypatch, heade
     assert ip.source == "proxy_unresolved"
 
 
-@pytest.mark.parametrize("cidrs", ["*", "0.0.0.0/0", "::/0", "bad-host", "127.0.0.1/32,typo"])
+@mark.parametrize("cidrs", ["*", "0.0.0.0/0", "::/0", "bad-host", "127.0.0.1/32,typo"])
 def test_invalid_or_unrestricted_proxy_trust_fails_configuration(cidrs):
-    with pytest.raises(ValidationError):
+    with raises(ValidationError):
         Settings(_env_file=None, traffic_trusted_proxy_cidrs=cidrs)
 
 
 @asynccontextmanager
 async def browser_from(ip, target=app):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=target, client=(ip, 1234)),
+    async with AsyncClient(
+        transport=ASGITransport(app=target, client=(ip, 1234)),
         base_url="http://testserver",
         headers={"Origin": "http://testserver", "User-Agent": UA},
     ) as browser:

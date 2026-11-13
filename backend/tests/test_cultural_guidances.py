@@ -2,16 +2,17 @@
 
 from datetime import datetime, timedelta
 
-import pytest
 from app.core.enums import UserStatus
 from app.core.security import new_session_token, token_sha256
 from app.db.models.user import User, UserSession
+from pytest import fixture as pytest_fixture
+from pytest import mark
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 GUIDANCES_URL = "/api/v1/cultural-guidances"
 
 
-@pytest.fixture
+@pytest_fixture
 async def auth_client(client, db_engine):
     """准备已登录的客户端会话。"""
     async with AsyncSession(db_engine) as session:
@@ -36,7 +37,7 @@ async def auth_client(client, db_engine):
     return client
 
 
-@pytest.mark.asyncio
+@mark.asyncio
 async def test_cultural_guidances_flow(client, auth_client):
     # 1. 匿名/首次查询列表（触发默认数据写入并返回列表）
     res = await client.get(GUIDANCES_URL)

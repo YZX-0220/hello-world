@@ -1,13 +1,14 @@
 """Explicit image billing routes; all upstream requests use MockTransport."""
 
-import base64
-import json
+from base64 import b64encode
+from json import loads as json_loads
 
 import httpx
-import pytest
 from app.core.config import settings
 from app.db.models.image_generation import ImageApiConfig, ImageJob
 from app.providers.image import ark_plan
+from pytest import fail as pytest_fail
+from pytest import mark, raises
 
 from test_image_generation import (
     API,
@@ -54,10 +55,10 @@ async def test_b64_response_format_requests_inline_png_and_preserves_original_by
         calls.append(request)
         assert request.method == "POST"
         assert str(request.url) == STANDARD_URL
-        assert json.loads(request.content)["response_format"] == "b64_json"
+        assert json_loads(request.content)["response_format"] == "b64_json"
         return httpx.Response(
             200,
-            json={"data": [{"b64_json": base64.b64encode(raw).decode()}]},
+            json={"data": [{"b64_json": b64encode(raw).decode()}]},
             headers={"x-request-id": "inline-png-request"},
         )
 
@@ -71,16 +72,16 @@ async def test_b64_response_format_requests_inline_png_and_preserves_original_by
     assert result.request_id == "inline-png-request"
 
 
-@pytest.mark.parametrize("model", STANDARD_MODELS + SUBSCRIPTION_MODELS)
-@pytest.mark.parametrize("editing", [False, True])
+@mark.parametrize("model", STANDARD_MODELS + SUBSCRIPTION_MODELS)
+@mark.parametrize("editing", [False, True])
 async def test_models_send_exact_payload_to_their_fixed_route(monkeypatch, model, editing):
     calls = []
     raw = original_png((32, 32))
-    images = ["data:image/png;base64," + base64.b64encode(raw).decode()] if editing else None
+    images = ["data:image/png;base64," + b64encode(raw).decode()] if editing else None
 
     async def handle(request):
         calls.append(request)
-        return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(raw).decode()}]})
+        return httpx.Response(200, json={"data": [{"b64_json": b64encode(raw).decode()}]})
 
     install_transport(monkeypatch, handle)
     result = await ark_plan.generate_image(
@@ -95,7 +96,7 @@ async def test_models_send_exact_payload_to_their_fixed_route(monkeypatch, model
     assert len(calls) == 1
     assert str(calls[0].url) == (STANDARD_URL if model in STANDARD_MODELS else SUBSCRIPTION_URL)
     assert calls[0].headers["Authorization"] == f"Bearer {SECRET}"
-    assert json.loads(calls[0].content) == {
+    assert json_loads(calls[0].content) == {
         "model": model,
         "prompt": "Blue coat",
         "size": "1536x1536",
@@ -106,8 +107,8 @@ async def test_models_send_exact_payload_to_their_fixed_route(monkeypatch, model
     }
 
 
-@pytest.mark.parametrize("model", STANDARD_MODELS + SUBSCRIPTION_MODELS)
-@pytest.mark.parametrize("status", [401, 403, 404, 429])
+@mark.parametrize("model", STANDARD_MODELS + SUBSCRIPTION_MODELS)
+@mark.parametrize("status", [401, 403, 404, 429])
 async def test_rejections_never_retry_switch_routes_or_expose_upstream_body(
     monkeypatch, caplog, model, status
 ):
@@ -119,7 +120,7 @@ async def test_rejections_never_retry_switch_routes_or_expose_upstream_body(
         return httpx.Response(status, json={"error": upstream_body})
 
     install_transport(monkeypatch, handle)
-    with pytest.raises(ark_plan.ImageProviderError) as raised:
+    with raises(ark_plan.ImageProviderError) as raised:
         await ark_plan.generate_image(
             api_key=SECRET, model=model, prompt="Portrait", size="1536x1536"
         )
@@ -129,13 +130,13 @@ async def test_rejections_never_retry_switch_routes_or_expose_upstream_body(
     assert "private-vendor-diagnostic" not in str(raised.value) + caplog.text
 
 
-@pytest.mark.parametrize("model", ["unknown-model", "doubao-seedream-5-0-pro", STANDARD_URL])
+@mark.parametrize("model", ["unknown-model", "doubao-seedream-5-0-pro", STANDARD_URL])
 async def test_unknown_model_fails_before_constructing_http_client(monkeypatch, model):
     def forbidden_client(*args, **kwargs):
-        pytest.fail("Unknown models must fail before opening an HTTP client")
+        pytest_fail("Unknown models must fail before opening an HTTP client")
 
     monkeypatch.setattr(httpx, "AsyncClient", forbidden_client)
-    with pytest.raises(ark_plan.ImageProviderError) as raised:
+    with raises(ark_plan.ImageProviderError) as raised:
         await ark_plan.generate_image(
             api_key=SECRET, model=model, prompt="Portrait", size="1536x1536"
         )
@@ -143,7 +144,7 @@ async def test_unknown_model_fails_before_constructing_http_client(monkeypatch, 
     assert SECRET not in str(raised.value)
 
 
-@pytest.mark.parametrize("model", STANDARD_MODELS)
+@mark.parametrize("model", STANDARD_MODELS)
 async def test_standard_config_persists_and_queued_execution_uses_frozen_model(
     client, db_engine, monkeypatch, model
 ):

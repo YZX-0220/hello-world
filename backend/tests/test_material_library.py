@@ -1,17 +1,17 @@
 """素材库回归：发布权限、共享读取、范围请求、分页、文件归属和版本冲突。"""
 
-import io
-import uuid
+from io import BytesIO
 from pathlib import Path
+from uuid import uuid4
 
-import httpx
-import pytest
-import pytest_asyncio
 from app.core.config import settings
 from app.db.models.material_library import MaterialLibraryItem
 from app.main import app
 from app.providers.email.fake import fake_instance
+from httpx import AsyncClient
 from PIL import Image
+from pytest import mark
+from pytest_asyncio import fixture as async_fixture
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -21,12 +21,12 @@ ADMIN = "/api/v1/admin/material-library"
 MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isommp42" + b"\x00\x00\x00\x0cmdatdemo"
 
 
-def _headers(client: httpx.AsyncClient) -> dict[str, str]:
+def _headers(client: AsyncClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies.get("hw_csrf") or "", "Origin": "http://127.0.0.1:5173"}
 
 
-async def _register(client: httpx.AsyncClient) -> str:
-    email = f"library-{uuid.uuid4().hex[:8]}@test.com"
+async def _register(client: AsyncClient) -> str:
+    email = f"library-{uuid4().hex[:8]}@test.com"
     await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
     response = await client.post(
         "/api/v1/auth/register",
@@ -36,7 +36,7 @@ async def _register(client: httpx.AsyncClient) -> str:
     return email
 
 
-@pytest_asyncio.fixture
+@async_fixture
 async def admin(client, monkeypatch):
     email = await _register(client)
     # 邮箱匹配忽略大小写和两侧空格，不默认授予所有登录用户权限。
@@ -44,9 +44,9 @@ async def admin(client, monkeypatch):
     return client
 
 
-async def _upload(client: httpx.AsyncClient, *, image: bool = False) -> dict:
+async def _upload(client: AsyncClient, *, image: bool = False) -> dict:
     if image:
-        buffer = io.BytesIO()
+        buffer = BytesIO()
         Image.new("RGB", (8, 4), (0, 100, 200)).save(buffer, format="PNG")
         file = ("cover.png", buffer.getvalue(), "image/png")
     else:
@@ -61,7 +61,7 @@ async def _upload(client: httpx.AsyncClient, *, image: bool = False) -> dict:
     return response.json()
 
 
-async def _create(client: httpx.AsyncClient, **changes) -> dict:
+async def _create(client: AsyncClient, **changes) -> dict:
     video = await _upload(client)
     payload = {
         "title": "晨雾宫殿",
@@ -217,7 +217,7 @@ async def test_replace_video_remove_cover_and_version_update(admin):
     ).status_code == 204
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "patch",
     [
         {"title": " "},
@@ -316,7 +316,7 @@ async def test_admin_permissions_and_csrf(client, monkeypatch):
     assert no_csrf.status_code == 403 and no_csrf.json()["error"]["code"] == "CSRF_INVALID"
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "name,content",
     [("v.mp4", b"not-a-video"), ("v.mp4", b"\x00\x00\x00\x18ftypheic" + b"0" * 24), ("v.txt", MP4)],
 )

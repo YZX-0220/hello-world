@@ -1,16 +1,15 @@
 """Image editing regressions; every provider is mocked and external HTTP is forbidden."""
 
-import base64
-import hashlib
-import io
-import json
-import uuid
+from base64 import b64encode
+from hashlib import sha256
+from io import BytesIO
+from json import dumps as json_dumps
+from json import loads as json_loads
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
 
-import httpx
-import pytest
 from alembic import command
 from alembic.config import Config
 from app.core.config import settings
@@ -18,7 +17,10 @@ from app.core.time import now
 from app.db.models.asset import Asset
 from app.db.models.image_generation import ImageJob
 from app.providers.text.base import TextProviderError, TextResult
+from httpx import AsyncClient, MockTransport, Response
 from PIL import Image
+from pytest import fixture as pytest_fixture
+from pytest import mark
 from sqlalchemy import MetaData, Table, create_engine, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -38,7 +40,7 @@ from test_image_generation import (
 )
 
 
-@pytest.fixture(autouse=True)
+@pytest_fixture(autouse=True)
 def isolated_editing_settings(monkeypatch):
     monkeypatch.setattr(settings, "image_provider", "fake")
     monkeypatch.setattr(settings, "image_worker_enabled", False)
@@ -47,15 +49,15 @@ def isolated_editing_settings(monkeypatch):
     monkeypatch.setattr(settings, "app_env", "dev")
     monkeypatch.setattr(settings, "image_max_pending_per_user", 20)
     monkeypatch.setattr(settings, "image_platform_daily_limit", 30)
-    original_send = httpx.AsyncClient.send
+    original_send = AsyncClient.send
 
     async def local_only(self, request, *args, **kwargs):
-        assert request.url.host == "testserver" or isinstance(
-            self._transport, httpx.MockTransport
-        ), "Editing tests must never call external services"
+        assert request.url.host == "testserver" or isinstance(self._transport, MockTransport), (
+            "Editing tests must never call external services"
+        )
         return await original_send(self, request, *args, **kwargs)
 
-    monkeypatch.setattr(httpx.AsyncClient, "send", local_only)
+    monkeypatch.setattr(AsyncClient, "send", local_only)
 
 
 async def upload(client, cid, data=None, name="reference.png", mime="image/png"):
@@ -81,7 +83,7 @@ async def post_job(client, cid, **changes):
             "prompt": "保持虚构成年人物面貌，把外套改成蓝色",
             **changes,
         },
-        headers=headers(client, str(uuid.uuid4())),
+        headers=headers(client, str(uuid4())),
     )
 
 
@@ -96,10 +98,10 @@ async def update_row(db_engine, model, ident, **values):
 
 
 def data_url(raw, mime="image/png"):
-    return f"data:{mime};base64,{base64.b64encode(raw).decode()}"
+    return f"data:{mime};base64,{b64encode(raw).decode()}"
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "image_format,mime,name",
     [("PNG", "image/png", "原图.png"), ("JPEG", "image/jpeg", "portrait.jpg")],
 )
@@ -108,7 +110,7 @@ async def test_reference_upload_preserves_original_bytes_and_owner_access(
 ):
     await register(client)
     cid = await conversation(client)
-    stream = io.BytesIO()
+    stream = BytesIO()
     Image.new("RGB", (73, 51), "orange").save(stream, image_format)
     raw = stream.getvalue()
     uploaded = await reference(client, cid, data=raw, name=name, mime=mime)
@@ -117,7 +119,7 @@ async def test_reference_upload_preserves_original_bytes_and_owner_access(
     asset = await row_for(db_engine, Asset, uploaded["id"])
     assert asset.status == "ready"
     assert asset.conversation_id == cid
-    assert asset.sha256 == hashlib.sha256(raw).hexdigest()
+    assert asset.sha256 == sha256(raw).hexdigest()
     assert asset.storage_provider == "local"
     assert Path(settings.storage_root, asset.storage_key).read_bytes() == raw
     response = await client.get(uploaded["content_url"])
@@ -142,7 +144,7 @@ async def test_reference_upload_uses_local_when_obs_is_not_configured(
 
 
 async def test_reference_upload_requires_login_and_csrf(client):
-    response = await upload(client, str(uuid.uuid4()))
+    response = await upload(client, str(uuid4()))
     assert response.status_code in (401, 403)
     await register(client)
     cid = await conversation(client)
@@ -162,7 +164,7 @@ async def test_reference_upload_rejects_another_users_conversation(client):
     assert response.status_code in (403, 404), response.text
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "raw,name,mime",
     [
         (b"not an image", "fake.png", "image/png"),
@@ -180,7 +182,7 @@ async def test_reference_upload_rejects_malformed_and_unsupported_images(client,
 async def test_reference_upload_rejects_unsupported_decodable_format(client):
     await register(client)
     cid = await conversation(client)
-    stream = io.BytesIO()
+    stream = BytesIO()
     Image.new("RGB", (32, 32), "red").save(stream, "GIF")
     response = await upload(
         client, cid, data=stream.getvalue(), name="renamed.png", mime="image/png"
@@ -227,7 +229,7 @@ async def test_parent_must_belong_to_same_user_and_conversation(client, db_engin
     assert response.status_code in (403, 404, 422), response.text
 
 
-@pytest.mark.parametrize("status", ["queued", "generating", "failed", "unknown", "cancelled"])
+@mark.parametrize("status", ["queued", "generating", "failed", "unknown", "cancelled"])
 async def test_parent_must_have_successful_saved_output(client, db_engine, status):
     await register(client)
     cid = await conversation(client)
@@ -269,9 +271,9 @@ async def test_parent_is_first_reference_and_is_deduplicated(client, db_engine):
         assert item["content_url"] and item["original_name"]
         assert "storage_key" not in item and "sha256" not in item
     stored = await row_for(db_engine, ImageJob, child["id"])
-    snapshot = json.loads(stored.reference_images_json)
+    snapshot = json_loads(stored.reference_images_json)
     assert len(snapshot) == 2
-    assert hashlib.sha256(original_png((64, 48))).hexdigest() in stored.reference_images_json
+    assert sha256(original_png((64, 48))).hexdigest() in stored.reference_images_json
 
 
 async def test_parent_plus_references_cannot_exceed_four_images(client, db_engine):
@@ -319,7 +321,7 @@ async def test_two_edit_rounds_send_previous_original_image_and_prior_text(
     stored = await row_for(db_engine, ImageJob, final["id"])
     assert stored.status == "succeeded"
     assert stored.compiled_prompt == kwargs["prompt"]
-    assert json.loads(stored.edit_context_json)
+    assert json_loads(stored.edit_context_json)
 
 
 async def test_uploaded_jpeg_and_png_reach_worker_as_original_data_urls(
@@ -327,7 +329,7 @@ async def test_uploaded_jpeg_and_png_reach_worker_as_original_data_urls(
 ):
     await register(client)
     cid = await conversation(client)
-    jpeg_buffer = io.BytesIO()
+    jpeg_buffer = BytesIO()
     Image.new("RGB", (48, 64), "gold").save(jpeg_buffer, "JPEG")
     jpeg = jpeg_buffer.getvalue()
     png = original_png((64, 48))
@@ -346,7 +348,7 @@ async def test_uploaded_jpeg_and_png_reach_worker_as_original_data_urls(
     assert generate.call_args.kwargs["watermark"] is True
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "damage",
     [
         "changed_bytes",
@@ -375,7 +377,7 @@ async def test_reference_integrity_failures_stop_before_provider(
                 db_engine,
                 Asset,
                 asset.id,
-                sha256=hashlib.sha256(replacement).hexdigest(),
+                sha256=sha256(replacement).hexdigest(),
                 size_bytes=len(replacement),
                 width=41,
                 height=43,
@@ -398,14 +400,14 @@ async def test_reference_integrity_failures_stop_before_provider(
     generate.assert_not_awaited()
 
 
-@pytest.mark.parametrize("field", ["reference_asset_ids", "parent_job_id", "watermark"])
+@mark.parametrize("field", ["reference_asset_ids", "parent_job_id", "watermark"])
 async def test_idempotency_includes_edit_inputs(client, db_engine, field):
     await register(client)
     cid = await conversation(client)
     ref = await reference(client, cid)
     parent = await create_job(client, cid)
     await run_job(db_engine, parent["id"])
-    key = str(uuid.uuid4())
+    key = str(uuid4())
     first = await create_job(client, cid, key)
     same = await create_job(client, cid, key)
     assert same["id"] == first["id"]
@@ -424,7 +426,7 @@ async def test_idempotency_includes_edit_inputs(client, db_engine, field):
     assert response.status_code == 409, response.text
 
 
-@pytest.mark.parametrize("watermark", [False, True])
+@mark.parametrize("watermark", [False, True])
 async def test_image_adapter_serializes_original_references_and_watermark(monkeypatch, watermark):
     from app.providers.image.ark_plan import ENDPOINT, generate_image
 
@@ -435,16 +437,16 @@ async def test_image_adapter_serializes_original_references_and_watermark(monkey
     async def handle(request):
         assert str(request.url) == ENDPOINT
         assert request.headers["Authorization"] == f"Bearer {SECRET}"
-        bodies.append(json.loads(request.content))
-        return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(raw).decode()}]})
+        bodies.append(json_loads(request.content))
+        return Response(200, json={"data": [{"b64_json": b64encode(raw).decode()}]})
 
-    original_init = httpx.AsyncClient.__init__
+    original_init = AsyncClient.__init__
 
     def init_with_transport(self, *args, **kwargs):
-        kwargs["transport"] = httpx.MockTransport(handle)
+        kwargs["transport"] = MockTransport(handle)
         original_init(self, *args, **kwargs)
 
-    monkeypatch.setattr(httpx.AsyncClient, "__init__", init_with_transport)
+    monkeypatch.setattr(AsyncClient, "__init__", init_with_transport)
     result = await generate_image(
         api_key=SECRET,
         model="doubao-seedream-5.0-flash",
@@ -483,7 +485,7 @@ async def test_legacy_draft_fingerprint_replays_original_watermarked_job(
     await register(client)
     cid = await conversation(client)
     generate = mock_real(monkeypatch, data=original_png())
-    key = str(uuid.uuid4())
+    key = str(uuid4())
     job = await create_job(client, cid, key)
     legacy_request = {
         "conversation_id": cid,
@@ -492,8 +494,8 @@ async def test_legacy_draft_fingerprint_replays_original_watermarked_job(
         "aspect_ratio": "9:16",
         "source_node_id": None,
     }
-    fingerprint = hashlib.sha256(
-        json.dumps(legacy_request, sort_keys=True, ensure_ascii=False).encode()
+    fingerprint = sha256(
+        json_dumps(legacy_request, sort_keys=True, ensure_ascii=False).encode()
     ).hexdigest()
     await update_row(
         db_engine,
@@ -561,7 +563,7 @@ def test_migration_preserves_watermark_for_existing_jobs(tmp_path, monkeypatch):
     assert row["prompt"] == "Historical portrait"
     assert row["watermark"] is True
     assert row["parent_job_id"] is None
-    assert json.loads(row["reference_images_json"]) == []
+    assert json_loads(row["reference_images_json"]) == []
     assert row["compiled_prompt"] in (None, "", "Historical portrait")
 
 
@@ -607,7 +609,7 @@ async def test_reference_suggestions_use_vision_with_image_and_selected_settings
     generate.assert_awaited_once()
     messages = generate.call_args.args[0]
     assert any(isinstance(message["content"], list) for message in messages)
-    serialized = json.dumps(messages, ensure_ascii=False)
+    serialized = json_dumps(messages, ensure_ascii=False)
     assert data_url(raw) in serialized
     assert "doubao-seedream-5.0-flash" in serialized
     assert "16:9" in serialized and "2048x1152" in serialized

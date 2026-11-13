@@ -4,11 +4,12 @@ Rules are code/data, never an LLM verdict. Preparation may propose a candidate;
 submission only validates the already reviewed candidate and never repairs it.
 """
 
-import hashlib
-import itertools
-import json
-import re
 from dataclasses import asdict, dataclass
+from hashlib import sha256
+from itertools import product
+from json import dumps as json_dumps
+from json import loads as json_loads
+from re import findall as regex_findall
 from typing import Any
 
 from app.core.config import settings
@@ -41,8 +42,8 @@ POLICY_VERSION = 1
 
 
 def digest(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(
+    return sha256(
+        json_dumps(
             value,
             ensure_ascii=False,
             sort_keys=True,
@@ -281,7 +282,7 @@ def propose_settings(target: GenerationTarget, spec: VideoBrief, requested: dict
                 strict=True,
             )
         )
-        for values in itertools.product(durations, resolutions, ratios, audios)
+        for values in product(durations, resolutions, ratios, audios)
     ]
     candidates = [c for c in candidates if not _violations(profile, rule, c)]
     if not candidates:
@@ -364,8 +365,8 @@ def propose_settings(target: GenerationTarget, spec: VideoBrief, requested: dict
     if not profile.generation_options.get("generate_audio"):
         wire.pop("generate_audio", None)
     if target.revision is not None and target.revision.custom_template_json:
-        body = json.loads(target.revision.custom_template_json).get("request_template_json", {})
-        mapped = set(re.findall(r"\{([a-z_]+)\}", json.dumps(body)))
+        body = json_loads(target.revision.custom_template_json).get("request_template_json", {})
+        mapped = set(regex_findall(r"\{([a-z_]+)\}", json_dumps(body)))
         required = set(wire)
         if spec.first_frame_asset_id:
             required.add("first_frame_url")

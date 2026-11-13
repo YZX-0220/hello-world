@@ -1,31 +1,31 @@
 """Log redaction uses synthetic secrets only and never sends network requests."""
 
-import io
-import logging
+from io import StringIO
+from logging import INFO, Formatter, LogRecord, StreamHandler
 
-import pytest
 from app.core.logging import SensitiveFilter
+from pytest import mark
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "query_key",
     ["X-Tos-Signature", "X-Tos-Credential", "token", "access_token", "X-Amz-Security-Token"],
 )
 def test_httpx_formatted_url_query_is_redacted_before_handler_output(query_key):
     secret = "fake-sensitive-value%2F20261107%2Fscope"
     url = f"https://example.invalid/image.png?{query_key}={secret}&width=512"
-    record = logging.LogRecord(
+    record = LogRecord(
         "httpx",
-        logging.INFO,
+        INFO,
         __file__,
         1,
         'HTTP Request: %s %s "%s %d %s"',
         ("GET", url, "HTTP/1.1", 200, "OK"),
         None,
     )
-    output = io.StringIO()
-    handler = logging.StreamHandler(output)
-    handler.setFormatter(logging.Formatter("[%(request_id)s] %(message)s"))
+    output = StringIO()
+    handler = StreamHandler(output)
+    handler.setFormatter(Formatter("[%(request_id)s] %(message)s"))
     handler.addFilter(SensitiveFilter())
     handler.handle(record)
     rendered = output.getvalue()
@@ -37,9 +37,9 @@ def test_httpx_formatted_url_query_is_redacted_before_handler_output(query_key):
 
 
 def test_mapping_args_all_signed_query_fields_and_request_context_survive_repeat_filter():
-    record = logging.LogRecord(
+    record = LogRecord(
         "httpx",
-        logging.INFO,
+        INFO,
         __file__,
         1,
         "download %(url)s",
@@ -66,18 +66,14 @@ def test_mapping_args_all_signed_query_fields_and_request_context_survive_repeat
     assert first.endswith("&width=64")
 
 
-@pytest.mark.parametrize(
-    "key", ["password", "api_key", "apikey", "token", "secret", "code", "auth"]
-)
+@mark.parametrize("key", ["password", "api_key", "apikey", "token", "secret", "code", "auth"])
 def test_plain_key_value_and_formatted_value_keep_existing_redaction(key):
-    record = logging.LogRecord(
-        "app", logging.INFO, __file__, 1, f"{key}=%s, action=save", ("fake-secret",), None
-    )
+    record = LogRecord("app", INFO, __file__, 1, f"{key}=%s, action=save", ("fake-secret",), None)
     assert SensitiveFilter().filter(record)
     assert record.getMessage() == f"{key}=***REDACTED***, action=save"
 
 
 def test_non_string_message_remains_loggable():
-    record = logging.LogRecord("app", logging.INFO, __file__, 1, {"status": "ready"}, (), None)
+    record = LogRecord("app", INFO, __file__, 1, {"status": "ready"}, (), None)
     assert SensitiveFilter().filter(record)
     assert record.getMessage() == "{'status': 'ready'}"

@@ -1,20 +1,20 @@
 """Ark image adapter. A frozen model ID selects its endpoint; never cross-route on failure."""
 
-import asyncio
-import base64
-import hashlib
-import io
-import logging
+from asyncio import to_thread
+from base64 import b64decode
 from dataclasses import dataclass
+from hashlib import sha256
+from io import BytesIO
+from logging import getLogger
 from urllib.parse import urlsplit
 
-import httpx
+from httpx import AsyncClient, HTTPError
 from PIL import Image, ImageDraw
 
 from app.core.config import settings
 from app.core.ssrf import validate_public_host
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
 
 ENDPOINT = "https://ark.cn-beijing.volces.com/api/plan/v3/images/generations"
 STANDARD_ENDPOINT = "https://ark.cn-beijing.volces.com/api/v3/images/generations"
@@ -68,7 +68,7 @@ async def generate_image(
     response_size = 0
     try:
         async with (
-            httpx.AsyncClient(
+            AsyncClient(
                 timeout=settings.image_timeout_seconds, trust_env=False, follow_redirects=False
             ) as client,
             client.stream(
@@ -113,9 +113,9 @@ async def generate_image(
                     raise ImageProviderError(
                         "生图响应超出接收上限，请在方舟控制台核对结果。", uncertain=True
                     )
-            import json
+            from json import loads as json_loads
 
-            payload = json.loads(raw)
+            payload = json_loads(raw)
             items = payload.get("data") or []
             if not items or not isinstance(items[0], dict):
                 raise ImageProviderError(
@@ -126,13 +126,11 @@ async def generate_image(
             if item.get("url"):
                 return ImageResult(url=item["url"], request_id=rid)
             if item.get("b64_json"):
-                return ImageResult(
-                    data=base64.b64decode(item["b64_json"], validate=True), request_id=rid
-                )
+                return ImageResult(data=b64decode(item["b64_json"], validate=True), request_id=rid)
             raise ImageProviderError("生图服务未返回可保存的图片，请核对结果。", uncertain=True)
     except ImageProviderError:
         raise
-    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+    except (HTTPError, ValueError, KeyError, TypeError) as exc:
         # Never log credentials, request bodies or signed image URLs.
         logger.warning(
             "Image request failed: error=%s status=%s content_type=%s response_bytes=%s",
@@ -159,9 +157,9 @@ async def download_image(url: str) -> bytes:
         or not any(host == suffix or host.endswith("." + suffix) for suffix in allowed)
     ):
         raise ValueError("生图结果不是受支持的方舟 HTTPS 文件地址")
-    await asyncio.to_thread(validate_public_host, host)
+    await to_thread(validate_public_host, host)
     async with (
-        httpx.AsyncClient(timeout=60, trust_env=False, follow_redirects=False) as client,
+        AsyncClient(timeout=60, trust_env=False, follow_redirects=False) as client,
         client.stream("GET", url) as response,
     ):
         response.raise_for_status()
@@ -176,7 +174,7 @@ async def download_image(url: str) -> bytes:
 def fake_image(prompt: str, size: str) -> bytes:
     """A clearly marked local fixture, never represented as an AI or trusted portrait output."""
     width, height = map(int, size.split("x"))
-    digest = hashlib.sha256(prompt.encode()).digest()
+    digest = sha256(prompt.encode()).digest()
     im = Image.new("RGB", (width, height), (23, 30, 48))
     draw = ImageDraw.Draw(im)
     for index in range(7):
@@ -195,10 +193,10 @@ def fake_image(prompt: str, size: str) -> bytes:
     )
     draw.text(
         (width * 0.12, height * 0.82),
-        f"{size}  /  {hashlib.sha256(prompt.encode()).hexdigest()[:12]}",
+        f"{size}  /  {sha256(prompt.encode()).hexdigest()[:12]}",
         fill="white",
         font_size=max(16, width // 50),
     )
-    output = io.BytesIO()
+    output = BytesIO()
     im.save(output, "PNG")
     return output.getvalue()

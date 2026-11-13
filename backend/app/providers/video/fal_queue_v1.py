@@ -19,7 +19,7 @@
 
 from typing import Any
 
-import httpx
+from httpx import AsyncClient, HTTPError
 
 from app.core.config import settings
 from app.core.ssrf import UnsafeUrlError, check_base_url
@@ -81,8 +81,8 @@ def _video_url(data: dict[str, Any]) -> str | None:
 class FalQueueV1Provider(VideoProvider):
     code = "fal_queue_v1"
 
-    def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
+    def _client(self) -> AsyncClient:
+        return AsyncClient(
             timeout=settings.video_provider_timeout,
             trust_env=False,
             follow_redirects=False,
@@ -122,7 +122,7 @@ class FalQueueV1Provider(VideoProvider):
         try:
             async with self._client() as c:
                 resp = await c.post(url, json=payload, headers=headers)
-        except httpx.HTTPError as exc:
+        except HTTPError as exc:
             raise VideoProviderError("VIDEO_SUBMISSION_FAILED", "提交厂商请求失败") from exc
         if not (200 <= resp.status_code < 300):
             raise VideoProviderError(
@@ -143,7 +143,7 @@ class FalQueueV1Provider(VideoProvider):
         try:
             async with self._client() as c:
                 resp = await c.get(url, headers=self._headers(ctx))
-        except httpx.HTTPError as exc:
+        except HTTPError as exc:
             raise VideoProviderError("VIDEO_POLL_FAILED", "查询厂商状态失败") from exc
         if resp.status_code >= 400:
             raise VideoProviderError("VIDEO_POLL_FAILED", f"厂商查询返回 HTTP {resp.status_code}")
@@ -158,7 +158,7 @@ class FalQueueV1Provider(VideoProvider):
         try:
             async with self._client() as c:
                 resp = await c.get(url, headers=self._headers(ctx))
-        except httpx.HTTPError:
+        except HTTPError:
             return None
         if resp.status_code >= 400:
             return None
@@ -176,7 +176,7 @@ class FalQueueV1Provider(VideoProvider):
         try:
             async with self._client() as c:
                 resp = await c.get(url, headers=self._headers(ctx))
-        except httpx.HTTPError:
+        except HTTPError:
             return None
         if resp.status_code >= 400:
             return None
@@ -188,6 +188,6 @@ class FalQueueV1Provider(VideoProvider):
         try:
             async with self._client() as c:
                 resp = await c.delete(url, headers=self._headers(ctx))
-        except httpx.HTTPError:
+        except HTTPError:
             return False
         return 200 <= resp.status_code < 300

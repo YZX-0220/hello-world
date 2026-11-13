@@ -1,7 +1,7 @@
 """DB-backed image queue, claimed atomically across processes; restart never replays generation."""
 
-import asyncio
-import logging
+from asyncio import CancelledError, sleep
+from logging import getLogger
 
 from sqlalchemy import or_
 from sqlmodel import col, select
@@ -11,7 +11,7 @@ from app.db.models.image_generation import ImageJob
 from app.db.session import SessionLocal
 from app.services.image_generation_service import ImageGenerationService
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
 
 
 async def image_worker():
@@ -37,9 +37,9 @@ async def image_worker():
                 if job_id:
                     await service.run(job_id)
                     continue
-        except asyncio.CancelledError:
+        except CancelledError:
             raise
         except Exception:
             # No vendor response, credential, or signed URL may enter logs.
             logger.warning("Image queue unavailable; check database migration and local storage.")
-        await asyncio.sleep(2)
+        await sleep(2)

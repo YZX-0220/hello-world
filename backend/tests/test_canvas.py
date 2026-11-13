@@ -1,17 +1,17 @@
 """Canvas durability, optimistic concurrency, and node-scoped collaboration regressions."""
 
-import asyncio
-import copy
-import uuid
+from asyncio import Event, create_task, gather, wait_for
+from copy import deepcopy
+from uuid import uuid4
 
-import httpx
-import pytest
 from app.providers.email.fake import fake_instance
 from app.providers.text.base import TextProviderError, TextResult
 from app.providers.text.fake import FakeTextProvider
+from httpx import AsyncClient
+from pytest import mark
 
 
-async def create_project(client: httpx.AsyncClient):
+async def create_project(client: AsyncClient):
     email = "canvas-tests@example.com"
     await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
     registered = await client.post(
@@ -70,7 +70,7 @@ async def create_project(client: httpx.AsyncClient):
 def collaboration(target="target", request_id=None, apply_mode="replace"):
     return {
         "content": "改写为专业镜头脚本",
-        "client_request_id": request_id or str(uuid.uuid4()),
+        "client_request_id": request_id or str(uuid4()),
         "canvas_collaboration": {
             "target_node_id": target,
             "reference_node_ids": ["other"],
@@ -99,8 +99,8 @@ def reviewed_options(project, ids=None):
 
 class ControlledProvider(FakeTextProvider):
     def __init__(self, blocked=False, failing=False):
-        self.started = asyncio.Event()
-        self.release = asyncio.Event()
+        self.started = Event()
+        self.release = Event()
         self.blocked = blocked
         self.failing = failing
         self.calls = []
@@ -211,11 +211,11 @@ async def test_canvas_roundtrip_and_empty_canvas(client):
 
 async def test_concurrent_saves_do_not_silently_overwrite(client):
     cid, headers, document = await create_project(client)
-    one = copy.deepcopy(document)
-    two = copy.deepcopy(document)
+    one = deepcopy(document)
+    two = deepcopy(document)
     one["nodes"][0]["content"] = "窗口 A"
     two["nodes"][0]["content"] = "窗口 B"
-    results = await asyncio.gather(
+    results = await gather(
         *[
             client.put(
                 f"/api/v1/conversations/{cid}/canvas",
@@ -266,17 +266,17 @@ async def test_ai_stages_without_overwriting_and_passes_reference_context(client
     assert "pending_ai" not in result["nodes"][1]
 
 
-@pytest.mark.parametrize("change", ["edit", "delete", "other"])
+@mark.parametrize("change", ["edit", "delete", "other"])
 async def test_ai_completion_respects_edits_and_deletion_during_generation(
     client, monkeypatch, change
 ):
     cid, headers, _ = await create_project(client)
     provider = ControlledProvider(blocked=True)
     monkeypatch.setattr("app.services.agent_service.get_text_provider", lambda: provider)
-    task = asyncio.create_task(
+    task = create_task(
         client.post(f"/api/v1/conversations/{cid}/messages", json=collaboration(), headers=headers)
     )
-    await asyncio.wait_for(provider.started.wait(), 3)
+    await wait_for(provider.started.wait(), 3)
     current = (await client.get(f"/api/v1/conversations/{cid}/project")).json()
     assert current["canvas_data"]["nodes"][0]["ai_running"] is True
     document = current["canvas_data"]
@@ -294,7 +294,7 @@ async def test_ai_completion_respects_edits_and_deletion_during_generation(
     )
     assert saved.status_code == 200
     provider.release.set()
-    response = await asyncio.wait_for(task, 3)
+    response = await wait_for(task, 3)
     assert response.status_code == 201
     result = (await client.get(f"/api/v1/conversations/{cid}/project")).json()["canvas_data"]
     if change == "delete":
@@ -354,7 +354,7 @@ async def test_ai_failure_preserves_text_and_clears_busy_marker(client, monkeypa
     assert retry.status_code == 201
 
 
-@pytest.mark.parametrize("initial", ["", "用户写了一部分"])
+@mark.parametrize("initial", ["", "用户写了一部分"])
 async def test_confirm_is_the_only_operation_that_writes_ai_into_box(client, monkeypatch, initial):
     cid, headers, document = await create_project(client)
     document["nodes"][0]["content"] = initial
@@ -523,7 +523,7 @@ async def test_multiple_manual_boxes_use_structured_agent_and_preview_matches_vi
     assert confirmed.status_code == 200
     created = await client.post(
         "/api/v1/video-jobs",
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
         json={
             "conversation_id": cid,
             "project_id": project["id"],
@@ -584,7 +584,7 @@ async def test_review_delivers_a_persisted_plan_and_optional_gaps_do_not_block_g
     )
     created = await client.post(
         "/api/v1/video-jobs",
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
         json={
             "conversation_id": cid,
             "project_id": project["id"],
@@ -597,7 +597,7 @@ async def test_review_delivers_a_persisted_plan_and_optional_gaps_do_not_block_g
     assert created.status_code == 202, created.text
 
 
-@pytest.mark.parametrize("content", ["", "# 视频脚本\n主体：待定\n场景：待定\n光线：暖色侧光"])
+@mark.parametrize("content", ["", "# 视频脚本\n主体：待定\n场景：待定\n光线：暖色侧光"])
 async def test_review_fills_in_incomplete_or_blank_boxes_instead_of_using_chat_questions(
     client, monkeypatch, content
 ):
@@ -654,7 +654,7 @@ async def test_incomplete_model_review_is_repaired_without_asking_the_user(clien
     assert "采用水乡场景" in response.json()["canvas_data"]["generation_review"]["content"]
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "change", ["content", "delete", "selection", "linked_image", "duration", "resolution"]
 )
 async def test_video_submission_rejects_changed_sources(client, monkeypatch, change):
@@ -697,7 +697,7 @@ async def test_video_submission_rejects_changed_sources(client, monkeypatch, cha
         )
     created = await client.post(
         "/api/v1/video-jobs",
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
         json={
             "conversation_id": cid,
             "project_id": project["id"],
@@ -715,7 +715,7 @@ async def test_video_submission_rejects_changed_sources(client, monkeypatch, cha
     assert created.json()["error"]["code"] == "PROJECT_NOT_CONFIRMED"
 
 
-@pytest.mark.parametrize("duration", [1, 12, 15])
+@mark.parametrize("duration", [1, 12, 15])
 async def test_video_parameters_are_required_and_the_confirmed_values_reach_the_provider(
     client, monkeypatch, duration
 ):
@@ -799,12 +799,12 @@ async def test_video_parameters_are_required_and_the_confirmed_values_reach_the_
         rejected = await client.post(
             "/api/v1/video-jobs",
             json={**command, "generation_options": options},
-            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+            headers={**headers, "Idempotency-Key": str(uuid4())},
         )
         assert rejected.status_code == 422, rejected.text
     accepted = await client.post(
         "/api/v1/video-jobs",
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
         json={**command, "generation_options": reviewed_options(project)},
     )
     assert accepted.status_code == 202, accepted.text
@@ -818,14 +818,14 @@ async def test_edit_during_video_preparation_preserves_edit_and_rejects_stale_pl
     cid, headers, document = await create_project(client)
     provider = ControlledProvider(blocked=True)
     monkeypatch.setattr("app.services.agent_service.get_text_provider", lambda: provider)
-    task = asyncio.create_task(
+    task = create_task(
         client.post(
             f"/api/v1/conversations/{cid}/canvas/prepare-video",
             json=preparation(["target"], 1),
             headers=headers,
         )
     )
-    await asyncio.wait_for(provider.started.wait(), 3)
+    await wait_for(provider.started.wait(), 3)
     document["nodes"][0]["content"] = "整理期间修改"
     await client.put(
         f"/api/v1/conversations/{cid}/canvas",
@@ -833,7 +833,7 @@ async def test_edit_during_video_preparation_preserves_edit_and_rejects_stale_pl
         headers=headers,
     )
     provider.release.set()
-    result = await asyncio.wait_for(task, 3)
+    result = await wait_for(task, 3)
     assert result.status_code == 409
     current = (await client.get(f"/api/v1/conversations/{cid}/project")).json()
     assert current["current_spec_version"] == 0

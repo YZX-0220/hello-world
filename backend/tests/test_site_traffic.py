@@ -1,14 +1,13 @@
 """Real SQL transactions and API requests, without production data or paid providers."""
 
-import asyncio
-import os
-import sqlite3
-import subprocess
-import sys
+from asyncio import gather
 from datetime import datetime, timedelta
+from os import environ
+from sqlite3 import connect as sqlite_connect
+from subprocess import run as subprocess_run
+from sys import executable as python_executable
 from uuid import uuid4
 
-import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from app.core.config import settings
@@ -18,6 +17,8 @@ from app.db.models.user import User, UserSession
 from app.db.redis import get_redis
 from app.main import app
 from app.services import site_traffic_service as traffic
+from pytest import fixture as pytest_fixture
+from pytest import mark
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -28,7 +29,7 @@ CHROME = (
 )
 
 
-@pytest.fixture(autouse=True)
+@pytest_fixture(autouse=True)
 def traffic_config(monkeypatch):
     monkeypatch.setattr(settings, "app_base_url", "http://testserver")
     monkeypatch.setattr(settings, "frontend_origin", "http://frontend.test")
@@ -184,7 +185,7 @@ async def test_shared_ip_is_not_used_as_visitor_identity_and_event_reuse_is_reje
 
 async def test_parallel_tabs_and_parallel_visitors_keep_total_consistent(client, db_engine):
     _, shared = await bootstrap(client)
-    responses = await asyncio.gather(*(report(client, cookie=shared) for _ in range(12)))
+    responses = await gather(*(report(client, cookie=shared) for _ in range(12)))
     assert all(response.status_code == 200 for response in responses)
     assert sum(response.json()["counted"] for response in responses) == 1
     cookies = []
@@ -192,7 +193,7 @@ async def test_parallel_tabs_and_parallel_visitors_keep_total_consistent(client,
         client.cookies.clear()
         _, cookie = await bootstrap(client)
         cookies.append(cookie)
-    responses = await asyncio.gather(*(report(client, cookie=cookie) for cookie in cookies))
+    responses = await gather(*(report(client, cookie=cookie) for cookie in cookies))
     assert all(response.status_code == 200 for response in responses)
     assert (await client.get(SUMMARY)).json()["total_visits"] == 7
     assert len(await records(db_engine, SiteVisit)) == 7
@@ -228,7 +229,7 @@ async def test_login_can_associate_same_visit_without_recounting(client, db_engi
     assert visit.user_id == user_id
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "origin",
     ["https://attacker.example", "null", "http://testserver.evil", "http://testserver/extra"],
 )
@@ -277,7 +278,7 @@ async def test_redis_failure_does_not_lose_sql_counts_and_rate_limit_still_block
     assert len(await records(db_engine, SiteVisitEvent)) == 1
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     ("ua", "expected"),
     [
         (
@@ -302,14 +303,14 @@ def test_migration_preserves_existing_data_and_has_one_head(tmp_path):
     current_head = heads[0]
     path = tmp_path / "migration.db"
     environment = {
-        **os.environ,
+        **environ,
         "DATABASE_URL": f"sqlite+aiosqlite:///{path.as_posix()}",
         "APP_ENV": "dev",
     }
 
     def migrate(target, command="upgrade"):
-        result = subprocess.run(
-            [sys.executable, "-m", "alembic", command, target],
+        result = subprocess_run(
+            [python_executable, "-m", "alembic", command, target],
             env=environment,
             capture_output=True,
             text=True,
@@ -318,7 +319,7 @@ def test_migration_preserves_existing_data_and_has_one_head(tmp_path):
         assert result.returncode == 0, result.stdout + result.stderr
 
     migrate("f1a2b3c4d5e6")
-    with sqlite3.connect(path) as connection:
+    with sqlite_connect(path) as connection:
         connection.execute(
             "INSERT INTO users (id,email,email_verified_at,password_hash,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
             (
@@ -349,7 +350,7 @@ def test_migration_preserves_existing_data_and_has_one_head(tmp_path):
             ),
         )
     migrate("a2b3c4d5e6f7")
-    with sqlite3.connect(path) as connection:
+    with sqlite_connect(path) as connection:
         connection.execute(
             "INSERT INTO site_visits (id,visitor_hash,started_at,last_seen_at,entry_path,ip_hash,device_type,browser,operating_system) "
             "VALUES (?,?,?,?,?,?,?,?,?)",
@@ -374,7 +375,7 @@ def test_migration_preserves_existing_data_and_has_one_head(tmp_path):
             ("2026-10-19", "2026-10-19"),
         )
     migrate("head")
-    with sqlite3.connect(path) as connection:
+    with sqlite_connect(path) as connection:
         assert (
             connection.execute("SELECT email FROM users WHERE id='existing'").fetchone()[0]
             == "existing@example.test"
@@ -402,7 +403,7 @@ def test_migration_preserves_existing_data_and_has_one_head(tmp_path):
             ).fetchall() == [(None, None, None, None)]
     migrate("a2b3c4d5e6f7", "downgrade")
     migrate("head")
-    with sqlite3.connect(path) as connection:
+    with sqlite_connect(path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchall() == [
             (current_head,)
         ]

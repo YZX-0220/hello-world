@@ -10,13 +10,15 @@
   base 与下载直链在请求前都做 SSRF 校验（check_base_url）。
 """
 
-import json
-import logging
-import re
+from json import dumps as json_dumps
+from logging import getLogger
+from re import search as regex_search
+from re import split as regex_split
+from re import sub as regex_sub
 from typing import Any
 from urllib.parse import urlsplit
 
-import httpx
+from httpx import AsyncClient, HTTPError, Response
 
 from app.core.config import settings
 from app.core.ssrf import UnsafeUrlError, check_base_url, validate_public_host
@@ -29,7 +31,7 @@ from app.providers.video.base import (
 )
 
 _SUBMIT_PATH = "/api/v3/contents/generations/tasks"
-logger = logging.getLogger("app.providers.video.ark")
+logger = getLogger("app.providers.video.ark")
 _TASK_PATH = "/api/v3/contents/generations/tasks/{task_id}"
 
 # 远端状态 -> 本站统一状态（Ark 原生语义；expired 归为 failed）
@@ -45,7 +47,7 @@ _STATUS_MAP = {
 
 def _portrait_rejected(code: str, detail: str) -> bool:
     """Match actual face/real-person input restrictions, never a quoted portrait prompt."""
-    compact = re.sub(r"[^a-z]", "", code.lower())
+    compact = regex_sub(r"[^a-z]", "", code.lower())
     if any(
         part in compact
         for part in (
@@ -62,16 +64,16 @@ def _portrait_rejected(code: str, detail: str) -> bool:
         return True
     if any(word in compact for word in ("balance", "quota", "ratelimit", "overdue")):
         return False
-    for sentence in re.split(r"[。.!?\n]", detail.lower()):
+    for sentence in regex_split(r"[。.!?\n]", detail.lower()):
         # A prompt validation error may quote arbitrary creative text, including policy-like text.
-        if re.search(r"\bprompt\b|提示词|描述参数", sentence):
+        if regex_search(r"\bprompt\b|提示词|描述参数", sentence):
             continue
-        restricted = re.search(
+        restricted = regex_search(
             r"not (?:supported|allowed|permitted)|does not support|unsupported|prohibited|"
             r"permission denied|rejected|未通过|不支持|不允许|禁止|拒绝|准入|审核失败",
             sentence,
         )
-        material = re.search(
+        material = regex_search(
             r"(?:input|reference|uploaded|provided|submitted)\s+(?:image|picture|photo|material)s?"
             r".{0,60}(?:contain|include|detect|recogniz).{0,20}(?:real (?:person|people|human)|human face)|"
             r"(?:image|picture|photo)s?\s+(?:of|containing)\s+real (?:people|persons?|humans?)"
@@ -89,8 +91,8 @@ def _failure(error: Any, fallback="厂商未返回具体原因") -> tuple[str, s
     error = error if isinstance(error, dict) else {}
     code = str(error.get("code") or "PROVIDER_TASK_FAILED")[:64]
     detail = str(error.get("message") or fallback)
-    detail = re.sub(r"https?://[^\s\"<>]+", "[素材地址]", detail)
-    detail = re.sub(r"(?i)Bearer\s+\S+", "Bearer [已隐藏]", detail)[:1200]
+    detail = regex_sub(r"https?://[^\s\"<>]+", "[素材地址]", detail)
+    detail = regex_sub(r"(?i)Bearer\s+\S+", "Bearer [已隐藏]", detail)[:1200]
     lowered = (code + " " + detail).lower()
     normalized_code = code
     if _portrait_rejected(code, detail):
@@ -111,7 +113,7 @@ def _failure(error: Any, fallback="厂商未返回具体原因") -> tuple[str, s
     return normalized_code, f"{hint}\n厂商原因（{code}）：{detail}"
 
 
-def _response_failure(resp: httpx.Response) -> tuple[str, str]:
+def _response_failure(resp: Response) -> tuple[str, str]:
     try:
         payload = resp.json()
     except ValueError:
@@ -204,8 +206,8 @@ def _build_body(request: dict[str, Any]) -> dict[str, Any]:
 class ArkSeedanceProvider(VideoProvider):
     code = "ark_seedance_v1"
 
-    def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
+    def _client(self) -> AsyncClient:
+        return AsyncClient(
             timeout=settings.video_provider_timeout,
             trust_env=False,
             follow_redirects=False,
@@ -244,7 +246,7 @@ class ArkSeedanceProvider(VideoProvider):
                         "素材地址不是厂商可访问的公网地址，请检查后端 APP_BASE_URL 和域名解析。",
                         retryable=False,
                     ) from exc
-        if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > 64_000_000:
+        if len(json_dumps(payload, ensure_ascii=False).encode("utf-8")) > 64_000_000:
             raise VideoProviderError(
                 "VIDEO_SUBMISSION_FAILED",
                 "生成请求超过厂商 64 MB 上限，请精简方案。",
@@ -253,7 +255,7 @@ class ArkSeedanceProvider(VideoProvider):
         try:
             async with self._client() as c:
                 resp = await c.post(url, json=payload, headers=self._headers(ctx))
-        except httpx.HTTPError as exc:
+        except HTTPError as exc:
             raise VideoProviderError("VIDEO_SUBMISSION_FAILED", "提交厂商请求失败") from exc
         if not (200 <= resp.status_code < 300):
             logger.warning("Ark 提交被拒 HTTP %s: %s", resp.status_code, resp.text[:1500])
@@ -272,7 +274,7 @@ class ArkSeedanceProvider(VideoProvider):
         try:
             async with self._client() as c:
                 resp = await c.get(url, headers=self._headers(ctx))
-        except httpx.HTTPError as exc:
+        except HTTPError as exc:
             raise VideoProviderError("VIDEO_POLL_FAILED", "查询厂商状态失败") from exc
         if resp.status_code >= 400:
             logger.warning("Ark 查询返回 HTTP %s: %s", resp.status_code, resp.text[:1200])
@@ -298,7 +300,7 @@ class ArkSeedanceProvider(VideoProvider):
         try:
             async with self._client() as c:
                 resp = await c.get(url, headers=self._headers(ctx))
-        except httpx.HTTPError:
+        except HTTPError:
             return None
         if resp.status_code >= 400:
             return None
@@ -317,7 +319,7 @@ class ArkSeedanceProvider(VideoProvider):
         try:
             async with self._client() as c:
                 resp = await c.get(url, headers=self._headers(ctx))
-        except httpx.HTTPError:
+        except HTTPError:
             return None
         if resp.status_code >= 400:
             return None
@@ -329,6 +331,6 @@ class ArkSeedanceProvider(VideoProvider):
         try:
             async with self._client() as c:
                 resp = await c.delete(url, headers=self._headers(ctx))
-        except httpx.HTTPError:
+        except HTTPError:
             return False
         return resp.status_code in (200, 202)

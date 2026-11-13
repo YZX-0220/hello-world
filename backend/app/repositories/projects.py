@@ -84,7 +84,7 @@ class ProjectRepository:
             .execution_options(synchronize_session=False)
             .returning(col(VideoProject.id))
         )
-        result = await self._session.exec(stmt)  # type: ignore[call-overload]
+        result = await self._session.exec(stmt)
         if result.first() is None:
             await self._session.rollback()
             raise AppError(CANVAS_VERSION_CONFLICT)
@@ -122,7 +122,7 @@ class ProjectRepository:
             .execution_options(synchronize_session=False)
             .returning(col(VideoProject.id))
         )
-        if (await self._session.exec(stmt)).first() is None:  # type: ignore[call-overload]
+        if (await self._session.exec(stmt)).first() is None:
             await self._session.rollback()
             raise AppError(CANVAS_VERSION_CONFLICT, "整理期间画布已变化，请用最新内容重新整理")
         self._session.add(

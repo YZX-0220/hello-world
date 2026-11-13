@@ -1,6 +1,7 @@
 """项目服务：读取当前方案、合并 PATCH、提交新版本快照。"""
 
-import json
+from json import dumps as json_dumps
+from json import loads as json_loads
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -18,7 +19,7 @@ class ProjectService:
         project = await self._repo.get_by_conversation(user_id, conversation_id)
         if project is None:
             return {}
-        return json.loads(project.current_spec_json or "{}")
+        return json_loads(project.current_spec_json or "{}")
 
     async def get_current_spec_version(self, user_id: str, conversation_id: str) -> int:
         """返回当前方案版本号（用于 AgentRun.base_spec_version），无项目时返回 0。"""
@@ -60,9 +61,9 @@ class ProjectService:
     ) -> dict:
         """合并并提交新方案版本。返回合并后的完整方案。"""
         project = await self._current_project(user_id, conversation_id)
-        current = json.loads(project.current_spec_json or "{}")
+        current = json_loads(project.current_spec_json or "{}")
         merged = self.merge_patch(current, patch)
-        spec_json = json.dumps(merged, ensure_ascii=False)
+        spec_json = json_dumps(merged, ensure_ascii=False)
         await self._repo.commit_spec(
             project, spec_json, source, source_message_id, suggested_prompt
         )
@@ -75,9 +76,9 @@ class ProjectService:
         project = await self._current_project(user_id, conversation_id)
         if expected_version != project.current_spec_version:
             raise AppError(PROJECT_VERSION_CONFLICT)
-        current = json.loads(project.current_spec_json or "{}")
+        current = json_loads(project.current_spec_json or "{}")
         merged = self.merge_patch(current, patch)
-        spec_json = json.dumps(merged, ensure_ascii=False)
+        spec_json = json_dumps(merged, ensure_ascii=False)
         await self._repo.commit_spec(project, spec_json, VersionSource.MANUAL.value, None, None)
 
     async def save_canvas(self, user_id: str, conversation_id: str, canvas_data: dict) -> None:
@@ -85,4 +86,4 @@ class ProjectService:
         project = await self._repo.get_by_conversation(user_id, conversation_id)
         if project is None:
             raise ValueError("项目不存在")
-        await self._repo.save_canvas(project, json.dumps(canvas_data, ensure_ascii=False))
+        await self._repo.save_canvas(project, json_dumps(canvas_data, ensure_ascii=False))

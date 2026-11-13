@@ -8,10 +8,11 @@
 「受控修复」——追加提示让模型重新输出纯 JSON（《实施计划》4.4：非法 JSON 有一次受控修复）。
 """
 
-import json
+from json import JSONDecodeError
+from json import loads as json_loads
 from typing import Any
 
-import httpx
+from httpx import AsyncClient, HTTPError, TimeoutException
 
 from app.core.config import settings
 from app.providers.text.base import TextCapabilities, TextProvider, TextProviderError, TextResult
@@ -28,8 +29,8 @@ def _parse_structured(content: str) -> dict:
                 text = text.lstrip()[4:]
             text = text.strip()
     try:
-        result = json.loads(text)
-    except json.JSONDecodeError as exc:
+        result = json_loads(text)
+    except JSONDecodeError as exc:
         raise TextProviderError(
             "AGENT_OUTPUT_INVALID", "AI 结构化输出无法校验", retryable=False
         ) from exc
@@ -93,13 +94,13 @@ class OpenAICompatibleTextProvider(TextProvider):
             else (self._timeout if self._timeout is not None else settings.text_timeout)
         )
         try:
-            async with httpx.AsyncClient(timeout=effective_timeout) as client:
+            async with AsyncClient(timeout=effective_timeout) as client:
                 resp = await client.post(url, json=payload, headers=headers)
-        except httpx.TimeoutException as exc:
+        except TimeoutException as exc:
             raise TextProviderError(
                 "TEXT_PROVIDER_TIMEOUT", "文本模型响应超时", retryable=True
             ) from exc
-        except httpx.HTTPError as exc:
+        except HTTPError as exc:
             raise TextProviderError(
                 "TEXT_PROVIDER_UNAVAILABLE", "文本模型暂时不可用", retryable=True
             ) from exc

@@ -1,7 +1,7 @@
 """提示词模板仓储（支持版本演进与一键回滚）。"""
 
-import json
-import re
+from json import dumps as json_dumps
+from re import findall as regex_findall
 
 from sqlmodel import col, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -65,7 +65,7 @@ def extract_variables(text: str) -> list[str]:
     """提取 {{var}} 中的变量名并去重保序。"""
     if not text:
         return []
-    vars_found = re.findall(r"\{\{\s*([a-zA-Z0-9_\u4e00-\u9fa5]+)\s*\}\}", text)
+    vars_found = regex_findall(r"\{\{\s*([a-zA-Z0-9_\u4e00-\u9fa5]+)\s*\}\}", text)
     seen = set()
     result = []
     for v in vars_found:
@@ -102,7 +102,7 @@ class PromptTemplateRepository:
                 description=item["description"],
                 content=item["content"],
                 negative_prompt=item["negative_prompt"],
-                variables_json=json.dumps(vars_list, ensure_ascii=False),
+                variables_json=json_dumps(vars_list, ensure_ascii=False),
                 current_version=1,
                 status="active",
                 created_at=now_dt,
@@ -115,7 +115,7 @@ class PromptTemplateRepository:
                 name=item["name"],
                 content=item["content"],
                 negative_prompt=item["negative_prompt"],
-                variables_json=json.dumps(vars_list, ensure_ascii=False),
+                variables_json=json_dumps(vars_list, ensure_ascii=False),
                 source_type="init",
                 change_note="系统内置预置版本",
                 created_by=None,
@@ -210,7 +210,7 @@ class PromptTemplateRepository:
         template_id = new_id()
         now_dt = now()
         vars_list = extract_variables(content)
-        vars_json = json.dumps(vars_list, ensure_ascii=False)
+        vars_json = json_dumps(vars_list, ensure_ascii=False)
 
         template = PromptTemplate(
             id=template_id,
@@ -295,7 +295,7 @@ class PromptTemplateRepository:
                 template.negative_prompt = negative_prompt.strip() if negative_prompt else None
 
             vars_list = extract_variables(template.content)
-            template.variables_json = json.dumps(vars_list, ensure_ascii=False)
+            template.variables_json = json_dumps(vars_list, ensure_ascii=False)
             template.current_version += 1
 
             new_version_obj = PromptTemplateVersion(

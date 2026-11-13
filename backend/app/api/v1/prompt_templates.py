@@ -1,6 +1,6 @@
 """提示词模板与版本控制路由。"""
 
-import json
+from json import loads as json_loads
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/prompt-templates", tags=["提示词模板与版本�
 
 def _to_view(item: PromptTemplate) -> PromptTemplateView:
     try:
-        vars_list = json.loads(item.variables_json)
+        vars_list = json_loads(item.variables_json)
     except Exception:
         vars_list = []
     return PromptTemplateView(
@@ -47,7 +47,7 @@ def _to_view(item: PromptTemplate) -> PromptTemplateView:
 
 def _to_version_view(v: PromptTemplateVersion) -> PromptTemplateVersionView:
     try:
-        vars_list = json.loads(v.variables_json)
+        vars_list = json_loads(v.variables_json)
     except Exception:
         vars_list = []
     return PromptTemplateVersionView(

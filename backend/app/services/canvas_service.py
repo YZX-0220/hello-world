@@ -1,6 +1,7 @@
 """Persist node-scoped AI results independently of the lifetime of a browser tab."""
 
-import json
+from json import dumps as json_dumps
+from json import loads as json_loads
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -33,7 +34,7 @@ class CanvasService:
             project = await self._repo.get_by_conversation(user_id, conversation_id)
             if project is None:
                 return
-            data = json.loads(project.canvas_data_json or "{}")
+            data = json_loads(project.canvas_data_json or "{}")
             changed = False
             for node in data.get("nodes", []):
                 if not node.get("ai_running"):
@@ -52,7 +53,7 @@ class CanvasService:
                 return
             try:
                 await self._repo.save_canvas(
-                    project, json.dumps(data, ensure_ascii=False), project.canvas_version
+                    project, json_dumps(data, ensure_ascii=False), project.canvas_version
                 )
                 return
             except AppError as exc:
@@ -73,7 +74,7 @@ class CanvasService:
             project = await self._repo.get_by_conversation(user_id, conversation_id)
             if project is None:
                 raise AppError(CANVAS_NODE_INVALID)
-            data = json.loads(project.canvas_data_json or "{}")
+            data = json_loads(project.canvas_data_json or "{}")
             nodes = data.get("nodes", [])
             target = next(
                 (node for node in nodes if node.get("id") == collaboration.target_node_id), None
@@ -121,7 +122,7 @@ class CanvasService:
             target.pop("ai_error", None)
             try:
                 await self._repo.save_canvas(
-                    project, json.dumps(data, ensure_ascii=False), project.canvas_version
+                    project, json_dumps(data, ensure_ascii=False), project.canvas_version
                 )
                 return original, "\n\n".join(parts)[:30000], base, images
             except AppError as exc:
@@ -148,7 +149,7 @@ class CanvasService:
             project = await self._repo.get_by_conversation(user_id, conversation_id)
             if project is None:
                 return
-            data = json.loads(project.canvas_data_json or "{}")
+            data = json_loads(project.canvas_data_json or "{}")
             target = next(
                 (
                     node
@@ -184,7 +185,7 @@ class CanvasService:
                 ][-12:]
             try:
                 await self._repo.save_canvas(
-                    project, json.dumps(data, ensure_ascii=False), project.canvas_version
+                    project, json_dumps(data, ensure_ascii=False), project.canvas_version
                 )
                 return
             except AppError as exc:
@@ -203,7 +204,7 @@ class CanvasService:
         project = await self._repo.get_by_conversation(user_id, conversation_id)
         if project is None:
             raise AppError(CANVAS_NODE_INVALID)
-        data = json.loads(project.canvas_data_json or "{}")
+        data = json_loads(project.canvas_data_json or "{}")
         target = next((n for n in data.get("nodes", []) if n.get("id") == target_id), None)
         if target is None or target.get("type") != "text" or target.get("ai_running"):
             raise AppError(CANVAS_NODE_INVALID, "目标小框不存在或 AI 仍在回复")
@@ -230,7 +231,7 @@ class CanvasService:
         }
         target.pop("pending_ai", None)
         await self._repo.save_canvas(
-            project, json.dumps(data, ensure_ascii=False), expected_version
+            project, json_dumps(data, ensure_ascii=False), expected_version
         )
 
     async def fail(
@@ -240,7 +241,7 @@ class CanvasService:
             project = await self._repo.get_by_conversation(user_id, conversation_id)
             if project is None:
                 return
-            data = json.loads(project.canvas_data_json or "{}")
+            data = json_loads(project.canvas_data_json or "{}")
             target = next(
                 (node for node in data.get("nodes", []) if node.get("id") == target_id), None
             )
@@ -253,7 +254,7 @@ class CanvasService:
             target.update(ai_running=False, ai_error="AI 协作未完成，原文已保留，可以重新发送")
             try:
                 await self._repo.save_canvas(
-                    project, json.dumps(data, ensure_ascii=False), project.canvas_version
+                    project, json_dumps(data, ensure_ascii=False), project.canvas_version
                 )
                 return
             except AppError as exc:

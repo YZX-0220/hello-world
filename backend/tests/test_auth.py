@@ -1,7 +1,7 @@
 """认证链路测试：验证码 → 注册 → 当前用户 → 注销 → 密码登录。"""
 
-import httpx
 from app.providers.email.fake import fake_instance
+from httpx import AsyncClient
 
 EMAIL = "user@example.com"
 PASSWORD = "password123"
@@ -12,7 +12,7 @@ def _last_code() -> str:
     return fake_instance.sent[-1]["code"]
 
 
-async def _send_register_code(client: httpx.AsyncClient, email: str = EMAIL) -> None:
+async def _send_register_code(client: AsyncClient, email: str = EMAIL) -> None:
     resp = await client.post(
         "/api/v1/auth/email-codes", json={"email": email, "purpose": "register"}
     )
@@ -20,7 +20,7 @@ async def _send_register_code(client: httpx.AsyncClient, email: str = EMAIL) -> 
     assert resp.json()["accepted"] is True
 
 
-async def test_register_sets_cookies_and_current_user(client: httpx.AsyncClient) -> None:
+async def test_register_sets_cookies_and_current_user(client: AsyncClient) -> None:
     await _send_register_code(client)
     resp = await client.post(
         "/api/v1/auth/register",
@@ -37,7 +37,7 @@ async def test_register_sets_cookies_and_current_user(client: httpx.AsyncClient)
     assert me.json()["email"] == EMAIL
 
 
-async def test_logout_revokes_session(client: httpx.AsyncClient) -> None:
+async def test_logout_revokes_session(client: AsyncClient) -> None:
     await _send_register_code(client)
     await client.post(
         "/api/v1/auth/register", json={"email": EMAIL, "code": _last_code(), "password": PASSWORD}
@@ -54,7 +54,7 @@ async def test_logout_revokes_session(client: httpx.AsyncClient) -> None:
     assert me.status_code == 401
 
 
-async def test_password_login_and_wrong_password(client: httpx.AsyncClient) -> None:
+async def test_password_login_and_wrong_password(client: AsyncClient) -> None:
     await _send_register_code(client)
     await client.post(
         "/api/v1/auth/register", json={"email": EMAIL, "code": _last_code(), "password": PASSWORD}
@@ -75,7 +75,7 @@ async def test_password_login_and_wrong_password(client: httpx.AsyncClient) -> N
     assert bad.json()["error"]["code"] == "INVALID_CREDENTIALS"
 
 
-async def test_register_with_bad_code_rejected(client: httpx.AsyncClient) -> None:
+async def test_register_with_bad_code_rejected(client: AsyncClient) -> None:
     await _send_register_code(client)
     resp = await client.post(
         "/api/v1/auth/register",

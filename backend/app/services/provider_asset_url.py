@@ -6,13 +6,16 @@
 - 只返回被当前任务引用且 status=ready 的文件；日志不记录完整签名。
 """
 
-import base64
-import hashlib
-import hmac
-import json
-import os
-import time
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import timedelta
+from hashlib import sha256
+from hmac import compare_digest
+from hmac import new as hmac_new
+from json import JSONDecodeError
+from json import dumps as json_dumps
+from json import loads as json_loads
+from os import urandom
+from time import time as unix_time
 from typing import Any
 
 from sqlmodel import select
@@ -23,11 +26,11 @@ from app.db.models.video_job import VideoJob, VideoJobAsset
 
 
 def _b64(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+    return urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
 
 def _unb64(value: str) -> bytes:
-    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    return urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
 def sign_provider_asset(
@@ -35,19 +38,19 @@ def sign_provider_asset(
 ) -> tuple[str, "Any"]:
     """生成签名 Token 与过期时间（纯 HMAC，无 DB/Redis 依赖）。"""
     expires_at = now() + timedelta(seconds=ttl_seconds)
-    payload = json.dumps(
+    payload = json_dumps(
         {
             "aid": asset_id,
             "jid": job_id,
             "purpose": purpose,
             "exp": int(expires_at.timestamp()),
-            "n": os.urandom(8).hex(),
+            "n": urandom(8).hex(),
         },
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
     body = _b64(payload)
-    sig = hmac.new(secret.encode("utf-8"), body.encode("ascii"), hashlib.sha256).hexdigest()
+    sig = hmac_new(secret.encode("utf-8"), body.encode("ascii"), sha256).hexdigest()
     return f"{body}.{sig}", expires_at
 
 
@@ -66,17 +69,15 @@ class ProviderAssetUrlService:
             body, sig = token.split(".", 1)
         except ValueError:
             return None
-        expected = hmac.new(
-            self._secret.encode("utf-8"), body.encode("ascii"), hashlib.sha256
-        ).hexdigest()
-        if not hmac.compare_digest(expected, sig):
+        expected = hmac_new(self._secret.encode("utf-8"), body.encode("ascii"), sha256).hexdigest()
+        if not compare_digest(expected, sig):
             return None
         try:
-            payload = json.loads(_unb64(body))
-        except (ValueError, json.JSONDecodeError):
+            payload = json_loads(_unb64(body))
+        except (ValueError, JSONDecodeError):
             return None
 
-        now_ts = int(time.time())
+        now_ts = int(unix_time())
         exp = int(payload.get("exp", 0))
         if exp < now_ts:
             return None  # 过期 -> 410

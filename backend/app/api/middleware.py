@@ -5,9 +5,9 @@
 - CORS 只允许明确白名单的来源（FRONTEND_ORIGIN），不走通配。
 """
 
-import time
-import uuid
+from time import perf_counter
 from typing import Any
+from uuid import uuid4
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -20,13 +20,13 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     """为每个请求分配/透传 request_id，写入 request.state 并在响应头返回。"""
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        request_id = request.headers.get(settings.request_id_header) or str(uuid.uuid4())
+        request_id = request.headers.get(settings.request_id_header) or str(uuid4())
         request.state.request_id = request_id
-        start_time = time.perf_counter()
+        start_time = perf_counter()
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         response.headers[settings.request_id_header] = request_id
-        duration_ms = round((time.perf_counter() - start_time) * 1000, 1)
+        duration_ms = round((perf_counter() - start_time) * 1000, 1)
         response.headers["X-Response-Time-Ms"] = str(duration_ms)
         return response
 

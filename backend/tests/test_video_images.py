@@ -1,11 +1,10 @@
-import asyncio
-import io
-import time
+from asyncio import create_task, wait_for
 from dataclasses import replace
+from io import BytesIO
 from pathlib import Path
+from time import time as unix_time
 from urllib.parse import urlsplit
 
-import pytest
 from app.core.config import settings
 from app.db.models.asset import Asset
 from app.db.models.project import VideoProjectVersion
@@ -16,6 +15,8 @@ from app.services.video_image_service import adapt_image, image_issues
 from app.storage import LocalStorage
 from app.video_registry import get_profile
 from PIL import Image
+from pytest import fixture as pytest_fixture
+from pytest import mark, raises
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -26,7 +27,7 @@ from test_model_bound_review import confirm, prepare, save, submit
 RULES = get_profile("ark_seedance_v1", "doubao-seedance-2-5").image_constraints
 
 
-@pytest.fixture(autouse=True)
+@pytest_fixture(autouse=True)
 def mocked_review_vision(monkeypatch):
     from app.services import agent_service
 
@@ -36,12 +37,12 @@ def mocked_review_vision(monkeypatch):
 
 
 def picture(size, fmt="PNG", **kwargs):
-    out = io.BytesIO()
+    out = BytesIO()
     Image.new("RGB", size, (220, 30, 10)).save(out, format=fmt, **kwargs)
     return out.getvalue()
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "size",
     [
         (1, 1),
@@ -66,7 +67,7 @@ def test_normalization_satisfies_dimensions_ratio_and_bytes_together(size):
     data, meta, actions = adapt_image(original, RULES)
     assert not image_issues(meta, RULES)
     assert meta["width"] * meta["height"] <= settings.image_max_pixels
-    with Image.open(io.BytesIO(data)) as output:
+    with Image.open(BytesIO(data)) as output:
         assert output.size == (meta["width"], meta["height"])
         cx, cy = output.width // 2, output.height // 2
         assert (
@@ -91,7 +92,7 @@ def test_orientation_animation_and_format_conversion_are_disclosed():
         _, meta, actions = adapt_image(picture((400, 400), fmt), RULES)
         assert meta["mime_type"] == "image/jpeg"
         assert any("JPEG" in a for a in actions)
-    out = io.BytesIO()
+    out = BytesIO()
     Image.new("RGB", (400, 400), "red").save(
         out,
         format="GIF",
@@ -101,12 +102,12 @@ def test_orientation_animation_and_format_conversion_are_disclosed():
     )
     _, _, actions = adapt_image(out.getvalue(), RULES)
     assert any("第一帧" in a for a in actions)
-    with pytest.raises((ValueError, OSError)):
+    with raises((ValueError, OSError)):
         adapt_image(b"invalid image", RULES)
 
 
 def test_byte_limit_is_checked_after_encoding():
-    with pytest.raises(ValueError):
+    with raises(ValueError):
         adapt_image(picture((300, 300)), replace(RULES, max_bytes_exclusive=10))
 
 
@@ -137,7 +138,7 @@ async def image_project(client, count=1):
     return cid, headers, await save(client, cid, headers, project, document), originals
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "mode,count",
     [
         ("first_frame_to_video", 1),
@@ -176,14 +177,14 @@ async def test_review_submits_exact_prepared_bytes_without_image_preview(
     urls = request.get("reference_image_urls") or [request["first_frame_url"]]
     for url in urls:
         token = url.rsplit("/", 1)[-1]
-        import json
+        from json import loads as json_loads
 
-        payload = json.loads(_unb64(token.split(".")[0]))
+        payload = json_loads(_unb64(token.split(".")[0]))
         assert payload["aid"] not in originals
-        assert payload["exp"] - time.time() > 172800
+        assert payload["exp"] - unix_time() > 172800
         fetched = await client.get(urlsplit(url).path)
         assert fetched.status_code == 200, fetched.text
-        with Image.open(io.BytesIO(fetched.content)) as image:
+        with Image.open(BytesIO(fetched.content)) as image:
             assert image.size == (1000, 400)
     if mode == "first_last_frame_to_video":
         assert (
@@ -201,15 +202,15 @@ async def test_review_submits_exact_prepared_bytes_without_image_preview(
                 )
             )
         ).first()
-        import json
+        from json import loads as json_loads
 
-        bindings = json.loads(version.generation_review_json)["materials"]
+        bindings = json_loads(version.generation_review_json)["materials"]
         assert {b["source_asset_id"] for b in bindings} == set(originals)
     reopened = (await client.get(f"/api/v1/conversations/{cid}/project")).json()
     assert reopened["canvas_data"]["generation_review"] == review
 
 
-@pytest.mark.parametrize("change", ["deleted", "tampered", "original_deleted"])
+@mark.parametrize("change", ["deleted", "tampered", "original_deleted"])
 async def test_invalidated_material_cannot_pass_confirm_or_submit(
     client, monkeypatch, db_engine, change
 ):
@@ -242,7 +243,7 @@ async def test_image_preparation_does_not_lock_canvas_during_text_ai(client, mon
     cid, headers, project, _ = await image_project(client)
     provider = ControlledProvider(blocked=True)
     monkeypatch.setattr("app.services.agent_service.get_text_provider", lambda: provider)
-    work = asyncio.create_task(
+    work = create_task(
         client.post(
             f"/api/v1/conversations/{cid}/canvas/prepare-video",
             headers=headers,
@@ -252,16 +253,16 @@ async def test_image_preparation_does_not_lock_canvas_during_text_ai(client, mon
             },
         )
     )
-    await asyncio.wait_for(provider.started.wait(), 5)
+    await wait_for(provider.started.wait(), 5)
     document = project["canvas_data"]
     document["nodes"][0]["content"] = "审理期间继续编辑"
-    await asyncio.wait_for(save(client, cid, headers, project, document), 3)
+    await wait_for(save(client, cid, headers, project, document), 3)
     provider.release.set()
-    assert (await asyncio.wait_for(work, 5)).status_code == 409
+    assert (await wait_for(work, 5)).status_code == 409
     assert not list(Path(settings.storage_root).glob("*/generation-input/*"))
 
 
-@pytest.mark.parametrize("duration", [1, 2, 3])
+@mark.parametrize("duration", [1, 2, 3])
 async def test_seedance_duration_requires_manual_valid_choice_before_ai(
     client, monkeypatch, duration
 ):

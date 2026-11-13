@@ -1,8 +1,9 @@
 """Prepare a video brief from a fixed selection without modifying the source boxes."""
 
-import asyncio
-import json
+from asyncio import to_thread
 from contextlib import suppress
+from json import dumps as json_dumps
+from json import loads as json_loads
 from typing import Any
 
 from anyio import CancelScope
@@ -58,7 +59,7 @@ def validate_generation_sources(
     generation_options=None,
     record: dict | None = None,
 ) -> None:
-    data = json.loads(project.canvas_data_json or "{}")
+    data = json_loads(project.canvas_data_json or "{}")
     if record is None:
         if data.get("generation_spec_version") == spec_version:
             raise AppError(PROJECT_NOT_CONFIRMED, "旧版审理未绑定模型，请重新点击“AI审理方案”。")
@@ -128,8 +129,8 @@ async def reviewed_version(
         raise AppError(
             PROJECT_NOT_CONFIRMED, "当前方案尚未进行模型适配审理，请重新点击“AI审理方案”。"
         )
-    record = json.loads(row.generation_review_json)
-    if version != project.current_spec_version or json.loads(row.spec_json) != json.loads(
+    record = json_loads(row.generation_review_json)
+    if version != project.current_spec_version or json_loads(row.spec_json) != json_loads(
         project.current_spec_json
     ):
         raise AppError(PROJECT_NOT_CONFIRMED, "方案版本已变化，请重新审理。")
@@ -139,7 +140,7 @@ async def reviewed_version(
     target = await resolve_target(session, project.user_id, record["target"]["api_config_id"])
     if target.error or target.fingerprint != record["target"]["fingerprint"]:
         raise AppError(PROJECT_NOT_CONFIRMED, "模型配置或能力规则已更新，请重新审理。")
-    spec = VideoBrief.model_validate(json.loads(row.spec_json))
+    spec = VideoBrief.model_validate(json_loads(row.spec_json))
     validate_settings(target, spec, record["settings"], record["wire"])
     from app.services.video_image_service import validate_review_images
 
@@ -164,7 +165,7 @@ async def restore_review_metadata(session, project, data):
         )
     ).first()
     if row is not None and row.generation_review_json:
-        record = json.loads(row.generation_review_json)
+        record = json_loads(row.generation_review_json)
         data.update(
             generation_spec_version=record["spec_version"],
             generation_source_ids=record["source_ids"],
@@ -254,7 +255,7 @@ def _creative_spec(patch, asset_spec, effective):
         duration_seconds=effective["duration_seconds"], aspect_ratio=effective["aspect_ratio"]
     )
     clean["narration"] = clean.get("narration") or "无旁白"
-    import re
+    from re import sub as regex_sub
 
     ratio = effective["aspect_ratio"]
     ratio_pattern = (
@@ -262,10 +263,10 @@ def _creative_spec(patch, asset_spec, effective):
     )
     for key in (*REQUIRED_REVIEW_FIELDS, "objective", "audience", "narration", "negative_prompt"):
         if isinstance(clean.get(key), str):
-            clean[key] = re.sub(
+            clean[key] = regex_sub(
                 ratio_pattern, "随素材自适应" if ratio == "adaptive" else ratio, clean[key]
             )
-            clean[key] = re.sub(
+            clean[key] = regex_sub(
                 r"(?<![A-Za-z0-9])(?:480|580|720|1080|1440|2160)[pP](?![A-Za-z0-9])",
                 effective["resolution"],
                 clean[key],
@@ -274,10 +275,10 @@ def _creative_spec(patch, asset_spec, effective):
 
 
 def _timing_issues(spec):
-    import re
+    from re import findall as regex_findall
 
     for key in REQUIRED_REVIEW_FIELDS:
-        for value in re.findall(r"(?<!\d)(\d+(?:\.\d+)?)\s*秒", getattr(spec, key) or ""):
+        for value in regex_findall(r"(?<!\d)(\d+(?:\.\d+)?)\s*秒", getattr(spec, key) or ""):
             if float(value) > spec.duration_seconds:
                 return ["画面描述中的动作时间线超过最终总时长，请压缩到最终时长内。"]
     return []
@@ -308,9 +309,7 @@ class CanvasVideoService:
                 for image in pending_images:
                     with suppress(Exception):
                         if await AssetRepository(self._session).get(image.id) is None:
-                            await asyncio.to_thread(
-                                get_asset_storage(image).delete, image.storage_key
-                            )
+                            await to_thread(get_asset_storage(image).delete, image.storage_key)
             raise
 
     async def _prepare(
@@ -327,7 +326,8 @@ class CanvasVideoService:
         *,
         pending_images,
     ):
-        import re
+        from re import findall as regex_findall
+        from re import search as regex_search
 
         from app.services.video_generation_policy import digest, propose_settings, resolve_target
         from app.services.video_prompt import compile_video_prompt
@@ -342,7 +342,7 @@ class CanvasVideoService:
         requested = CanvasGenerationSettings(
             duration_seconds=duration_seconds, resolution=resolution
         ).model_dump()
-        data = json.loads(project.canvas_data_json or "{}")
+        data = json_loads(project.canvas_data_json or "{}")
         if any(n.get("ai_running") for n in data.get("nodes", [])):
             raise AppError(VIDEO_INPUT_INVALID, "请等待 AI 协作完成，再审理方案。")
         snapshot = source_snapshot(data, node_ids)
@@ -378,7 +378,7 @@ class CanvasVideoService:
             f"小框【{n['title']}】：\n{n['content'] or '（空白，请自由创作并说明假设）'}"
             + (
                 "\n该小框已确认的结构化方案："
-                + json.dumps(n["confirmed_brief"], ensure_ascii=False)
+                + json_dumps(n["confirmed_brief"], ensure_ascii=False)
                 + "\n该小框已确认的视频提示词："
                 + (n.get("suggested_prompt") or "")
                 if n.get("confirmed_brief")
@@ -386,7 +386,7 @@ class CanvasVideoService:
             )
             for n in texts
         )
-        ratios = re.findall(r"(?<!\d)(\d{1,2})\s*[:：]\s*(\d{1,2})(?!\d)", inputs)
+        ratios = regex_findall(r"(?<!\d)(\d{1,2})\s*[:：]\s*(\d{1,2})(?!\d)", inputs)
         requested_ratio = next((f"{a}:{b}" for a, b in ratios if int(a) and int(b)), None)
         proposal = propose_settings(
             target,
@@ -441,11 +441,11 @@ class CanvasVideoService:
                 "仅当真实图片中人脸或人物明显可见时为 true（含照片和 AI 写实人物），无图必须 false。"
                 "不要根据文字、文件名或标签猜人像，不判断身份或来源；不把此标记和素材来源提醒写进创作字段。"
                 "\n【模型及模式规则】"
-                + json.dumps(target.view(), ensure_ascii=False, default=str)
+                + json_dumps(target.view(), ensure_ascii=False, default=str)
                 + "\n【本次参数调整】"
-                + json.dumps(changes, ensure_ascii=False)
+                + json_dumps(changes, ensure_ascii=False)
                 + "\n【素材处理说明】"
-                + json.dumps(material_notices, ensure_ascii=False)
+                + json_dumps(material_notices, ensure_ascii=False)
                 + "\n\n"
                 + inputs
             )
@@ -482,12 +482,12 @@ class CanvasVideoService:
             output.assumptions = [
                 n
                 for n in dict.fromkeys(assumptions)
-                if not re.search(r"\d+\s*[:：]\s*\d+|\d+\s*秒|\d+p|[？?]", n)
+                if not regex_search(r"\d+\s*[:：]\s*\d+|\d+\s*秒|\d+p|[？?]", n)
             ][:5]
             output.suggestions = [
                 n
                 for n in dict.fromkeys(suggestions)
-                if not re.search(r"[？?]|需要你确认|请.*回答|\d+\s*[:：]\s*\d+|\d+\s*秒|\d+p", n)
+                if not regex_search(r"[？?]|需要你确认|请.*回答|\d+\s*[:：]\s*\d+|\d+\s*秒|\d+p", n)
             ][:3]
             if spec.first_frame_asset_id:
                 title = next(
@@ -574,10 +574,10 @@ class CanvasVideoService:
         self._session.add_all(pending_images)
         return await self._repo.commit_canvas_spec(
             project,
-            json.dumps(data, ensure_ascii=False),
+            json_dumps(data, ensure_ascii=False),
             expected_version,
             base_version,
             spec.model_dump_json(),
             None,
-            json.dumps(record, ensure_ascii=False),
+            json_dumps(record, ensure_ascii=False),
         )

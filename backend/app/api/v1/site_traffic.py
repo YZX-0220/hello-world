@@ -1,7 +1,7 @@
 """Public anonymous tracking and a count-only summary, independent of login."""
 
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Request, Response
+from redis.asyncio import Redis as AsyncRedis
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import db_session
@@ -36,7 +36,7 @@ async def track_site_visit(
     request: Request,
     response: Response,
     session: AsyncSession = Depends(db_session),
-    redis: aioredis.Redis = Depends(get_redis),
+    redis: AsyncRedis = Depends(get_redis),
 ):
     response.headers["Cache-Control"] = "no-store"
     validate_traffic_origin(request)

@@ -6,11 +6,12 @@
 - 登录与验证码都做 Redis 限流。
 """
 
-import hashlib
-import hmac
 from datetime import timedelta
+from hashlib import sha256
+from hmac import compare_digest
+from hmac import new as hmac_new
 
-import redis.asyncio as aioredis
+from redis.asyncio import Redis as AsyncRedis
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import settings
@@ -61,17 +62,17 @@ def _login_rate_key(email: str, ip: str) -> str:
 
 def make_csrf_token(session_token: str) -> str:
     """生成与当前会话绑定的 CSRF token（session token 的 HMAC 签名）。"""
-    return hmac.new(
+    return hmac_new(
         settings.app_secret.encode("utf-8"),
         session_token.encode("utf-8"),
-        hashlib.sha256,
+        sha256,
     ).hexdigest()
 
 
 def verify_csrf_token(session_token: str, provided: str) -> bool:
     """校验 CSRF token 是否匹配当前会话。"""
     expected = make_csrf_token(session_token)
-    return hmac.compare_digest(expected, provided)
+    return compare_digest(expected, provided)
 
 
 def _validate_password(password: str) -> None:
@@ -81,7 +82,7 @@ def _validate_password(password: str) -> None:
 
 
 async def _consume_or_raise(
-    redis: aioredis.Redis, email: str, purpose: EmailCodePurpose, code: str
+    redis: AsyncRedis, email: str, purpose: EmailCodePurpose, code: str
 ) -> None:
     """校验验证码，并按结果抛对应错误码。"""
     result = await otp_service.consume_code(redis, email, purpose, code)
@@ -94,7 +95,7 @@ async def _consume_or_raise(
     raise AppError(EMAIL_CODE_INVALID)
 
 
-async def _enforce_login_rate(redis: aioredis.Redis, email: str, ip: str) -> None:
+async def _enforce_login_rate(redis: AsyncRedis, email: str, ip: str) -> None:
     count = await redis.eval(
         _LOGIN_RATE_LUA, 1, _login_rate_key(email, ip), str(_LOGIN_WINDOW_SECONDS)
     )
@@ -103,7 +104,7 @@ async def _enforce_login_rate(redis: aioredis.Redis, email: str, ip: str) -> Non
 
 
 class AuthService:
-    def __init__(self, session: AsyncSession, redis: aioredis.Redis) -> None:
+    def __init__(self, session: AsyncSession, redis: AsyncRedis) -> None:
         self._users = UserRepository(session)
         self._sessions = SessionRepository(session)
         self._redis = redis

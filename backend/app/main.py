@@ -6,14 +6,14 @@
 - /api/v1：业务路由（本批次为空，后继批次加入）。
 """
 
-import asyncio
+from asyncio import CancelledError, create_task
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-import redis.asyncio as aioredis
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from redis.asyncio import from_url as redis_from_url
 from sqlalchemy import text
 from starlette.middleware.cors import CORSMiddleware
 
@@ -43,13 +43,13 @@ async def lifespan(_: FastAPI):
     _ensure_directories()
     from app.workers.image_worker import image_worker
 
-    worker = asyncio.create_task(image_worker()) if settings.image_worker_enabled else None
+    worker = create_task(image_worker()) if settings.image_worker_enabled else None
     try:
         yield
     finally:
         if worker:
             worker.cancel()
-            with suppress(asyncio.CancelledError):
+            with suppress(CancelledError):
                 await worker
         await engine.dispose()
 
@@ -103,7 +103,7 @@ async def readyz() -> JSONResponse:
     # ---- Redis（可降级） ----
     redis_status = "ok"
     try:
-        client = aioredis.from_url(settings.redis_url, socket_connect_timeout=2)
+        client = redis_from_url(settings.redis_url, socket_connect_timeout=2)
         await client.ping()
         await client.close()
         components["redis"] = {"status": "ok", "latency_ms": 1, "message": None}

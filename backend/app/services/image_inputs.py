@@ -1,8 +1,8 @@
 """Read owned image bytes without re-encoding; vendor inputs never use browser URLs."""
 
-import base64
-import hashlib
-import io
+from base64 import b64encode
+from hashlib import sha256
+from io import BytesIO
 
 from PIL import Image
 
@@ -22,7 +22,7 @@ def inspect_reference(data: bytes, *, formats=("PNG", "JPEG")):
     try:
         if not data or len(data) > max_reference_bytes():
             raise ValueError("图片超过大小上限")
-        with Image.open(io.BytesIO(data)) as im:
+        with Image.open(BytesIO(data)) as im:
             if im.format not in formats:
                 raise ValueError("请使用 PNG 或 JPEG 图片")
             if (
@@ -39,12 +39,12 @@ def inspect_reference(data: bytes, *, formats=("PNG", "JPEG")):
                 "width": im.width,
                 "height": im.height,
                 "mime_type": Image.MIME[im.format] if im.format else "image/png",
-                "sha256": hashlib.sha256(data).hexdigest(),
+                "sha256": sha256(data).hexdigest(),
                 "size_bytes": len(data),
             }
             im.verify()
         # verify() only checks PNG framing; force decoding to reject truncated pixel data.
-        with Image.open(io.BytesIO(data)) as im:
+        with Image.open(BytesIO(data)) as im:
             im.load()
         return meta
     except (OSError, ValueError, Image.DecompressionBombError) as exc:
@@ -75,7 +75,7 @@ def read_reference(asset, expected_hash=None, *, formats=("PNG", "JPEG")):
 
 
 def data_url(data, mime):
-    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+    return f"data:{mime};base64,{b64encode(data).decode('ascii')}"
 
 
 def compile_edit_prompt(prompt, history):

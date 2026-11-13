@@ -1,16 +1,15 @@
 """Image generation regressions. All providers are fake or mocked; network is forbidden."""
 
-import asyncio
-import hashlib
-import io
-import json
-import uuid
+from asyncio import CancelledError, Event, create_task, gather, sleep, wait_for
 from datetime import timedelta
+from hashlib import sha256
+from io import BytesIO
+from json import dumps as json_dumps
+from json import loads as json_loads
 from pathlib import Path
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
-import httpx
-import pytest
 from app.core.config import Settings, settings
 from app.core.security import decrypt_secret
 from app.core.time import now
@@ -19,7 +18,11 @@ from app.db.models.image_generation import ImageApiConfig, ImageJob
 from app.db.models.project import VideoProject, VideoProjectVersion
 from app.db.models.video_job import VideoJob, VideoJobAsset
 from app.providers.email.fake import fake_instance
+from httpx import AsyncClient, Cookies, MockTransport, ReadTimeout, Response
 from PIL import Image, PngImagePlugin
+from pytest import fail as pytest_fail
+from pytest import fixture as pytest_fixture
+from pytest import mark, raises
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -29,7 +32,7 @@ ORIGIN = "http://127.0.0.1:5173"
 SECRET = "test-image-only-credential-123456"
 
 
-@pytest.fixture(autouse=True)
+@pytest_fixture(autouse=True)
 def isolated_image_settings(monkeypatch):
     monkeypatch.setattr(settings, "image_provider", "fake")
     monkeypatch.setattr(settings, "image_worker_enabled", False)
@@ -38,15 +41,15 @@ def isolated_image_settings(monkeypatch):
     monkeypatch.setattr(settings, "app_env", "dev")
     monkeypatch.setattr(settings, "image_max_pending_per_user", 10)
     monkeypatch.setattr(settings, "image_platform_daily_limit", 20)
-    original_send = httpx.AsyncClient.send
+    original_send = AsyncClient.send
 
     async def local_only(self, request, *args, **kwargs):
-        assert request.url.host == "testserver" or isinstance(
-            self._transport, httpx.MockTransport
-        ), "Tests must never call an external service"
+        assert request.url.host == "testserver" or isinstance(self._transport, MockTransport), (
+            "Tests must never call an external service"
+        )
         return await original_send(self, request, *args, **kwargs)
 
-    monkeypatch.setattr(httpx.AsyncClient, "send", local_only)
+    monkeypatch.setattr(AsyncClient, "send", local_only)
 
 
 def headers(client, key=None):
@@ -57,7 +60,7 @@ def headers(client, key=None):
 
 
 async def register(client):
-    email = f"image-{uuid.uuid4().hex}@test.com"
+    email = f"image-{uuid4().hex}@test.com"
     sent = await client.post(
         f"{API}/auth/email-codes", json={"email": email, "purpose": "register"}
     )
@@ -102,7 +105,7 @@ async def create_job(client, cid, key=None, **changes):
             "aspect_ratio": "9:16",
             **changes,
         },
-        headers=headers(client, key or str(uuid.uuid4())),
+        headers=headers(client, key or str(uuid4())),
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -123,7 +126,7 @@ async def row_for(db_engine, model, ident):
 
 
 def original_png(size=(864, 1536)):
-    data = io.BytesIO()
+    data = BytesIO()
     metadata = PngImagePlugin.PngInfo()
     metadata.add_text("source", "Keep this metadata and the exact original bytes")
     Image.new("RGB", size, "purple").save(data, format="PNG", pnginfo=metadata)
@@ -213,7 +216,7 @@ async def test_mutations_require_csrf(client):
 async def test_idempotency_replays_same_job_and_rejects_changed_payload(client, db_engine):
     await register(client)
     cid = await conversation(client)
-    key = str(uuid.uuid4())
+    key = str(uuid4())
     first = await create_job(client, cid, key)
     same = await create_job(client, cid, key)
     assert same["id"] == first["id"]
@@ -236,8 +239,8 @@ async def test_idempotency_replays_same_job_and_rejects_changed_payload(client, 
 async def test_concurrent_idempotent_create_inserts_one_job(client, db_engine):
     await register(client)
     cid = await conversation(client)
-    key = str(uuid.uuid4())
-    jobs = await asyncio.gather(create_job(client, cid, key), create_job(client, cid, key))
+    key = str(uuid4())
+    jobs = await gather(create_job(client, cid, key), create_job(client, cid, key))
     assert jobs[0]["id"] == jobs[1]["id"]
     factory = async_sessionmaker(db_engine, class_=AsyncSession)
     async with factory() as session:
@@ -249,7 +252,7 @@ async def test_owner_isolation_for_jobs_configs_and_conversation_listing(client)
     cid = await conversation(client)
     owned_config = await config(client)
     job = await create_job(client, cid)
-    owner_cookies = httpx.Cookies(client.cookies)
+    owner_cookies = Cookies(client.cookies)
     client.cookies.clear()
     await register(client)
     other_cid = await conversation(client)
@@ -274,7 +277,7 @@ async def test_owner_isolation_for_jobs_configs_and_conversation_listing(client)
                 "api_config_id": owned_config["id"],
                 "prompt": "Unauthorized",
             },
-            headers=headers(client, str(uuid.uuid4())),
+            headers=headers(client, str(uuid4())),
         ),
         await client.post(
             f"{API}/image-prompt-suggestions",
@@ -312,7 +315,7 @@ async def test_fake_output_is_visibly_simulated_and_never_claims_trust(client, d
     asset = await row_for(db_engine, Asset, final["asset_id"])
     assert asset.storage_provider == "local"
     raw = Path(settings.storage_root, asset.storage_key).read_bytes()
-    with Image.open(io.BytesIO(raw)) as image:
+    with Image.open(BytesIO(raw)) as image:
         assert image.format == "PNG"
     assert not final.get("same_account_verified", False)
 
@@ -346,7 +349,7 @@ async def test_historical_local_result_preserves_original_bytes_with_obs_configu
     assert generate.call_args.kwargs["size"] == "1152x2048"
     asset = await row_for(db_engine, Asset, final["asset_id"])
     assert asset.storage_provider == "local"
-    assert asset.sha256 == hashlib.sha256(original).hexdigest()
+    assert asset.sha256 == sha256(original).hexdigest()
     assert Path(settings.storage_root, asset.storage_key).read_bytes() == original
     for path in (
         f"/assets/{asset.id}/content?thumbnail=raw",
@@ -376,7 +379,7 @@ async def test_historical_local_result_preserves_original_bytes_with_obs_configu
             project_id=project.id,
             project_version_id=version.id,
             project_version=version.version,
-            idempotency_key=str(uuid.uuid4()),
+            idempotency_key=str(uuid4()),
             request_fingerprint="image-route-test",
             protocol_code="ark_seedance_v1",
             remote_model_id="mock-video",
@@ -409,13 +412,13 @@ async def test_atomic_claim_calls_provider_once_for_concurrent_workers(
     original_result = generate.return_value
 
     async def delayed(**kwargs):
-        await asyncio.sleep(0.03)
+        await sleep(0.03)
         return original_result
 
     generate.side_effect = delayed
     await register(client)
     job = await create_job(client, await conversation(client))
-    await asyncio.gather(run_job(db_engine, job["id"]), run_job(db_engine, job["id"]))
+    await gather(run_job(db_engine, job["id"]), run_job(db_engine, job["id"]))
     generate.assert_awaited_once()
     assert (await client.get(f"{API}/image-jobs/{job['id']}")).json()["status"] == "succeeded"
 
@@ -473,7 +476,7 @@ async def test_unknown_acknowledgement_requires_owner_and_csrf(client, db_engine
     await register(client)
     job = await create_job(client, await conversation(client))
     await run_job(db_engine, job["id"])
-    owner_cookies = httpx.Cookies(client.cookies)
+    owner_cookies = Cookies(client.cookies)
     client.cookies.clear()
     await register(client)
     url = f"{API}/image-jobs/{job['id']}/acknowledge-unknown"
@@ -503,7 +506,7 @@ async def test_acknowledging_unknown_does_not_refund_platform_daily_quota(
         return await client.post(
             f"{API}/image-jobs",
             json={"conversation_id": cid, "prompt": "A separate paid generation"},
-            headers=headers(client, str(uuid.uuid4())),
+            headers=headers(client, str(uuid4())),
         )
 
     before = await submit_next()
@@ -522,7 +525,7 @@ async def test_acknowledging_unknown_does_not_refund_platform_daily_quota(
     generate.assert_awaited_once()
 
 
-@pytest.mark.parametrize("status", ["queued", "generating", "succeeded", "unknown_acknowledged"])
+@mark.parametrize("status", ["queued", "generating", "succeeded", "unknown_acknowledged"])
 async def test_acknowledgement_rejects_non_unknown_without_state_change(
     client, db_engine, monkeypatch, status
 ):
@@ -544,7 +547,7 @@ async def test_acknowledgement_rejects_non_unknown_without_state_change(
     generate.assert_not_awaited()
 
 
-@pytest.mark.parametrize("download_failure", ["io", "provider"])
+@mark.parametrize("download_failure", ["io", "provider"])
 async def test_storage_retry_downloads_existing_result_without_regeneration(
     client, db_engine, monkeypatch, download_failure
 ):
@@ -608,7 +611,7 @@ async def test_expired_generation_lease_becomes_unknown_without_resubmission(
     assert (await client.get(f"{API}/image-jobs/{job['id']}")).json()["status"] == "unknown"
 
 
-@pytest.mark.parametrize("stale_outcome", ["return", "provider_error", "cancel"])
+@mark.parametrize("stale_outcome", ["return", "provider_error", "cancel"])
 async def test_expired_saving_claim_cannot_overwrite_new_worker_result(
     client, db_engine, monkeypatch, stale_outcome
 ):
@@ -617,7 +620,7 @@ async def test_expired_saving_claim_cannot_overwrite_new_worker_result(
 
     old_bytes, winner_bytes = original_png(), original_png((800, 1424))
     generate = mock_real(monkeypatch, url="https://mock-result.invalid/lease-test.png")
-    started, release = asyncio.Event(), asyncio.Event()
+    started, release = Event(), Event()
     download_calls = 0
 
     async def download(url):
@@ -642,9 +645,9 @@ async def test_expired_saving_claim_cannot_overwrite_new_worker_result(
     monkeypatch.setattr(ImageGenerationService, "_store_original", staticmethod(store))
     await register(client)
     job = await create_job(client, await conversation(client))
-    old_worker = asyncio.create_task(run_job(db_engine, job["id"]))
+    old_worker = create_task(run_job(db_engine, job["id"]))
     try:
-        await asyncio.wait_for(started.wait(), timeout=5)
+        await wait_for(started.wait(), timeout=5)
         factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
         async with factory() as session:
             row = await session.get(ImageJob, job["id"])
@@ -657,7 +660,7 @@ async def test_expired_saving_claim_cannot_overwrite_new_worker_result(
         assert winner.status == "succeeded"
         if stale_outcome == "cancel":
             old_worker.cancel()
-            with pytest.raises(asyncio.CancelledError):
+            with raises(CancelledError):
                 await old_worker
         else:
             release.set()
@@ -665,13 +668,13 @@ async def test_expired_saving_claim_cannot_overwrite_new_worker_result(
     finally:
         if not old_worker.done():
             old_worker.cancel()
-            with pytest.raises(asyncio.CancelledError):
+            with raises(CancelledError):
                 await old_worker
     final = await row_for(db_engine, ImageJob, job["id"])
     assert final.status == "succeeded" and final.error_message is None
     assert final.asset_id == winner.asset_id and final.lease_until is None
     asset = await row_for(db_engine, Asset, final.asset_id)
-    assert asset.sha256 == hashlib.sha256(winner_bytes).hexdigest()
+    assert asset.sha256 == sha256(winner_bytes).hexdigest()
     assert Path(settings.storage_root, asset.storage_key).read_bytes() == winner_bytes
     assert stores == [winner_bytes]
     async with factory() as session:
@@ -679,7 +682,7 @@ async def test_expired_saving_claim_cannot_overwrite_new_worker_result(
     generate.assert_awaited_once()
 
 
-@pytest.mark.parametrize("acknowledge", [False, True])
+@mark.parametrize("acknowledge", [False, True])
 async def test_recovered_generation_claim_cannot_checkpoint_late_success(
     client, db_engine, monkeypatch, acknowledge
 ):
@@ -687,7 +690,7 @@ async def test_recovered_generation_claim_cannot_checkpoint_late_success(
     from app.services.image_generation_service import ImageGenerationService
 
     generate = mock_real(monkeypatch)
-    started, release = asyncio.Event(), asyncio.Event()
+    started, release = Event(), Event()
 
     async def late_result(**kwargs):
         started.set()
@@ -697,9 +700,9 @@ async def test_recovered_generation_claim_cannot_checkpoint_late_success(
     generate.side_effect = late_result
     await register(client)
     job = await create_job(client, await conversation(client))
-    old_worker = asyncio.create_task(run_job(db_engine, job["id"]))
+    old_worker = create_task(run_job(db_engine, job["id"]))
     try:
-        await asyncio.wait_for(started.wait(), timeout=5)
+        await wait_for(started.wait(), timeout=5)
         factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
         async with factory() as session:
             row = await session.get(ImageJob, job["id"])
@@ -717,7 +720,7 @@ async def test_recovered_generation_claim_cannot_checkpoint_late_success(
     finally:
         if not old_worker.done():
             old_worker.cancel()
-            with pytest.raises(asyncio.CancelledError):
+            with raises(CancelledError):
                 await old_worker
     final = await row_for(db_engine, ImageJob, job["id"])
     assert final.status == ("unknown_acknowledged" if acknowledge else "unknown")
@@ -728,22 +731,22 @@ async def test_recovered_generation_claim_cannot_checkpoint_late_success(
     generate.assert_awaited_once()
 
 
-@pytest.mark.parametrize("stage", ["generation", "download"])
+@mark.parametrize("stage", ["generation", "download"])
 async def test_worker_shutdown_keeps_generation_uncertainty_and_storage_retry_separate(
     client, db_engine, monkeypatch, stage
 ):
     generate = mock_real(monkeypatch, url="https://mock-result.invalid/original.png")
-    started = asyncio.Event()
+    started = Event()
     download = AsyncMock(return_value=original_png())
     monkeypatch.setattr("app.services.image_generation_service.download_image", download)
 
     async def interrupted(**kwargs):
         started.set()
-        await asyncio.Event().wait()
+        await Event().wait()
 
     async def interrupted_download(url):
         started.set()
-        await asyncio.Event().wait()
+        await Event().wait()
 
     if stage == "generation":
         generate.side_effect = interrupted
@@ -751,10 +754,10 @@ async def test_worker_shutdown_keeps_generation_uncertainty_and_storage_retry_se
         download.side_effect = interrupted_download
     await register(client)
     job = await create_job(client, await conversation(client))
-    worker = asyncio.create_task(run_job(db_engine, job["id"]))
-    await asyncio.wait_for(started.wait(), timeout=5)
+    worker = create_task(run_job(db_engine, job["id"]))
+    await wait_for(started.wait(), timeout=5)
     worker.cancel()
-    with pytest.raises(asyncio.CancelledError):
+    with raises(CancelledError):
         await worker
     final = (await client.get(f"{API}/image-jobs/{job['id']}")).json()
     assert final["status"] == ("unknown" if stage == "generation" else "storage_failed"), final
@@ -791,10 +794,10 @@ async def test_user_declared_account_link_never_claims_verified_provenance(clien
     assert final["linked_video_api_config_id"] == video.json()["id"]
     assert final["provenance_notice"] == ""
     assert not any("verified" in key for key in final)
-    assert SECRET not in json.dumps(final)
+    assert SECRET not in json_dumps(final)
 
 
-@pytest.mark.parametrize("size,valid", [((864, 1536), True), ((200, 200), False)])
+@mark.parametrize("size,valid", [((864, 1536), True), ((200, 200), False)])
 async def test_generated_video_inputs_are_preserved_or_blocked_without_adapting(
     client, db_engine, monkeypatch, size, valid
 ):
@@ -811,7 +814,7 @@ async def test_generated_video_inputs_are_preserved_or_blocked_without_adapting(
     asset = await row_for(db_engine, Asset, final["asset_id"])
 
     def forbid_adaptation(*args, **kwargs):
-        pytest.fail("Generated originals must never pass through image adaptation")
+        pytest_fail("Generated originals must never pass through image adaptation")
 
     monkeypatch.setattr("app.services.video_image_service.adapt_image", forbid_adaptation)
     factory = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
@@ -827,7 +830,7 @@ async def test_generated_video_inputs_are_preserved_or_blocked_without_adapting(
     if valid:
         assert not issues
         assert bindings[0]["asset_id"] == asset.id
-        assert bindings[0]["sha256"] == hashlib.sha256(original).hexdigest()
+        assert bindings[0]["sha256"] == sha256(original).hexdigest()
         assert bindings[0]["actions"] == []
     else:
         assert issues and not bindings
@@ -846,7 +849,7 @@ async def test_missing_real_platform_key_reports_unavailable_without_fake_fallba
     response = await client.post(
         f"{API}/image-jobs",
         json={"conversation_id": cid, "prompt": "Portrait"},
-        headers=headers(client, str(uuid.uuid4())),
+        headers=headers(client, str(uuid4())),
     )
     assert response.status_code == 503, response.text
     factory = async_sessionmaker(db_engine, class_=AsyncSession)
@@ -861,7 +864,7 @@ async def test_production_api_rejects_fake_jobs(client, monkeypatch):
     response = await client.post(
         f"{API}/image-jobs",
         json={"conversation_id": cid, "prompt": "Portrait"},
-        headers=headers(client, str(uuid.uuid4())),
+        headers=headers(client, str(uuid4())),
     )
     assert response.status_code == 503, response.text
 
@@ -877,10 +880,10 @@ async def test_concurrent_quota_checks_allow_only_one_new_pending_job(
         return await client.post(
             f"{API}/image-jobs",
             json={"conversation_id": cid, "prompt": "Portrait"},
-            headers=headers(client, str(uuid.uuid4())),
+            headers=headers(client, str(uuid4())),
         )
 
-    responses = await asyncio.gather(submit(), submit())
+    responses = await gather(submit(), submit())
     assert sorted(response.status_code for response in responses) == [201, 429]
     factory = async_sessionmaker(db_engine, class_=AsyncSession)
     async with factory() as session:
@@ -889,15 +892,15 @@ async def test_concurrent_quota_checks_allow_only_one_new_pending_job(
 
 def test_production_forbids_fake_image_provider():
     configured = Settings(_env_file=None, app_env="production", image_provider="fake")
-    with pytest.raises(RuntimeError, match="模拟生图"):
+    with raises(RuntimeError, match="模拟生图"):
         configured.ensure_secure()
 
 
-@pytest.mark.parametrize("result_format", ["url", "b64_json"])
+@mark.parametrize("result_format", ["url", "b64_json"])
 async def test_adapter_uses_only_plan_endpoint_and_parses_both_result_formats(
     monkeypatch, result_format
 ):
-    import base64
+    from base64 import b64encode
 
     from app.providers.image.ark_plan import ENDPOINT, generate_image
 
@@ -906,27 +909,27 @@ async def test_adapter_uses_only_plan_endpoint_and_parses_both_result_formats(
     item = (
         {"url": "https://example.tos-cn-beijing.volces.com/original.png"}
         if result_format == "url"
-        else {"b64_json": base64.b64encode(original).decode()}
+        else {"b64_json": b64encode(original).decode()}
     )
 
     async def handle(request):
         seen.append(request)
         assert str(request.url) == ENDPOINT
         assert request.headers["Authorization"] == f"Bearer {SECRET}"
-        body = json.loads(request.content)
+        body = json_loads(request.content)
         assert body["model"] == "doubao-seedream-5.0-pro"
         assert body["size"] == "1152x2048"
         assert body["output_format"] == "png"
         assert "ratio" not in body and "n" not in body
-        return httpx.Response(200, json={"data": [item]}, headers={"x-request-id": "mock-id"})
+        return Response(200, json={"data": [item]}, headers={"x-request-id": "mock-id"})
 
-    original_init = httpx.AsyncClient.__init__
+    original_init = AsyncClient.__init__
 
     def init_with_transport(self, *args, **kwargs):
-        kwargs["transport"] = httpx.MockTransport(handle)
+        kwargs["transport"] = MockTransport(handle)
         original_init(self, *args, **kwargs)
 
-    monkeypatch.setattr(httpx.AsyncClient, "__init__", init_with_transport)
+    monkeypatch.setattr(AsyncClient, "__init__", init_with_transport)
     result = await generate_image(
         api_key=SECRET, model="doubao-seedream-5.0-pro", prompt="Portrait", size="1152x2048"
     )
@@ -938,7 +941,7 @@ async def test_adapter_uses_only_plan_endpoint_and_parses_both_result_formats(
         assert result.data == original and result.url is None
 
 
-@pytest.mark.parametrize("failure", ["timeout", "server_error", "invalid_json"])
+@mark.parametrize("failure", ["timeout", "server_error", "invalid_json"])
 async def test_adapter_uncertain_failures_never_retry_or_fall_back(monkeypatch, failure):
     from app.providers.image.ark_plan import ENDPOINT, ImageProviderError, generate_image
 
@@ -947,19 +950,19 @@ async def test_adapter_uncertain_failures_never_retry_or_fall_back(monkeypatch, 
     async def handle(request):
         calls.append(str(request.url))
         if failure == "timeout":
-            raise httpx.ReadTimeout("mock timeout", request=request)
+            raise ReadTimeout("mock timeout", request=request)
         if failure == "server_error":
-            return httpx.Response(503, text="do not expose upstream diagnostics")
-        return httpx.Response(200, text="not JSON")
+            return Response(503, text="do not expose upstream diagnostics")
+        return Response(200, text="not JSON")
 
-    original_init = httpx.AsyncClient.__init__
+    original_init = AsyncClient.__init__
 
     def init_with_transport(self, *args, **kwargs):
-        kwargs["transport"] = httpx.MockTransport(handle)
+        kwargs["transport"] = MockTransport(handle)
         original_init(self, *args, **kwargs)
 
-    monkeypatch.setattr(httpx.AsyncClient, "__init__", init_with_transport)
-    with pytest.raises(ImageProviderError) as raised:
+    monkeypatch.setattr(AsyncClient, "__init__", init_with_transport)
+    with raises(ImageProviderError) as raised:
         await generate_image(
             api_key=SECRET, model="doubao-seedream-5.0-pro", prompt="Portrait", size="1152x2048"
         )
@@ -968,7 +971,7 @@ async def test_adapter_uncertain_failures_never_retry_or_fall_back(monkeypatch, 
     assert calls == [ENDPOINT]
 
 
-@pytest.mark.parametrize(
+@mark.parametrize(
     "url",
     [
         "http://example.volces.com/image.png",
@@ -981,5 +984,5 @@ async def test_adapter_uncertain_failures_never_retry_or_fall_back(monkeypatch, 
 async def test_download_rejects_unsafe_or_non_ark_urls_before_network(url):
     from app.providers.image.ark_plan import download_image
 
-    with pytest.raises(ValueError):
+    with raises(ValueError):
         await download_image(url)

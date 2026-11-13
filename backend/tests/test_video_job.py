@@ -1,17 +1,17 @@
 """阶段 8 测试：视频任务创建（幂等/状态机/事件）、列表、失败路径。"""
 
-import uuid
+from uuid import uuid4
 
-import httpx
 from app.providers.email.fake import fake_instance
 from app.providers.video.base import VideoProvider, VideoProviderError
+from httpx import AsyncClient
 
 ORIGIN = "http://127.0.0.1:5173"
 PASSWORD = "password123"
 
 
-async def _register(client: httpx.AsyncClient) -> None:
-    email = f"vjob-{uuid.uuid4().hex[:8]}@test.com"
+async def _register(client: AsyncClient) -> None:
+    email = f"vjob-{uuid4().hex[:8]}@test.com"
     await client.post("/api/v1/auth/email-codes", json={"email": email, "purpose": "register"})
     code = fake_instance.sent[-1]["code"]
     assert (
@@ -21,7 +21,7 @@ async def _register(client: httpx.AsyncClient) -> None:
     ).status_code == 201
 
 
-def _csrf(client: httpx.AsyncClient) -> dict[str, str]:
+def _csrf(client: AsyncClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies.get("hw_csrf", ""), "Origin": ORIGIN}
 
 
@@ -74,7 +74,7 @@ async def _review_project(client, cid, config_id):
     }
 
 
-async def _make_deliverable(client: httpx.AsyncClient) -> tuple[str, dict]:
+async def _make_deliverable(client: AsyncClient) -> tuple[str, dict]:
     """注册 → 建对话 → 发消息（Fake 生成方案）→ 确认版本 → 建视频接口配置。"""
     await _register(client)
     headers = _csrf(client)
@@ -83,7 +83,7 @@ async def _make_deliverable(client: httpx.AsyncClient) -> tuple[str, dict]:
 
     await client.post(
         f"/api/v1/conversations/{cid}/messages",
-        json={"content": "主体是一辆穿越草原的越野车", "client_request_id": str(uuid.uuid4())},
+        json={"content": "主体是一辆穿越草原的越野车", "client_request_id": str(uuid4())},
         headers=headers,
     )
     project = (await client.get(f"/api/v1/conversations/{cid}/project")).json()
@@ -116,7 +116,7 @@ async def _make_deliverable(client: httpx.AsyncClient) -> tuple[str, dict]:
     return cid, await _review_project(client, cid, cfg.json()["id"])
 
 
-async def _make_confirmed_project(client: httpx.AsyncClient) -> dict:
+async def _make_confirmed_project(client: AsyncClient) -> dict:
     """注册 → 建对话 → 发消息（Fake 生成方案）→ 确认版本。不创建视频接口配置。
 
     平台自有通道（api_config_id="platform"）不需要用户配置，只需项目已确认。
@@ -128,7 +128,7 @@ async def _make_confirmed_project(client: httpx.AsyncClient) -> dict:
 
     await client.post(
         f"/api/v1/conversations/{cid}/messages",
-        json={"content": "主体是一辆穿越草原的越野车", "client_request_id": str(uuid.uuid4())},
+        json={"content": "主体是一辆穿越草原的越野车", "client_request_id": str(uuid4())},
         headers=headers,
     )
     project = (await client.get(f"/api/v1/conversations/{cid}/project")).json()
@@ -157,7 +157,7 @@ def _platform_cmd(info: dict, **overrides) -> dict:
 
 
 async def test_older_project_cannot_submit_a_video_longer_than_fifteen_seconds(
-    client: httpx.AsyncClient,
+    client: AsyncClient,
 ) -> None:
     info = await _make_confirmed_project(client)
     headers = _csrf(client)
@@ -177,13 +177,13 @@ async def test_older_project_cannot_submit_a_video_longer_than_fifteen_seconds(
     rejected = await client.post(
         "/api/v1/video-jobs",
         json=_platform_cmd(info),
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
     )
     assert rejected.status_code == 409, rejected.text
     assert rejected.json()["error"]["code"] == "PROJECT_NOT_CONFIRMED"
 
 
-async def test_create_video_job_and_poll(client: httpx.AsyncClient) -> None:
+async def test_create_video_job_and_poll(client: AsyncClient) -> None:
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
     cmd = {
@@ -194,7 +194,7 @@ async def test_create_video_job_and_poll(client: httpx.AsyncClient) -> None:
         "mode": "text_to_video",
         "generation_options": info["generation_options"],
     }
-    idem = str(uuid.uuid4())
+    idem = str(uuid4())
     resp = await client.post(
         "/api/v1/video-jobs", json=cmd, headers={**headers, "Idempotency-Key": idem}
     )
@@ -223,10 +223,10 @@ async def test_create_video_job_and_poll(client: httpx.AsyncClient) -> None:
     assert "submit" in types and "status_change" in types
 
 
-async def test_video_job_idempotency(client: httpx.AsyncClient) -> None:
+async def test_video_job_idempotency(client: AsyncClient) -> None:
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
-    idem = str(uuid.uuid4())
+    idem = str(uuid4())
     base = {
         "conversation_id": info["conversation_id"],
         "project_id": info["project_id"],
@@ -257,7 +257,7 @@ async def test_video_job_idempotency(client: httpx.AsyncClient) -> None:
     assert r3.json()["error"]["code"] == "IDEMPOTENCY_KEY_REUSED"
 
 
-async def test_video_job_list(client: httpx.AsyncClient) -> None:
+async def test_video_job_list(client: AsyncClient) -> None:
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
     r = await client.post(
@@ -270,7 +270,7 @@ async def test_video_job_list(client: httpx.AsyncClient) -> None:
             "mode": "text_to_video",
             "generation_options": info["generation_options"],
         },
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
     )
     assert r.status_code == 202
     listed = await client.get(
@@ -281,7 +281,7 @@ async def test_video_job_list(client: httpx.AsyncClient) -> None:
     assert listed.json()["items"][0]["mode"] == "text_to_video"
 
 
-async def test_video_job_submission_failed(client: httpx.AsyncClient, monkeypatch) -> None:
+async def test_video_job_submission_failed(client: AsyncClient, monkeypatch) -> None:
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
 
@@ -303,7 +303,7 @@ async def test_video_job_submission_failed(client: httpx.AsyncClient, monkeypatc
         async def cancel(self, task_id, ctx):
             return False
 
-    import app.services.video_job_service as vjs
+    from app.services import video_job_service as vjs
 
     monkeypatch.setattr(vjs, "get_video_provider", lambda *args: RejectProvider())
 
@@ -317,7 +317,7 @@ async def test_video_job_submission_failed(client: httpx.AsyncClient, monkeypatc
             "mode": "text_to_video",
             "generation_options": info["generation_options"],
         },
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
     )
     assert r.status_code == 202
     body = r.json()
@@ -338,7 +338,7 @@ def _cmd(info: dict, **overrides) -> dict:
     return cmd
 
 
-async def _poll_to_succeeded(client: httpx.AsyncClient, jid: str) -> dict | None:
+async def _poll_to_succeeded(client: AsyncClient, jid: str) -> dict | None:
     for _ in range(8):
         body = (await client.get(f"/api/v1/video-jobs/{jid}")).json()
         if body["status"] == "succeeded":
@@ -346,14 +346,14 @@ async def _poll_to_succeeded(client: httpx.AsyncClient, jid: str) -> dict | None
     return None
 
 
-async def test_download_stores_result_asset(client: httpx.AsyncClient) -> None:
+async def test_download_stores_result_asset(client: AsyncClient) -> None:
     """中转下载：结果字节落成本站 result Asset，可走 content 接口读回。"""
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
     created = await client.post(
         "/api/v1/video-jobs",
         json=_cmd(info),
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
     )
     body = await _poll_to_succeeded(client, created.json()["id"])
     assert body is not None
@@ -365,7 +365,7 @@ async def test_download_stores_result_asset(client: httpx.AsyncClient) -> None:
     assert content.content == b"FAKE_VIDEO_BYTES"
 
 
-async def test_direct_fallback(client: httpx.AsyncClient, monkeypatch) -> None:
+async def test_direct_fallback(client: AsyncClient, monkeypatch) -> None:
     """下载失败且只给直链 + 模型允许直链 -> download_status=direct，返回临时直链与过期时间。"""
     from app.providers.video.base import VideoTaskStatus
     from app.services import video_download_service as vds
@@ -395,7 +395,7 @@ async def test_direct_fallback(client: httpx.AsyncClient, monkeypatch) -> None:
     created = await client.post(
         "/api/v1/video-jobs",
         json=_cmd(info),
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
     )
     body = await _poll_to_succeeded(client, created.json()["id"])
     assert body is not None
@@ -406,14 +406,14 @@ async def test_direct_fallback(client: httpx.AsyncClient, monkeypatch) -> None:
     assert body["result_expires_at"] is not None
 
 
-async def test_cancel_and_idempotent(client: httpx.AsyncClient) -> None:
+async def test_cancel_and_idempotent(client: AsyncClient) -> None:
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
     created = (
         await client.post(
             "/api/v1/video-jobs",
             json=_cmd(info),
-            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+            headers={**headers, "Idempotency-Key": str(uuid4())},
         )
     ).json()
     cancelled = await client.post(f"/api/v1/video-jobs/{created['id']}/cancel", headers=headers)
@@ -423,7 +423,7 @@ async def test_cancel_and_idempotent(client: httpx.AsyncClient) -> None:
     assert again.json()["status"] == "cancelled"
 
 
-async def test_retry_requires_failed_download(client: httpx.AsyncClient) -> None:
+async def test_retry_requires_failed_download(client: AsyncClient) -> None:
     """仅当生成成功且下载失败时可重试；已成功落盘时重试应报错。"""
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
@@ -431,7 +431,7 @@ async def test_retry_requires_failed_download(client: httpx.AsyncClient) -> None
         await client.post(
             "/api/v1/video-jobs",
             json=_cmd(info),
-            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+            headers={**headers, "Idempotency-Key": str(uuid4())},
         )
     ).json()
     body = await _poll_to_succeeded(client, created["id"])
@@ -441,14 +441,14 @@ async def test_retry_requires_failed_download(client: httpx.AsyncClient) -> None
     assert retry.json()["error"]["code"] == "VIDEO_DOWNLOAD_FAILED"
 
 
-async def test_platform_channel_create(client: httpx.AsyncClient) -> None:
+async def test_platform_channel_create(client: AsyncClient) -> None:
     """平台自有通道：无需用户视频接口配置，直接建任务成功（202），status 非 created。"""
     info = await _make_confirmed_project(client)
     headers = _csrf(client)
     r = await client.post(
         "/api/v1/video-jobs",
         json=_platform_cmd(info),
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
     )
     assert r.status_code == 202, r.text
     job = r.json()
@@ -457,27 +457,27 @@ async def test_platform_channel_create(client: httpx.AsyncClient) -> None:
     assert job["api_config_revision"] == 0  # 平台通道无 revision
 
 
-async def test_platform_channel_daily_quota(client: httpx.AsyncClient) -> None:
+async def test_platform_channel_daily_quota(client: AsyncClient) -> None:
     """同用户当日再建一个 platform 任务 → 429 PLATFORM_DAILY_QUOTA_EXCEEDED。"""
     info = await _make_confirmed_project(client)
     headers = _csrf(client)
     r1 = await client.post(
         "/api/v1/video-jobs",
         json=_platform_cmd(info),
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
     )
     assert r1.status_code == 202, r1.text
 
     r2 = await client.post(
         "/api/v1/video-jobs",
         json=_platform_cmd(info),
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
     )
     assert r2.status_code == 429, r2.text
     assert r2.json()["error"]["code"] == "PLATFORM_DAILY_QUOTA_EXCEEDED"
 
 
-async def test_platform_quota_does_not_affect_user_config(client: httpx.AsyncClient) -> None:
+async def test_platform_quota_does_not_affect_user_config(client: AsyncClient) -> None:
     """平台额度用完不影响用户自配 API 创建（仍可建）。"""
     _cid, info = await _make_deliverable(client)
     headers = _csrf(client)
@@ -487,7 +487,7 @@ async def test_platform_quota_does_not_affect_user_config(client: httpx.AsyncCli
     pr = await client.post(
         "/api/v1/video-jobs",
         json=_platform_cmd(platform_info),
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
     )
     assert pr.status_code == 202, pr.text
 
@@ -496,14 +496,14 @@ async def test_platform_quota_does_not_affect_user_config(client: httpx.AsyncCli
     cr = await client.post(
         "/api/v1/video-jobs",
         json=_cmd(info),
-        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
     )
     assert cr.status_code == 202, cr.text
     assert cr.json()["api_config_id"] == info["api_config_id"]
     assert cr.json()["api_config_revision"] == 1
 
 
-async def test_platform_channel_poll(client: httpx.AsyncClient) -> None:
+async def test_platform_channel_poll(client: AsyncClient) -> None:
     """平台任务轮询走通（fake poll 正常，不因无 revision 报错/500），直到 succeeded。"""
     info = await _make_confirmed_project(client)
     headers = _csrf(client)
@@ -511,7 +511,7 @@ async def test_platform_channel_poll(client: httpx.AsyncClient) -> None:
         await client.post(
             "/api/v1/video-jobs",
             json=_platform_cmd(info),
-            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+            headers={**headers, "Idempotency-Key": str(uuid4())},
         )
     ).json()
     jid = created["id"]

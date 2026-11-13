@@ -180,7 +180,7 @@
             <span class="canvas-project-title">{{ activeConversation ? getConvDisplayTitle(activeConversation) : '新创作工作流' }}</span>
           </div>
 
-          <!-- 左侧居中悬浮工具栏：素材库与国际传播指导 -->
+          <!-- 左侧居中悬浮工具栏：视频剪辑、提示词模板库与国际传播指导 -->
           <div class="floating-left-bar">
             <button class="side-tool-btn" @click="goToEditor" title="视频剪辑">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -189,12 +189,13 @@
               </svg>
               <span class="tool-tip">视频剪辑</span>
             </button>
-            <button class="side-tool-btn" @click="openAssetsDrawer" title="素材库">
+
+            <button class="side-tool-btn" @click="openTemplateDrawer" title="提示词模板库">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              <span class="tool-tip">素材库</span>
+              <span class="tool-tip">提示词模板库</span>
             </button>
 
             <button class="side-tool-btn highlight" @click="openGuideModal" title="国际传播指导">
@@ -619,6 +620,13 @@
       </div>
     </Teleport>
 
+    <!-- 提示词模板库抽屉 -->
+    <PromptTemplateDrawer
+      :open="showTemplateDrawer"
+      @close="showTemplateDrawer = false"
+      @inject="applyTemplateToNode"
+    />
+
     <!-- ================= 国际传播指引弹窗（多选 & 后端负面提示词合并） ================= -->
     <div v-if="showGuideModal" class="guide-modal-mask" @click.self="closeGuideModal">
       <div class="guide-modal-box">
@@ -695,6 +703,15 @@
 </template>
 
 <script setup lang="ts">
+import PromptTemplateDrawer from '@/components/PromptTemplateDrawer.vue';
+import {
+  listCulturalGuidances,
+  createCulturalGuidance,
+  updateCulturalGuidance,
+  type CulturalGuidanceItem,
+  type CreateCulturalGuidancePayload,
+  type UpdateCulturalGuidancePayload,
+} from '@/services/culturalGuidance';
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import { useWorkspace, newId } from '@/composables/useWorkspace';
 import PortraitMaterialNotice from '@/components/PortraitMaterialNotice.vue';
@@ -740,7 +757,6 @@ watch(portraitFailure, async value => {
 // ==================== 1. 项目卡片重命名功能（左下角改名按钮） ====================
 const renamingConvId = ref('');
 const renamingConvTitle = ref('');
-// 本地持久化项目自定义名称映射，确保即使后端未提供 PATCH 改名接口也能持久生效
 const customConvTitles = reactive<Record<string, string>>(
   JSON.parse(localStorage.getItem('custom_conv_titles') || '{}')
 );
@@ -765,12 +781,10 @@ async function finishRenameConv(conv: { id: string; title?: string | null }) {
   renamingConvId.value = '';
   if (!trimmed) return;
 
-  // 1. 立即更新前端状态与本地持久化存储
   conv.title = trimmed;
   customConvTitles[conv.id] = trimmed;
   localStorage.setItem('custom_conv_titles', JSON.stringify(customConvTitles));
 
-  // 2. 如果 useWorkspace 提供了 renameConversation / updateConversation 则调用，否则尝试 PATCH 后端接口
   try {
     if (typeof (workspace as any).renameConversation === 'function') {
       await (workspace as any).renameConversation(conv.id, trimmed);
@@ -788,7 +802,6 @@ async function finishRenameConv(conv: { id: string; title?: string | null }) {
 }
 
 // ==================== 2. 节点重命名修复 & 初始/新增节点命名规则 ====================
-// 使用独立 ref 管理正在重命名的节点，避免输入第一个字符触发自动保存重绘时丢失 isRenaming 状态
 const renamingNodeId = ref('');
 const renamingNodeTitle = ref('');
 
@@ -813,7 +826,6 @@ function cancelRenameNode() {
   renamingNodeTitle.value = '';
 }
 
-// 将初始默认节点的名字统一设为“文本节点”与“图片节点”
 function normalizeInitialNodeTitles() {
   const legacyTextDefaults = new Set(['视频脚本', '视频脚本1', '分镜脚本']);
   const legacyImageDefaults = new Set(['参考图', '参考图1', '首帧图']);
@@ -821,11 +833,9 @@ function normalizeInitialNodeTitles() {
   const textNodes = nodes.value.filter(n => n.type === 'text');
   const imageNodes = nodes.value.filter(n => n.type === 'image');
 
-  // 将初始的第一个默认文本节点名称规范为“文本节点”
   if (textNodes.length > 0 && legacyTextDefaults.has(textNodes[0].title)) {
     textNodes[0].title = '文本节点';
   }
-  // 将初始的第一个默认图片节点名称规范为“图片节点”
   if (imageNodes.length > 0 && legacyImageDefaults.has(imageNodes[0].title)) {
     imageNodes[0].title = '图片节点';
   }
@@ -839,18 +849,14 @@ watch(
   { immediate: true }
 );
 
-// 计算新增节点的递增名称：
-// 初始节点名为“文本节点”/“图片节点”；后续每次新增依次为“文本节点1”、“文本节点2” / “图片节点1”、“图片节点2”
 function getNextNodeTitle(type: 'text' | 'image'): string {
   const baseName = type === 'text' ? '文本节点' : '图片节点';
   const sameTypeNodes = nodes.value.filter(n => n.type === type);
 
-  // 如果画布上还没有该类型节点，作为初始节点直接命名为“文本节点”或“图片节点”
   if (sameTypeNodes.length === 0) {
     return baseName;
   }
 
-  // 找出当前已占用的编号（如 文本节点1, 文本节点2...）
   const usedNumbers = new Set<number>();
   const regex = new RegExp(`^${baseName}\\s*(\\d+)$`);
   for (const n of sameTypeNodes) {
@@ -994,7 +1000,6 @@ const connectingSource = ref<FlowNode | null>(null);
 const tempMousePos = reactive({ x: 0, y: 0 });
 let draggingNode: FlowNode | null = null;
 const isDraggingOverAgent = ref(false);
-// 支持记录单个或多个被删除的节点及其连线，方便一键撤销
 const deletedNode = ref<{ nodes: FlowNode[]; connections: FlowConnection[] } | null>(null);
 
 const vAutofocus = {
@@ -1050,19 +1055,9 @@ watch(() => messages.value.length, scrollToBottom);
 watch(() => aiTargetNode.value?.pending_ai?.message_id, scrollToBottom);
 watch(agentTab, tab => { if (tab === 'chat') scrollToBottom(); });
 
-// ==================== 3. 国际传播文化配置（对接后端接口 & 支持增改） ====================
-export interface CountryGuideItem {
-  id?: string | number;
-  code: string;
-  name: string;
-  negative_prompt: string;
-  taboo?: string;
-  sort_order?: number;
-}
-
-const CULTURAL_API_BASE = '/api/v1/cultural-guidances';
+// ==================== 3. 国际传播文化配置（已对齐 /api/v1/cultural-guidances） ====================
 const showGuideModal = ref(false);
-const countryList = ref<CountryGuideItem[]>([]);
+const countryList = ref<CulturalGuidanceItem[]>([]);
 const selectedCountryCodes = ref<string[]>([]);
 const isLoadingCountries = ref(false);
 const countriesLoadError = ref('');
@@ -1071,69 +1066,32 @@ async function fetchCountryNegativePrompts() {
   isLoadingCountries.value = true;
   countriesLoadError.value = '';
   try {
-    const res = await fetch(CULTURAL_API_BASE, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-      credentials: 'include'
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const list: any[] = Array.isArray(data) ? data : (data.items || data.data || []);
-    countryList.value = list.map(item => ({
-      id: item.id,
-      code: String(item.code || ''),
-      name: String(item.name || ''),
-      negative_prompt: String(item.negative_prompt ?? item.negativePrompt ?? ''),
-      taboo: item.taboo ? String(item.taboo) : undefined,
-      sort_order: item.sort_order
-    }));
+    const items = await listCulturalGuidances();
+    countryList.value = items.filter((item) => item.is_enabled);
   } catch (err: any) {
-    countriesLoadError.value = '加载国家负面提示词失败，请检查后端接口是否已启动';
+    countriesLoadError.value = err?.message || '加载国家负面提示词失败，请检查后端服务状态';
     console.error('fetchCountryNegativePrompts error:', err);
   } finally {
     isLoadingCountries.value = false;
   }
 }
 
-async function createCountryGuidance(payload: {
-  code: string;
-  name: string;
-  negative_prompt: string;
-  taboo?: string;
-  sort_order?: number;
-}) {
-  const res = await fetch(CULTURAL_API_BASE, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) throw new Error(`新增国家配置失败: HTTP ${res.status}`);
-  const created = await res.json();
+async function handleCreateCountryGuidance(payload: CreateCulturalGuidancePayload) {
+  const created = await createCulturalGuidance(payload);
   await fetchCountryNegativePrompts();
   return created;
 }
 
-async function updateCountryGuidance(
-  code: string,
-  payload: Partial<{ name: string; negative_prompt: string; taboo: string; sort_order: number }>
-) {
-  const res = await fetch(`${CULTURAL_API_BASE}/${encodeURIComponent(code)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) throw new Error(`修改国家配置失败: HTTP ${res.status}`);
-  const updated = await res.json();
+async function handleUpdateCountryGuidance(code: string, payload: UpdateCulturalGuidancePayload) {
+  const updated = await updateCulturalGuidance(code, payload);
   await fetchCountryNegativePrompts();
   return updated;
 }
 
 defineExpose({
   fetchCountryNegativePrompts,
-  createCountryGuidance,
-  updateCountryGuidance
+  createCountryGuidance: handleCreateCountryGuidance,
+  updateCountryGuidance: handleUpdateCountryGuidance,
 });
 
 function toggleCountry(code: string) {
@@ -1146,11 +1104,14 @@ function toggleCountry(code: string) {
 }
 
 const selectedCountries = computed(() =>
-  countryList.value.filter(c => selectedCountryCodes.value.includes(c.code))
+  countryList.value.filter((c) => selectedCountryCodes.value.includes(c.code))
 );
 
 const combinedNegativePrompt = computed(() =>
-  selectedCountries.value.map(c => c.negative_prompt).join('')
+  selectedCountries.value
+    .map((c) => c.negative_prompt.trim())
+    .filter(Boolean)
+    .join('、')
 );
 
 function applyGuidanceToNode() {
@@ -1162,7 +1123,7 @@ function applyGuidanceToNode() {
       ? `${activeNode.value.content}\n${promptText}`
       : promptText;
   } else {
-    const emptyTextNode = nodes.value.find(n => n.type === 'text' && !n.content?.trim());
+    const emptyTextNode = nodes.value.find((n) => n.type === 'text' && !n.content?.trim());
     if (emptyTextNode) {
       emptyTextNode.content = promptText;
       activeNodeId.value = emptyTextNode.id;
@@ -1174,7 +1135,7 @@ function applyGuidanceToNode() {
         title: getNextNodeTitle('text'),
         x: 180,
         y: 220,
-        content: promptText
+        content: promptText,
       });
       activeNodeId.value = newNodeId;
     }
@@ -1294,10 +1255,8 @@ function handleKeydown(event: KeyboardEvent) {
   }
 
   if (!currentConvId.value || loading.value) return;
-  // 如果当前焦点在输入框、文本框或正在重命名节点/项目，不触发画布快捷键
   if (isEditableTarget(event.target) || editingNodeId.value || renamingNodeId.value || renamingConvId.value) return;
 
-  // 按下 Delete 键（如需同时支持 Mac 退格键可加上 || event.key === 'Backspace'）：删除当前选中的单/多个节点
   if (event.key === 'Delete') {
     const idsToDelete = [...new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean))];
     if (idsToDelete.length > 0) {
@@ -1502,7 +1461,6 @@ function addNode(type: 'text' | 'image') {
   createNodeFromContext(type);
 }
 
-// 创建新节点时自动使用递增名称：文本节点1、文本节点2 / 图片节点1、图片节点2
 function createNodeFromContext(type: 'text' | 'image') {
   const id = newId();
   const newNode: FlowNode = {
@@ -1519,12 +1477,10 @@ function createNodeFromContext(type: 'text' | 'image') {
   contextMenu.visible = false;
 }
 
-// 删除单个节点（点击节点右上角 ✕ 按钮时调用）
 function deleteNode(id: string) {
   deleteSelectedNodes([id]);
 }
 
-// 批量或单个删除选中节点（按 Delete 快捷键或点击 ✕ 时调用）
 function deleteSelectedNodes(ids: string[]) {
   const targetIds = new Set(ids);
   const targetNodes = nodes.value.filter(n => targetIds.has(n.id));
@@ -1552,7 +1508,7 @@ function deleteSelectedNodes(ids: string[]) {
 
   if (targetIds.has(activeNodeId.value)) activeNodeId.value = '';
   if (targetIds.has(aiTargetNodeId.value)) aiTargetNodeId.value = '';
-  if ( targetIds.has(editingNodeId.value)) editingNodeId.value = '';
+  if (targetIds.has(editingNodeId.value)) editingNodeId.value = '';
   if (connectingSource.value && targetIds.has(connectingSource.value.id)) {
     connectingSource.value = null;
   }
@@ -1562,7 +1518,6 @@ function deleteSelectedNodes(ids: string[]) {
     : '小框已删除，可以撤销。';
 }
 
-// 撤销删除（恢复刚才删除的单个或多个节点及其连线）
 function undoDeleteNode() {
   const removed = deletedNode.value;
   if (!removed || !removed.nodes.length) return;
@@ -1591,6 +1546,7 @@ function undoDeleteNode() {
   deletedNode.value = null;
   notice.value = '已恢复删除的小框。';
 }
+
 function deleteConnection(id: string) { connections.value = connections.value.filter(c => c.id !== id); }
 
 function selectNode(node: FlowNode, event: MouseEvent) {
@@ -1672,7 +1628,40 @@ function sendMessage() {
 function confirmProjectSpec() { if (canApplyAiContent.value) void workspace.confirmSpec(); }
 function prepareVideo() { void workspace.prepareVideo(videoSourceIds.value); }
 function submitVideoJob() { void workspace.submitVideoJob(videoSourceIds.value); }
-function openAssetsDrawer() { alert('素材库已预留：后续可直接调取历史生成资源！'); }
+
+const showTemplateDrawer = ref(false);
+
+function openTemplateDrawer() {
+  showTemplateDrawer.value = true;
+}
+
+function applyTemplateToNode(payload: { text: string; title?: string }) {
+  if (!payload.text) return;
+
+  if (activeNode.value && activeNode.value.type === 'text') {
+    activeNode.value.content = activeNode.value.content
+      ? `${activeNode.value.content}\n\n${payload.text}`
+      : payload.text;
+  } else {
+    const emptyTextNode = nodes.value.find(n => n.type === 'text' && !n.content?.trim());
+    if (emptyTextNode) {
+      emptyTextNode.content = payload.text;
+      activeNodeId.value = emptyTextNode.id;
+    } else {
+      const newNodeId = newId();
+      nodes.value.push({
+        id: newNodeId,
+        type: 'text',
+        title: getNextNodeTitle('text'),
+        x: 200,
+        y: 240,
+        content: payload.text,
+      });
+      activeNodeId.value = newNodeId;
+    }
+  }
+  notice.value = `已将模板“${payload.title || '提示词'}”写入文本节点`;
+}
 
 function scrollToBottom() {
   nextTick(() => {

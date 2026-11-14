@@ -66,11 +66,29 @@ export function useWorkspace() {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
 
-  function reflect(session: CanvasSession) {
+function reflect(session: CanvasSession) {
     if (session.id !== currentConvId.value) return;
     applying = true;
     if (canvas.value !== session.document) {
+      // 保护当前画布的 pan、zoom 以及前端专属的 perspective 视角节点不被底层旧快照覆盖丢失
+      const currentPan = canvas.value.pan;
+      const currentZoom = canvas.value.zoom;
+      const perspectiveNodes = (canvas.value.nodes || []).filter(n => n.type === 'perspective');
+
       canvas.value = session.document;
+      if (currentPan && Number.isFinite(currentPan.x) && Number.isFinite(currentPan.y)) {
+        canvas.value.pan.x = currentPan.x;
+        canvas.value.pan.y = currentPan.y;
+      }
+      if (Number.isFinite(currentZoom) && currentZoom > 0) {
+        canvas.value.zoom = currentZoom;
+      }
+      // 如果底层 normalize 洗掉了 perspective 节点，将其恢复回来
+      for (const pNode of perspectiveNodes) {
+        if (!canvas.value.nodes.some(n => n.id === pNode.id)) {
+          canvas.value.nodes.push(pNode);
+        }
+      }
       session.document = canvas.value;
     }
     saveState.value = { status: session.status, error: session.error, localAvailable: session.localAvailable, dirty: session.dirty };
@@ -78,10 +96,18 @@ export function useWorkspace() {
     applying = false;
   }
 
+  let editDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   watch(canvas, () => {
-    if (!applying && !loading.value && currentConvId.value) store?.edit(currentConvId.value, canvas.value);
-  }, { deep: true, flush: 'sync' });
-
+    if (applying || loading.value || !currentConvId.value) return;
+    // 移除 flush: 'sync'，改为 120ms 防抖触发 store.edit，彻底解决滚轮缩放被同步打断及拖拽节点卡顿问题！
+    if (editDebounceTimer) clearTimeout(editDebounceTimer);
+    const convId = currentConvId.value;
+    editDebounceTimer = setTimeout(() => {
+      if (!applying && !loading.value && currentConvId.value === convId) {
+        store?.edit(convId, canvas.value);
+      }
+    }, 120);
+  }, { deep: true });
   const nodes = computed({ get: () => canvas.value.nodes, set: value => { canvas.value.nodes = value; } });
   const connections = computed({ get: () => canvas.value.connections, set: value => { canvas.value.connections = value; } });
   const pan = computed(() => canvas.value.pan);

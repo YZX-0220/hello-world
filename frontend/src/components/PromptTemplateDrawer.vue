@@ -106,6 +106,38 @@
             <input v-model="formState.description" maxlength="500" placeholder="简要说明适用场景…" />
           </div>
 
+          <!-- 从当前工作台文本节点快速录入面板 -->
+          <div v-if="availableTextNodes.length > 0" class="workspace-node-import-box">
+            <div class="import-box-header">
+              <span class="import-box-title">📥 从当前工作台文本节点快速录入：</span>
+              <span class="import-box-sub">点击即可将节点内容填入下方表单</span>
+            </div>
+            <div class="import-node-pills">
+              <div v-for="node in availableTextNodes" :key="node.id" class="import-node-item">
+                <span class="node-badge-name" :title="node.content">{{ node.title }}</span>
+                <button
+                  type="button"
+                  class="import-action-btn"
+                  title="写入提示词正文"
+                  @click="importNodeToForm(node, 'content')"
+                >
+                  + 填入正文
+                </button>
+                <button
+                  type="button"
+                  class="import-action-btn neg"
+                  title="写入配套负面提示词"
+                  @click="importNodeToForm(node, 'negative')"
+                >
+                  + 填入负面词
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-else class="workspace-node-empty-tip">
+            💡 当前工作台暂无已填写文字的文本节点，您可直接在下方输入或先在画布编写节点内容。
+          </div>
+
           <div class="form-row">
             <label>提示词正文 * <small>（支持 <code v-pre>{{变量名}}</code> 占位符）</small></label>
             <textarea v-model="formState.content" rows="5" required placeholder="输入提示词或脚本正文…"></textarea>
@@ -196,17 +228,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue';
+import { ref, reactive, computed, watch } from 'vue';
 import {
   promptTemplateApi,
   type PromptTemplateItem,
   type PromptTemplateVersionItem,
   type TemplateCategory,
 } from '@/services/promptTemplates';
+import type { FlowNode } from '@/types/canvas';
 
-const props = defineProps<{
-  open: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    open: boolean;
+    nodes?: FlowNode[];
+  }>(),
+  {
+    nodes: () => [],
+  }
+);
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -234,6 +273,38 @@ const formState = reactive({
   negative_prompt: '',
   change_note: '',
 });
+
+// 过滤出当前工作台中所有非空的文本节点
+const availableTextNodes = computed(() =>
+  (props.nodes || []).filter((n) => n.type === 'text' && n.content?.trim())
+);
+
+/**
+ * 将选中的画布文本节点内容录入到新建/编辑模板表单中
+ */
+function importNodeToForm(node: FlowNode, targetField: 'content' | 'negative' | 'auto' = 'auto') {
+  const rawText = (node.content || '').trim();
+  if (!rawText) return;
+
+  const isNegativeNode =
+    targetField === 'negative' ||
+    (targetField === 'auto' && (node.title.includes('负面') || rawText.startsWith('负面提示词：')));
+
+  if (isNegativeNode) {
+    const cleanedNeg = rawText.replace(/^负面提示词[：:]\s*/, '').trim();
+    formState.negative_prompt = formState.negative_prompt?.trim()
+      ? `${formState.negative_prompt.trim()}、${cleanedNeg}`
+      : cleanedNeg;
+  } else {
+    formState.content = formState.content?.trim()
+      ? `${formState.content.trim()}\n${rawText}`
+      : rawText;
+
+    if (!formState.name?.trim() && node.title) {
+      formState.name = `${node.title}模板`;
+    }
+  }
+}
 
 // 版本历史状态
 const activeVersionTemplate = ref<PromptTemplateItem | null>(null);
@@ -422,7 +493,8 @@ function handleApplyTemplate(tpl: PromptTemplateItem, mode: 'positive' | 'negati
   }
   if (mode === 'negative' || mode === 'both') {
     if (tpl.negative_prompt?.trim()) {
-      parts.push(mode === 'both' ? `【负面规避】${tpl.negative_prompt.trim()}` : tpl.negative_prompt.trim());
+      const rawNeg = tpl.negative_prompt.trim().replace(/^负面提示词[：:]\s*/, '');
+      parts.push(`负面提示词：${rawNeg}`);
     }
   }
   const finalText = parts.join('\n\n');
@@ -865,5 +937,93 @@ function handleApplyTemplate(tpl: PromptTemplateItem, mode: 'positive' | 'negati
   overflow-wrap: anywhere;
   margin: 0;
   font-family: inherit;
+}
+
+.workspace-node-import-box {
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px dashed rgba(129, 140, 248, 0.4);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.import-box-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.import-box-title {
+  color: #c7d2fe;
+  font-weight: 600;
+}
+
+.import-box-sub {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.import-node-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.import-node-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #141b2d;
+  border: 1px solid #2b3954;
+  border-radius: 8px;
+  padding: 4px 6px 4px 10px;
+}
+
+.node-badge-name {
+  font-size: 12px;
+  color: #e2e8f0;
+  font-weight: 500;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 4px;
+}
+
+.import-action-btn {
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(129, 140, 248, 0.4);
+  color: #a5b4fc;
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.import-action-btn:hover {
+  background: #6366f1;
+  color: #fff;
+}
+
+.import-action-btn.neg {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+.import-action-btn.neg:hover {
+  background: #ef4444;
+  color: #fff;
+}
+
+.workspace-node-empty-tip {
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 4px;
 }
 </style>

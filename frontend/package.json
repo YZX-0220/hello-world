@@ -14,12 +14,14 @@
     "dompurify": "^3.4.16",
     "marked": "^18.1.0",
     "pinia": "^4.0.3",
+    "three": "^0.187.0",
     "vue": "^3.5.41",
     "vue-router": "^5.3.1"
   },
   "devDependencies": {
     "@types/dompurify": "^3.0.5",
     "@types/node": "^24.13.3",
+    "@types/three": "^0.187.0",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/tsconfig": "^0.9.1",
     "typescript": "~6.0.2",

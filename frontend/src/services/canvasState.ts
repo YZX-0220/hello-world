@@ -35,7 +35,8 @@ export function normalizeCanvas(value: unknown): CanvasDocument {
   const result = { ...createCanvas(''), ...copy(raw), schema_version: 1 } as CanvasDocument;
   const ids = new Set<string>();
   result.nodes = result.nodes.map(node => {
-    if (!node || !node.id || ids.has(node.id) || !['text', 'image', 'video'].includes(node.type)
+    // 关键修复：将 'perspective' 加入合法节点类型白名单！
+    if (!node || !node.id || ids.has(node.id) || !['text', 'image', 'video', 'perspective'].includes(node.type)
       || !Number.isFinite(node.x) || !Number.isFinite(node.y)) throw new Error('画布包含无效或重复节点');
     ids.add(node.id);
     const clean = { ...node };

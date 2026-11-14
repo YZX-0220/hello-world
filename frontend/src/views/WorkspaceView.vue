@@ -122,19 +122,10 @@
               </div>
 
               <div class="card-content">
-                <input
-                  v-if="renamingConvId === conv.id"
-                  v-model="renamingConvTitle"
-                  class="card-rename-input"
-                  v-autofocus
-                  maxlength="120"
-                  aria-label="修改项目名称"
-                  @click.stop
-                  @mousedown.stop
-                  @blur="finishRenameConv(conv)"
-                  @keydown.enter.prevent="finishRenameConv(conv)"
-                  @keydown.esc.stop="cancelRenameConv"
-                />
+                <input v-if="renamingConvId === conv.id" v-model="renamingConvTitle" class="card-rename-input"
+                  v-autofocus maxlength="120" aria-label="修改项目名称" @click.stop @mousedown.stop
+                  @blur="finishRenameConv(conv)" @keydown.enter.prevent="finishRenameConv(conv)"
+                  @keydown.esc.stop="cancelRenameConv" />
                 <h3 v-else class="card-project-title" :title="getConvDisplayTitle(conv)">
                   {{ getConvDisplayTitle(conv) }}
                 </h3>
@@ -143,12 +134,7 @@
 
               <!-- 左下角改名按钮 + 右下角进入提示 -->
               <div class="card-bottom">
-                <button
-                  type="button"
-                  class="rename-card-btn"
-                  title="修改项目名称"
-                  @click.stop="startRenameConv(conv)"
-                >
+                <button type="button" class="rename-card-btn" title="修改项目名称" @click.stop="startRenameConv(conv)">
                   ✎ 改名
                 </button>
                 <span class="enter-text">点击进入工作台 →</span>
@@ -158,9 +144,14 @@
         </main>
 
         <!-- ================= 视图 B：网格节点 AI 视频工作台 ================= -->
-        <div v-else key="view-b" class="canvas-viewport" ref="viewportRef" @mousedown="handleCanvasMouseDown"
+        <div v-else key="view-b" class="canvas-viewport"
+          :class="{
+            'pan-mode': canvasInteractionMode === 'pan',
+            'is-panning': isPanning
+          }"
+          ref="viewportRef" @mousedown="handleCanvasMouseDown"
           @contextmenu="openContextMenu" @wheel="handleCanvasZoom">
-          <!-- 左上角悬浮：返回创作项目空间与重置视图 -->
+          <!-- 左上角悬浮：返回创作项目空间、视角控制与模式切换 -->
           <div class="floating-top-left">
             <button class="glass-pill-btn" @click="backToProjectSpace" title="返回项目空间看板">
               <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -174,10 +165,36 @@
                   d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
               </svg>
             </button>
-            <button class="glass-pill-btn" @click.stop="addNode('text')">添加文本</button>
+
+            <!-- 方案 B：左键交互模式切换（移画布 vs 拉框多选） -->
+            <div class="mode-switch-group" role="group" aria-label="画布左键模式">
+              <button
+                type="button"
+                class="mode-switch-btn"
+                :class="{ active: canvasInteractionMode === 'pan' }"
+                title="左键拖动空白处直接移动画布（按住 Shift 可临时拉框多选）"
+                @click.stop="canvasInteractionMode = 'pan'"
+              >
+                ✋ 移画布
+              </button>
+              <button
+                type="button"
+                class="mode-switch-btn"
+                :class="{ active: canvasInteractionMode === 'select' }"
+                title="左键在空白处拖动拉出选框，多选节点"
+                @click.stop="canvasInteractionMode = 'select'"
+              >
+                🖱 框选
+              </button>
+            </div>
+
+   <button class="glass-pill-btn" @click.stop="addNode('text')">添加文本</button>
             <button class="glass-pill-btn" @click.stop="addNode('image')">添加图片</button>
+            <button class="glass-pill-btn" @click.stop="addNode('perspective')">🎥 添加视角</button>
             <button class="glass-pill-btn image-generate-entry" @click.stop="openImageGeneration()">✧ AI 生图</button>
-            <span class="canvas-project-title">{{ activeConversation ? getConvDisplayTitle(activeConversation) : '新创作工作流' }}</span>
+            <button class="glass-pill-btn director-entry-btn" @click.stop="openDirectorModal">🎬 全片 AI 统筹</button>
+            <span class="canvas-project-title">{{ activeConversation ? getConvDisplayTitle(activeConversation) :
+              '新创作工作流' }}</span>
           </div>
 
           <!-- 左侧居中悬浮工具栏：视频剪辑、提示词模板库与国际传播指导 -->
@@ -243,11 +260,19 @@
                 class="connection-temp-path" />
             </svg>
 
-            <!-- 节点列表 -->
+            <!-- 节点列表（单击关联连线节点 / 双击单选该节点 / Shift点击精准增减） -->
             <div v-for="node in nodes" :key="node.id" class="canvas-node"
-              :class="[node.type, { selected: activeNodeId === node.id || selectedNodeIds.includes(node.id) }]"
-              :style="{ transform: `translate(${node.x}px,${node.y}px)` }" @mousedown.stop="startDragNode($event, node)"
-              @click.stop="selectNode(node, $event)">
+              :class="[
+                node.type,
+                {
+                  selected: activeNodeId === node.id || selectedNodeIds.includes(node.id),
+                  'linked-selected': connectedSelectionIds.includes(node.id) && activeNodeId !== node.id && !selectedNodeIds.includes(node.id)
+                }
+              ]"
+              :style="{ transform: `translate(${node.x}px,${node.y}px)` }"
+              @mousedown.stop="startDragNode($event, node)"
+              @click.stop="selectNode(node, $event)"
+              @dblclick.stop="isolateSelectNode(node)">
               <!-- 节点左侧连接点 (In) -->
               <div class="node-port in-port"
                 :class="{ 'port-target-active': connectingSource && connectingSource.id !== node.id }" @mousedown.stop
@@ -267,20 +292,11 @@
 
                 <!-- 节点命名（双击修改，使用受控本地缓冲状态，防止自动保存打断输入） -->
                 <div class="node-title-wrap">
-                  <input
-                    v-if="renamingNodeId === node.id"
-                    v-model="renamingNodeTitle"
-                    class="node-title-input"
-                    v-autofocus
-                    maxlength="200"
-                    aria-label="小框名称"
-                    @mousedown.stop
-                    @click.stop
-                    @blur="finishRenameNode(node)"
-                    @keydown.enter.prevent="finishRenameNode(node)"
-                    @keydown.esc.stop="cancelRenameNode"
-                  />
-                  <span v-else class="node-title" @dblclick.stop="startRenameNode(node)" title="双击进行重命名">
+                  <input v-if="renamingNodeId === node.id" v-model="renamingNodeTitle" class="node-title-input"
+                    v-autofocus maxlength="200" aria-label="小框名称" @mousedown.stop @click.stop
+                    @blur="finishRenameNode(node)" @keydown.enter.prevent="finishRenameNode(node)"
+                    @keydown.esc.stop="cancelRenameNode" />
+                  <span v-else class="node-title" @dblclick.stop="startRenameNode(node)" title="双击标题进行重命名">
                     {{ node.title }}
                   </span>
                 </div>
@@ -300,10 +316,11 @@
                   :aria-label="node.title + '内容'" :disabled="loading"
                   @focus="editingNodeId = node.id; activeNodeId = node.id" @mousedown.stop @click.stop
                   @keydown.ctrl.enter.prevent="finishNodeEditing" @keydown.escape.stop="finishNodeEditing"></textarea>
-                <div v-else class="node-text-preview msg-content" tabindex="0" :aria-label="node.title + '正文'"
-                  title="双击正文或点击“编辑”修改文本" @mousedown.stop @click.stop="selectNode(node, $event)"
-                  @dblclick.stop="beginNodeEditing(node)" @keydown.enter.prevent="beginNodeEditing(node)" @wheel.stop
-                  v-html="renderMd(node.content || '')"></div>
+              <div v-else class="node-text-preview msg-content" tabindex="0" :aria-label="node.title + '正文'"
+  title="单击选中关联组，双击单独选中此框，点击右上角“编辑”修改文字" @mousedown.stop @click.stop="selectNode(node, $event)"
+  @dblclick.stop="isolateSelectNode(node)" @keydown.enter.prevent="beginNodeEditing(node)"
+  @wheel="!$event.ctrlKey && !$event.metaKey && $event.stopPropagation()"
+  v-html="renderMd(node.content || '')"></div>
                 <div v-if="node.ai_running || (isAgentResponding && aiTargetNodeId === node.id)" class="node-ai-status"
                   role="status">AI 正在协作，回复后需点击“确定并写入小框”…</div>
                 <div v-else-if="node.pending_ai" class="node-ai-status">AI 正文尚未写入，当前文字已保留</div>
@@ -319,7 +336,8 @@
 
               <!-- 图片节点 -->
               <div v-else-if="node.type === 'image'" class="node-body image-body">
-                <button class="image-generate-node" @mousedown.stop @click.stop="openImageGeneration(node)">✧ AI 生图</button>
+                <button class="image-generate-node" @mousedown.stop @click.stop="openImageGeneration(node)">✧ AI
+                  生图</button>
                 <label class="image-upload-hover-pill" @click.stop>
                   <input type="file" accept="image/*" class="hidden-file-input" :disabled="uploading.includes(node.id)"
                     @change="handleImageUpload($event, node)" />
@@ -337,11 +355,63 @@
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                         d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
-                    <p class="empty-image-portrait-note" @pointerdown.stop @mousedown.stop @click.stop>人像素材请使用 AI 生图，参见<button type="button" @click.stop="portraitNoticeOpen = true">人像素材须知</button>。</p>
+                    <p class="empty-image-portrait-note" @pointerdown.stop @mousedown.stop @click.stop>人像素材请使用 AI
+                      生图，参见<button type="button" @click.stop="portraitNoticeOpen = true">人像素材须知</button>。</p>
                   </div>
                 </div>
               </div>
+<!-- 专属视角节点 (Perspective Node)：不可直接上传替换，仅可进入3D界面调整 -->
+             
+          <!-- 专属视角节点 (Perspective Node)：不可直接上传替换，仅可进入3D界面调整 -->
+              <div v-else-if="node.type === 'perspective'" class="node-body perspective-node-body">
+                <div class="perspective-preview-area" @mousedown.stop @dblclick.stop="openPerspectiveEditor(node)">
+                  <template v-if="node.url">
+                    <div class="perspective-frames-row">
+                      <div class="p-frame-item">
+                        <img :src="node.url" alt="起始视角" />
+                        <span class="p-frame-badge">首帧视角</span>
+                      </div>
+                      <template v-if="node.perspective_data?.endFrameUrl">
+                        <span class="p-frame-arrow">→</span>
+                        <div class="p-frame-item">
+                          <img :src="node.perspective_data.endFrameUrl" alt="结束视角" />
+                          <span class="p-frame-badge end">终点视角</span>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <div v-else class="perspective-empty" @click.stop="openPerspectiveEditor(node)">
+                    <span>🎥 点击进入 3D 空间搭建视角</span>
+                  </div>
 
+                  <!-- 顶部悬浮操作条：重进 3D 界面 & 联动参考图生图 -->
+                  <div class="perspective-actions-bar">
+                    <button type="button" class="p-action-pill" @click.stop="openPerspectiveEditor(node)">
+                      🎥 调整 3D 视角
+                    </button>
+                    <button
+                      v-if="node.url"
+                      type="button"
+                      class="p-action-pill highlight"
+                      title="将该3D视角构图与连线的参考图结合，生成真实首帧图"
+                      @click.stop="openImageGenFromPerspective(node)"
+                    >
+                      ✧ 结合参考图生图
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 下半部分：自动解算的空间与运镜描述（允许直接手改微调） -->
+                <div class="perspective-desc-box" @mousedown.stop @click.stop>
+                  <div class="p-desc-label">空间站位与运镜描述（连线自动注入 AI）：</div>
+                  <textarea
+                    v-model="node.content"
+                    class="p-desc-textarea"
+                    rows="5"
+                    placeholder="进入 3D 视角界面定格后自动生成空间构图描述..."
+                  ></textarea>
+                </div>
+              </div>
               <!-- 视频节点 -->
               <div v-else-if="node.type === 'video'" class="node-body video-body">
                 <video :src="node.url" controls loop playsinline @mousedown.stop @click.stop></video>
@@ -374,6 +444,13 @@
                 <div class="menu-info">
                   <div class="item-name">图片</div>
                   <div class="item-desc">首帧图、视觉参考、风格控制</div>
+                </div>
+              </div>
+              <div class="menu-item" @click="createNodeFromContext('perspective')">
+                <div class="menu-icon">🎥</div>
+                <div class="menu-info">
+                  <div class="item-name">视角</div>
+                  <div class="item-desc">3D 空间站位、机位角度、运镜参考</div>
                 </div>
               </div>
             </div>
@@ -410,7 +487,10 @@
               <button role="tab" :aria-selected="agentTab === 'video'" @click="agentTab = 'video'">生成视频</button>
             </div>
 
-            <ImageGenerationPanel embedded :open="imageGenerationOpen" :account-id="accountId" :conversation-id="currentConvId" :nodes="nodes" :canvas-busy="loading" :source-node-id="imageSourceNodeId" @close="isAgentDrawerOpen = false" @insert="insertGeneratedImage" @portrait-notice="portraitNoticeOpen = true" />
+            <ImageGenerationPanel embedded :open="imageGenerationOpen" :account-id="accountId"
+              :conversation-id="currentConvId" :nodes="nodes" :canvas-busy="loading" :source-node-id="imageSourceNodeId"
+              @close="isAgentDrawerOpen = false" @insert="insertGeneratedImage"
+              @portrait-notice="portraitNoticeOpen = true" />
 
             <div v-show="agentTab === 'chat'" class="drawer-conversation">
               <div class="ai-target-picker">
@@ -423,7 +503,7 @@
                       node.title }}</option>
                   </select>
                 </div>
-                <small>选中图片可请 AI 看图，拖入小框可固定参考。自由讨论不会改动小框。点击“确定并写入小框”后，待写入正文才会替换小框文字，可撤销。</small>
+                <small>单击节点自动带入连线参考；双击节点只选单个，再按住 Shift 点击可精准加减参考节点。</small>
               </div>
               <div v-if="referencedNodes.length" class="node-binding-banner">
                 <div class="banner-tags"><span class="banner-label">参考：</span><span v-for="node in referencedNodes"
@@ -484,10 +564,11 @@
                 <p class="generation-help">选中一个或多个小框，AI 会先给出可直接生成的最终方案，再提供可选建议。缺少的创作细节会补全并注明。</p>
                 <div class="generation-source-list">当前选中：{{videoSourceNodes.map(n => n.title).join('、') || '请先在画布选中小框'
                 }}</div>
-                <small class="generation-help">Ctrl 点击或拖动画布框选可选择多个小框；选中的图片及连线图片会供 AI 看图审理。</small>
+                <small class="generation-help">单击节点自动选中连线关联项；双击节点变为单选，按住 Shift 点击可精准勾选特定节点。</small>
                 <p v-if="videoSourceNodes.some(n => n.pending_ai)" class="generation-help">部分小框有尚未采用的 AI
                   正文。视频只使用小框当前文字；需要采用时，请先回到“AI 协作”写入。</p>
-                <p class="generation-help portrait-channel-help" @mousedown.stop>使用人像素材时，图片生成通道需与视频生成通道配套同源。<button type="button" @click.stop="portraitNoticeOpen = true">人像素材须知</button></p>
+                <p class="generation-help portrait-channel-help" @mousedown.stop>使用人像素材时，图片生成通道需与视频生成通道配套同源。<button
+                    type="button" @click.stop="portraitNoticeOpen = true">人像素材须知</button></p>
                 <div class="spec-field-mini"><label for="video-api">视频生成通道</label>
                   <select id="video-api" v-model="selectedApiConfigId" :disabled="isSubmittingJob">
                     <option value="platform">平台体验通道（每日限 1 次）</option>
@@ -536,8 +617,8 @@
                         秒</option>
                     </select>
                     <div v-else class="duration-control">
-                      <input id="video-duration" v-model="videoDurationInput" type="number" min="1" max="15"
-                        step="1" required placeholder="填写 1–15 秒" :disabled="isSubmittingJob" />
+                      <input id="video-duration" v-model="videoDurationInput" type="number" min="1" max="15" step="1"
+                        required placeholder="填写 1–15 秒" :disabled="isSubmittingJob" />
                       <div class="duration-stepper">
                         <button type="button" aria-label="减少 1 秒" aria-controls="video-duration"
                           :disabled="isSubmittingJob || (videoDurationInput !== '' && Number(videoDurationInput) <= 1)"
@@ -610,8 +691,10 @@
 
     <PortraitMaterialNotice :open="portraitNoticeOpen" @close="portraitNoticeOpen = false" />
     <Teleport to="body">
-      <div v-if="portraitFailure" class="portrait-failure-mask" @click.self="portraitFailure = null" @keydown.esc.prevent="portraitFailure = null" @keydown.tab.prevent="portraitClose?.focus()">
-        <section class="portrait-failure-dialog" role="alertdialog" aria-modal="true" aria-labelledby="portrait-failure-title" aria-describedby="portrait-failure-description">
+      <div v-if="portraitFailure" class="portrait-failure-mask" @click.self="portraitFailure = null"
+        @keydown.esc.prevent="portraitFailure = null" @keydown.tab.prevent="portraitClose?.focus()">
+        <section class="portrait-failure-dialog" role="alertdialog" aria-modal="true"
+          aria-labelledby="portrait-failure-title" aria-describedby="portrait-failure-description">
           <h3 id="portrait-failure-title">人像图片未通过生成要求</h3>
           <p id="portrait-failure-description">{{ portraitFailureMessage }}</p>
           <p v-if="portraitFailure.message" class="portrait-vendor-detail">{{ portraitFailure.message }}</p>
@@ -620,13 +703,24 @@
       </div>
     </Teleport>
 
-    <!-- 提示词模板库抽屉 -->
-    <PromptTemplateDrawer
-      :open="showTemplateDrawer"
-      @close="showTemplateDrawer = false"
-      @inject="applyTemplateToNode"
-    />
+    <!-- 提示词模板库抽屉（传入画布 nodes 供新建模板时直接导入） -->
+    <PromptTemplateDrawer :open="showTemplateDrawer" :nodes="nodes" @close="showTemplateDrawer = false"
+      @inject="applyTemplateToNode" />
 
+    <!-- 全片 AI 统筹向导弹窗 -->
+    <GlobalAiDirectorModal :open="showDirectorModal" :conversation-id="currentConvId" :countries="countryList"
+      @close="showDirectorModal = false" @apply-plan="handleApplyGlobalPlan" />
+<!-- 只有真正打开时才挂载 3D 引擎，关闭时彻底销毁释放 GPU 和全局事件！ -->
+    <Perspective3DModal
+      v-if="perspectiveModal.open"
+      :open="perspectiveModal.open"
+      :initial-data="editingPerspectiveNode?.perspective_data || null"
+      :initial-url="editingPerspectiveNode?.url || ''"
+      :initial-description="editingPerspectiveNode?.content || ''"
+      :is-saving="perspectiveModal.saving"
+      @close="perspectiveModal.open = false"
+      @confirm="handleConfirmPerspective"
+    />
     <!-- ================= 国际传播指引弹窗（多选 & 后端负面提示词合并） ================= -->
     <div v-if="showGuideModal" class="guide-modal-mask" @click.self="closeGuideModal">
       <div class="guide-modal-box">
@@ -647,14 +741,8 @@
         </div>
         <div v-else-if="!countryList.length" class="countries-status-tip">暂无国家配置，请联系后端管理员初始化数据库</div>
         <div v-else class="countries-multi-grid">
-          <button
-            v-for="country in countryList"
-            :key="country.code"
-            type="button"
-            class="country-select-pill"
-            :class="{ active: selectedCountryCodes.includes(country.code) }"
-            @click="toggleCountry(country.code)"
-          >
+          <button v-for="country in countryList" :key="country.code" type="button" class="country-select-pill"
+            :class="{ active: selectedCountryCodes.includes(country.code) }" @click="toggleCountry(country.code)">
             <span>{{ country.name }}</span>
             <span v-if="selectedCountryCodes.includes(country.code)" class="check-mark">✓</span>
           </button>
@@ -664,7 +752,7 @@
         <div class="guidance-content-box">
           <div class="guidance-header">
             <h4 class="country-target-name">
-              {{ selectedCountries.length ? `已选：${selectedCountries.map(c => c.name).join('、')}` : '请至少选择一个国家/地区' }}
+              {{selectedCountries.length ? `已选：${selectedCountries.map(c => c.name).join('、')}` : '请至少选择一个国家/地区'}}
             </h4>
             <span class="lang-pill" v-if="selectedCountries.length">已选 {{ selectedCountries.length }} 项</span>
           </div>
@@ -682,18 +770,15 @@
           <div class="prompt-snippet-box">
             <div class="snippet-label">待注入节点的合并负面提示词（Negative Prompt）：</div>
             <div class="snippet-text">
-              {{ combinedNegativePrompt || '未选择国家，暂无负面提示词' }}
+              {{ combinedNegativePrompt ? `负面提示词：${combinedNegativePrompt}` : '未选择国家，暂无负面提示词' }}
             </div>
           </div>
         </div>
 
         <div class="guide-modal-footer">
-          <span class="footer-tip desktop-only">点击右侧按钮将合并后的负面提示词直接写入当前文本节点</span>
-          <button
-            class="apply-to-chat-btn"
-            :disabled="!selectedCountryCodes.length || !combinedNegativePrompt"
-            @click="applyGuidanceToNode"
-          >
+          <span class="footer-tip desktop-only">点击右侧按钮将合并后的负面提示词直接写入“负面提示词”文本节点</span>
+          <button class="apply-to-chat-btn" :disabled="!selectedCountryCodes.length || !combinedNegativePrompt"
+            @click="applyGuidanceToNode">
             注入文本节点
           </button>
         </div>
@@ -703,6 +788,9 @@
 </template>
 
 <script setup lang="ts">
+import Perspective3DModal from '@/components/Perspective3DModal.vue';
+import GlobalAiDirectorModal from '@/components/GlobalAiDirectorModal.vue';
+import type { DirectorBreakdownResponse } from '@/services/director';
 import PromptTemplateDrawer from '@/components/PromptTemplateDrawer.vue';
 import {
   listCulturalGuidances,
@@ -719,9 +807,16 @@ import ImageGenerationPanel from '@/components/ImageGenerationPanel.vue';
 import { collaborationReferenceIds, portraitFailureMessage } from '@/services/workspaceFeedback';
 import { createImageNode } from '@/services/imageGeneration';
 import type { ImageJob } from '@/types/imageGeneration';
-import type { FlowNode, FlowConnection } from '@/types/canvas';
+import type { FlowNode, FlowConnection, PerspectiveSceneData } from '@/types/canvas';
 import { renderMd } from '@/utils/markdown';
-import { generationContextMatches, generationMatches, generationSources, videoDurationChoices, videoGenerationBlockReason, videoSettingsBlockReason } from '@/services/generationState';
+import {
+  generationContextMatches,
+  generationMatches,
+  generationSources,
+  videoDurationChoices,
+  videoGenerationBlockReason,
+  videoSettingsBlockReason,
+} from '@/services/generationState';
 import { useRouter, useRoute } from 'vue-router';
 
 const router = useRouter();
@@ -750,9 +845,18 @@ watch(currentConvId, () => { portraitNoticeOpen.value = false; });
 const portraitClose = ref<HTMLButtonElement | null>(null);
 let portraitPreviousFocus: HTMLElement | null = null;
 watch(portraitFailure, async value => {
-  if (value) { portraitPreviousFocus = document.activeElement as HTMLElement; await nextTick(); portraitClose.value?.focus(); }
-  else if (portraitPreviousFocus?.isConnected) portraitPreviousFocus.focus();
+  if (value) {
+    portraitPreviousFocus = document.activeElement as HTMLElement;
+    await nextTick();
+    portraitClose.value?.focus();
+  } else if (portraitPreviousFocus?.isConnected) {
+    portraitPreviousFocus.focus();
+  }
 });
+
+// ==================== 方案 B：画布左键交互模式（'pan' 移画布 | 'select' 框选） ====================
+const canvasInteractionMode = ref<'pan' | 'select'>('pan');
+const isSpacePressed = ref(false);
 
 // ==================== 1. 项目卡片重命名功能（左下角改名按钮） ====================
 const renamingConvId = ref('');
@@ -797,7 +901,7 @@ async function finishRenameConv(conv: { id: string; title?: string | null }) {
       }).catch(() => {});
     }
   } catch {
-    // 本地已保存，忽略后端未实现该路由时的错误
+    // 本地已保存
   }
 }
 
@@ -849,8 +953,9 @@ watch(
   { immediate: true }
 );
 
-function getNextNodeTitle(type: 'text' | 'image'): string {
-  const baseName = type === 'text' ? '文本节点' : '图片节点';
+function getNextNodeTitle(type: 'text' | 'image' | 'perspective'): string {
+  const baseName =
+    type === 'text' ? '文本节点' : type === 'image' ? '图片节点' : '视角节点';
   const sameTypeNodes = nodes.value.filter(n => n.type === type);
 
   if (sameTypeNodes.length === 0) {
@@ -921,16 +1026,168 @@ const selectedNodeIds = ref<string[]>([]);
 const aiTargetNode = computed(() => nodes.value.find(n => n.id === aiTargetNodeId.value));
 const canApplyAiContent = computed(() => !!aiTargetNode.value?.pending_ai && aiTargetNode.value.pending_ai.source_model !== 'local-preview');
 
+// ==================== 三级节点选择机制（单击关联连线节点 / 双击单选 / Shift精准加选） ====================
+const isManualPreciseSelect = ref(false);
+
+function expandConnectedNodeIds(seedIds: string[]): string[] {
+  const validNodeIds = new Set(nodes.value.map(n => n.id));
+  const seeds = seedIds.filter(id => validNodeIds.has(id));
+  if (seeds.length === 0) return [];
+
+  const result = new Set<string>(seeds);
+  for (const conn of connections.value) {
+    if (seeds.includes(conn.from) && validNodeIds.has(conn.to)) {
+      result.add(conn.to);
+    } else if (seeds.includes(conn.to) && validNodeIds.has(conn.from)) {
+      result.add(conn.from);
+    }
+  }
+  return Array.from(result);
+}
+
+// ==================== 3D 视角节点状态与逻辑（放在 workspace 与 expandConnectedNodeIds 之后） ====================
+const perspectiveModal = reactive({
+  open: false,
+  nodeId: '',
+  saving: false,
+});
+
+const editingPerspectiveNode = computed<FlowNode | null>(() =>
+  nodes.value.find((n) => n.id === perspectiveModal.nodeId && n.type === 'perspective') || null
+);
+
+function openPerspectiveEditor(node: FlowNode) {
+  perspectiveModal.nodeId = node.id;
+  perspectiveModal.open = true;
+}
+
+async function uploadPerspectiveDataUrl(convId: string, dataUrl: string, filename: string): Promise<{ id?: string; url?: string } | null> {
+  try {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const file = new File([blob], filename, { type: 'image/png' });
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('purpose', 'reference');
+    formData.append('conversation_id', convId);
+
+    const token = document.cookie.match(/(?:^|;\s*)hw_csrf=([^;]+)/)?.[1];
+    const headers: Record<string, string> = {};
+    if (token) headers['X-CSRF-Token'] = decodeURIComponent(token);
+
+    const uploadRes = await fetch('/api/v1/assets', {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: formData,
+    });
+    if (!uploadRes.ok) return null;
+    const data = await uploadRes.json();
+    return {
+      id: data.id,
+      url: data.content_url || (data.id ? `/api/v1/assets/${data.id}/content` : undefined),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function handleConfirmPerspective(payload: {
+  startDataUrl: string;
+  endDataUrl: string | null;
+  description: string;
+  sceneData: PerspectiveSceneData;
+}) {
+  // 兼容：优先取当前正在编辑的视角节点，若无则取画布上最后一个视角节点
+  const targetNode =
+    editingPerspectiveNode.value ||
+    [...nodes.value].reverse().find((n) => n.type === 'perspective') ||
+    null;
+
+  // 1. 无论如何，点击确认后第一时间关闭 3D 弹窗界面！
+  perspectiveModal.open = false;
+  perspectiveModal.saving = false;
+
+  if (!targetNode) return;
+
+  // 2. 立即将截图 DataURL 和生成的空间描述写入节点（画面瞬间更新）
+  targetNode.url = payload.startDataUrl;
+  targetNode.content = payload.description;
+  targetNode.perspective_data = {
+    ...payload.sceneData,
+    endFrameUrl: payload.endDataUrl,
+  };
+
+  activeNodeId.value = targetNode.id;
+  selectedNodeIds.value = [targetNode.id];
+  notice.value = '已更新 3D 视角构图与 6 维空间运镜描述';
+
+  // 3. 后台异步静默上传图片资源（不阻塞弹窗关闭）
+  const convId = currentConvId.value;
+  if (convId) {
+    uploadPerspectiveDataUrl(convId, payload.startDataUrl, `perspective_start_${Date.now()}.png`)
+      .then((uploadedStart) => {
+        if (uploadedStart?.url) {
+          targetNode.url = uploadedStart.url;
+          if (uploadedStart.id) targetNode.asset_id = uploadedStart.id;
+        }
+      })
+      .catch(() => {});
+
+    if (payload.endDataUrl) {
+      uploadPerspectiveDataUrl(convId, payload.endDataUrl, `perspective_end_${Date.now()}.png`)
+        .then((uploadedEnd) => {
+          if (uploadedEnd?.url && targetNode.perspective_data) {
+            targetNode.perspective_data.endFrameUrl = uploadedEnd.url;
+          }
+        })
+        .catch(() => {});
+    }
+  }
+}
+
+function openImageGenFromPerspective(node: FlowNode) {
+  isManualPreciseSelect.value = false;
+  activeNodeId.value = node.id;
+  const linkedIds = expandConnectedNodeIds([node.id]);
+  selectedNodeIds.value = linkedIds;
+  referencedNodeIds.value = linkedIds;
+  openImageGeneration(node);
+  notice.value = '已将 3D 视角构图及连线参考图载入生图面板，可直接渲染真实首帧！';
+}
+
+const connectedSelectionIds = computed(() => {
+  const baseSelection = [...new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean))];
+  if (!baseSelection.length) return [];
+  if (isManualPreciseSelect.value) {
+    const validNodeIds = new Set(nodes.value.map(n => n.id));
+    return baseSelection.filter(id => validNodeIds.has(id));
+  }
+  return expandConnectedNodeIds(baseSelection);
+});
+
 const videoSourceIds = computed(() => {
-  const selection = [...new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean))]
-    .filter(id => nodes.value.some(n => n.id === id));
-  if (selection.length) return selection;
-  if (aiTargetNode.value) return [aiTargetNode.value.id];
+  if (connectedSelectionIds.value.length) return connectedSelectionIds.value;
+  if (aiTargetNode.value) {
+    return isManualPreciseSelect.value
+      ? [aiTargetNode.value.id]
+      : expandConnectedNodeIds([aiTargetNode.value.id]);
+  }
   return canvas.value.generation_source_ids.filter(id => nodes.value.some(n => n.id === id));
 });
 
-const videoSourceNodes = computed(() => nodes.value.filter(n => videoSourceIds.value.includes(n.id)));
-const videoImageNodes = computed(() => generationSources(canvas.value, videoSourceIds.value).filter(n => n.type === 'image' && n.asset_id));
+const videoSourceNodes = computed(() => {
+  const idOrder = videoSourceIds.value;
+  return idOrder
+    .map(id => nodes.value.find(n => n.id === id))
+    .filter((n): n is FlowNode => !!n);
+});
+
+const videoImageNodes = computed(() =>
+  generationSources(canvas.value, videoSourceIds.value).filter(
+    n => (n.type === 'image' || n.type === 'perspective') && n.asset_id
+  )
+);
 
 const videoDurationInput = computed({
   get: () => canvas.value.video_duration_seconds ?? '',
@@ -1010,12 +1267,28 @@ const vAutofocus = {
 };
 
 const referencedNodes = computed(() => {
-  const fallback = referencedNodeIds.value.length ? referencedNodeIds.value : [...selectedNodeIds.value, activeNodeId.value];
-  const ids = collaborationReferenceIds(nodes.value, fallback, [...selectedNodeIds.value, activeNodeId.value], aiTargetNodeId.value);
-  return nodes.value.filter(n => ids.includes(n.id));
+  const baseIds = referencedNodeIds.value.length
+    ? (isManualPreciseSelect.value ? referencedNodeIds.value : expandConnectedNodeIds(referencedNodeIds.value))
+    : connectedSelectionIds.value;
+
+  const ids = collaborationReferenceIds(
+    nodes.value,
+    baseIds,
+    connectedSelectionIds.value,
+    aiTargetNodeId.value
+  );
+  const finalIds = [...new Set([...baseIds, ...ids])];
+  return finalIds
+    .map(id => nodes.value.find(n => n.id === id))
+    .filter((n): n is FlowNode => !!n);
 });
 
-function clearReferencedNodes() { referencedNodeIds.value = []; selectedNodeIds.value = []; activeNodeId.value = ''; }
+function clearReferencedNodes() {
+  referencedNodeIds.value = [];
+  selectedNodeIds.value = [];
+  activeNodeId.value = '';
+  isManualPreciseSelect.value = false;
+}
 
 function handleNodeDragStart(e: DragEvent, node: FlowNode) {
   draggingNode = null;
@@ -1031,6 +1304,7 @@ function handleAgentDrop(e: DragEvent) {
   try {
     const ids = JSON.parse(e.dataTransfer?.getData('application/json') || '[]');
     if (!Array.isArray(ids)) return;
+    isManualPreciseSelect.value = true;
     referencedNodeIds.value = ids.filter(id => nodes.value.some(node => node.id === id));
     isAgentDrawerOpen.value = true;
   } catch { notice.value = '无法识别参考节点，请重新拖入'; }
@@ -1049,6 +1323,7 @@ watch(currentConvId, () => {
   renamingNodeId.value = '';
   renamingNodeTitle.value = '';
   activeNodeId.value = ''; selectedNodeIds.value = []; connectingSource.value = null;
+  isManualPreciseSelect.value = false;
   contextMenu.visible = false; deletedNode.value = null; handleCanvasMouseUp();
 });
 watch(() => messages.value.length, scrollToBottom);
@@ -1115,31 +1390,41 @@ const combinedNegativePrompt = computed(() =>
 );
 
 function applyGuidanceToNode() {
-  const promptText = combinedNegativePrompt.value;
-  if (!promptText) return;
+  const rawPrompt = combinedNegativePrompt.value;
+  if (!rawPrompt) return;
+
+  const formattedPrompt = rawPrompt.startsWith('负面提示词：')
+    ? rawPrompt
+    : `负面提示词：${rawPrompt}`;
 
   if (activeNode.value && activeNode.value.type === 'text') {
-    activeNode.value.content = activeNode.value.content
-      ? `${activeNode.value.content}\n${promptText}`
-      : promptText;
+    activeNode.value.title = '负面提示词';
+    activeNode.value.content = activeNode.value.content?.trim()
+      ? `${activeNode.value.content}\n${formattedPrompt}`
+      : formattedPrompt;
   } else {
-    const emptyTextNode = nodes.value.find((n) => n.type === 'text' && !n.content?.trim());
-    if (emptyTextNode) {
-      emptyTextNode.content = promptText;
-      activeNodeId.value = emptyTextNode.id;
+    const targetTextNode =
+      nodes.value.find((n) => n.type === 'text' && n.title === '负面提示词') ||
+      nodes.value.find((n) => n.type === 'text' && !n.content?.trim());
+
+    if (targetTextNode) {
+      targetTextNode.title = '负面提示词';
+      targetTextNode.content = formattedPrompt;
+      activeNodeId.value = targetTextNode.id;
     } else {
       const newNodeId = newId();
       nodes.value.push({
         id: newNodeId,
         type: 'text',
-        title: getNextNodeTitle('text'),
+        title: '负面提示词',
         x: 180,
         y: 220,
-        content: promptText,
+        content: formattedPrompt,
       });
       activeNodeId.value = newNodeId;
     }
   }
+  notice.value = '已将合并后的负面提示词写入“负面提示词”节点';
   closeGuideModal();
 }
 
@@ -1234,6 +1519,7 @@ function updateKeyPanLoop() {
 }
 
 function stopKeyPan() {
+  isSpacePressed.value = false;
   pressedArrowKeys.clear();
   if (keyPanRafId !== null) {
     cancelAnimationFrame(keyPanRafId);
@@ -1257,6 +1543,12 @@ function handleKeydown(event: KeyboardEvent) {
   if (!currentConvId.value || loading.value) return;
   if (isEditableTarget(event.target) || editingNodeId.value || renamingNodeId.value || renamingConvId.value) return;
 
+  if (event.code === 'Space' && !isSpacePressed.value) {
+    event.preventDefault();
+    isSpacePressed.value = true;
+    return;
+  }
+
   if (event.key === 'Delete') {
     const idsToDelete = [...new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean))];
     if (idsToDelete.length > 0) {
@@ -1276,6 +1568,10 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 function handleKeyup(event: KeyboardEvent) {
+  if (event.code === 'Space') {
+    isSpacePressed.value = false;
+    isPanning.value = false;
+  }
   if (pressedArrowKeys.has(event.key)) {
     pressedArrowKeys.delete(event.key);
     if (pressedArrowKeys.size === 0 && keyPanRafId !== null) {
@@ -1380,10 +1676,11 @@ function handleCanvasMouseMove(e: MouseEvent) {
     selectionBox.w = boxW;
     selectionBox.h = boxH;
 
+    isManualPreciseSelect.value = true;
     selectedNodeIds.value = nodes.value
       .filter(node => {
-        const nodeW = 248;
-        const nodeH = node.type === 'image' ? 280 : node.type === 'text' ? 300 : 240;
+        const nodeW = node.type === 'perspective' ? 310 : 248;
+        const nodeH = node.type === 'image' ? 280 : node.type === 'text' || node.type === 'perspective' ? 300 : 240;
         return (
           boxX < node.x + nodeW &&
           boxX + boxW > node.x &&
@@ -1402,15 +1699,20 @@ function handleCanvasMouseDown(e: MouseEvent) {
     return;
   }
 
-  activeNodeId.value = '';
-  selectedNodeIds.value = [];
-
   if (connectingSource.value) {
     connectingSource.value = null;
     return;
   }
 
-  if (e.button === 0) {
+  const wantBoxSelect =
+    e.button === 0 &&
+    !isSpacePressed.value &&
+    (canvasInteractionMode.value === 'select' || e.shiftKey || e.ctrlKey || e.metaKey);
+
+  if (wantBoxSelect) {
+    activeNodeId.value = '';
+    selectedNodeIds.value = [];
+    isManualPreciseSelect.value = true;
     isSelecting.value = true;
     const { x: canvasMouseX, y: canvasMouseY } = canvasPoint(e);
 
@@ -1422,7 +1724,15 @@ function handleCanvasMouseDown(e: MouseEvent) {
     selectionBox.w = 0;
     selectionBox.h = 0;
     selectionBox.visible = true;
-  } else if (e.button === 1) {
+    return;
+  }
+
+  if (e.button === 0 || e.button === 1) {
+    if (e.button === 0 && !isSpacePressed.value) {
+      activeNodeId.value = '';
+      selectedNodeIds.value = [];
+      isManualPreciseSelect.value = false;
+    }
     isPanning.value = true;
     startPan.x = e.clientX - pan.value.x;
     startPan.y = e.clientY - pan.value.y;
@@ -1437,11 +1747,32 @@ function handleCanvasMouseUp() {
 }
 
 function handleCanvasZoom(e: WheelEvent) {
-  if ((e.target as HTMLElement).closest('textarea,input,select,video,.agent-flyout-drawer')) return;
+  if ((e.target as HTMLElement).closest('.agent-flyout-drawer')) {
+    if (e.ctrlKey || e.metaKey) e.preventDefault();
+    return;
+  }
+
   e.preventDefault();
-  const point = canvasPoint(e);
-  const next = Math.min(Math.max(zoom.value * (e.deltaY < 0 ? 1.08 : 0.92), 0.4), 2.2);
-  pan.value.x += point.x * (zoom.value - next); pan.value.y += point.y * (zoom.value - next); zoom.value = next;
+  e.stopPropagation();
+
+  // 兼容鼠标垂直滚轮 (deltaY) 与部分鼠标/触控板把滚轮映射为 deltaX 的情况
+  const rawDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+  if (rawDelta === 0) return;
+
+  const currentZoom = Number(zoom.value) || 1;
+  const currentPanX = Number(pan.value.x) || 0;
+  const currentPanY = Number(pan.value.y) || 0;
+
+  const rect = viewportRef.value?.getBoundingClientRect();
+  const pointX = (e.clientX - (rect?.left || 0) - currentPanX) / currentZoom;
+  const pointY = (e.clientY - (rect?.top || 0) - currentPanY) / currentZoom;
+
+  const factor = rawDelta < 0 ? 1.1 : 0.9;
+  const nextZoom = Math.min(Math.max(currentZoom * factor, 0.4), 2.2);
+
+  pan.value.x = currentPanX + pointX * (currentZoom - nextZoom);
+  pan.value.y = currentPanY + pointY * (currentZoom - nextZoom);
+  zoom.value = nextZoom;
 }
 
 function openContextMenu(e: MouseEvent) {
@@ -1451,17 +1782,17 @@ function openContextMenu(e: MouseEvent) {
   const point = canvasPoint(e);
   contextMenu.visible = true;
   contextMenu.x = Math.min(e.clientX - (rect?.left || 0), Math.max(0, (rect?.width || 800) - 230));
-  contextMenu.y = Math.min(e.clientY - (rect?.top || 0), Math.max(0, (rect?.height || 600) - 180));
+  contextMenu.y = Math.min(e.clientY - (rect?.top || 0), Math.max(0, (rect?.height || 600) - 220));
   contextMenu.canvasX = point.x; contextMenu.canvasY = point.y;
 }
 
-function addNode(type: 'text' | 'image') {
+function addNode(type: 'text' | 'image' | 'perspective') {
   contextMenu.canvasX = 160 + nodes.value.length * 35;
   contextMenu.canvasY = 160 + nodes.value.length * 35;
   createNodeFromContext(type);
 }
 
-function createNodeFromContext(type: 'text' | 'image') {
+function createNodeFromContext(type: 'text' | 'image' | 'perspective') {
   const id = newId();
   const newNode: FlowNode = {
     id,
@@ -1469,12 +1800,14 @@ function createNodeFromContext(type: 'text' | 'image') {
     title: getNextNodeTitle(type),
     x: contextMenu.canvasX,
     y: contextMenu.canvasY,
-    content: type === 'text' ? '' : undefined,
-    url: type === 'image' ? '' : undefined
+    content: type === 'text' || type === 'perspective' ? '' : undefined,
+    url: type === 'image' || type === 'perspective' ? '' : undefined,
+    perspective_data: type === 'perspective' ? null : undefined,
   };
   nodes.value.push(newNode);
   activeNodeId.value = id;
   contextMenu.visible = false;
+  // 移除自动 openPerspectiveEditor(newNode)，让节点先干净地出现在画布上，点击节点内按钮再打开 3D 弹窗
 }
 
 function deleteNode(id: string) {
@@ -1550,15 +1883,45 @@ function undoDeleteNode() {
 function deleteConnection(id: string) { connections.value = connections.value.filter(c => c.id !== id); }
 
 function selectNode(node: FlowNode, event: MouseEvent) {
-  if (event.ctrlKey || event.metaKey || event.shiftKey) {
-    const selected = new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean));
-    if (selected.has(node.id)) selected.delete(node.id); else selected.add(node.id);
+  if (event.shiftKey || event.ctrlKey || event.metaKey) {
+    const currentList = isManualPreciseSelect.value
+      ? [...new Set([...selectedNodeIds.value, activeNodeId.value].filter(Boolean))]
+      : [...new Set([activeNodeId.value, ...selectedNodeIds.value].filter(Boolean))];
+
+    isManualPreciseSelect.value = true;
+    const selected = new Set(currentList);
+
+    if (selected.has(node.id)) {
+      selected.delete(node.id);
+    } else {
+      selected.add(node.id);
+    }
+
     selectedNodeIds.value = [...selected];
     activeNodeId.value = selected.has(node.id) ? node.id : selectedNodeIds.value.at(-1) || '';
+    referencedNodeIds.value = [...selectedNodeIds.value];
     return;
   }
-  if (!selectedNodeIds.value.includes(node.id)) selectedNodeIds.value = [node.id];
+
+  isManualPreciseSelect.value = false;
+  selectedNodeIds.value = [node.id];
   activeNodeId.value = node.id;
+
+  if (node.type === 'text' && !isAgentResponding.value && !isConfirming.value) {
+    aiTargetNodeId.value = node.id;
+  }
+  referencedNodeIds.value = [];
+}
+
+function isolateSelectNode(node: FlowNode) {
+  isManualPreciseSelect.value = true;
+  selectedNodeIds.value = [node.id];
+  activeNodeId.value = node.id;
+  referencedNodeIds.value = [node.id];
+
+  if (node.type === 'text' && !isAgentResponding.value && !isConfirming.value) {
+    aiTargetNodeId.value = node.id;
+  }
 }
 
 let dragStartNodePos: Record<string, { x: number; y: number }> = {};
@@ -1587,11 +1950,19 @@ function startDragNode(e: MouseEvent, node: FlowNode) {
 }
 
 function getNodePortPos(node: FlowNode, type: 'in' | 'out') {
-  const cardHeight = node.type === 'image' ? 280 : node.type === 'text' ? 300 : 240;
+  const cardWidth = node.type === 'perspective' ? 360 : 248;
+  const cardHeight =
+    node.type === 'perspective'
+      ? 380
+      : node.type === 'image'
+        ? 280
+        : node.type === 'text'
+          ? 300
+          : 240;
   const centerY = node.y + cardHeight / 2;
 
   return {
-    x: type === 'in' ? node.x : node.x + 248,
+    x: type === 'in' ? node.x : node.x + cardWidth,
     y: centerY
   };
 }
@@ -1617,8 +1988,14 @@ function calculateTempBezier(fromNode: FlowNode, mouse: { x: number; y: number }
 function handleImageUpload(event: Event, node: FlowNode) { void workspace.uploadImage(event, node); }
 function toggleAgentDrawer() { agentTab.value = 'chat'; isAgentDrawerOpen.value = !isAgentDrawerOpen.value; }
 function askAgentHelpNode(node: FlowNode) {
-  agentTab.value = 'chat'; activeNodeId.value = node.id; aiTargetNodeId.value = node.id; isAgentDrawerOpen.value = true;
-  if (!inputContent.value.trim()) inputContent.value = '请优化这个小框中的内容，补充可执行的视听细节。';
+  agentTab.value = 'chat';
+  isManualPreciseSelect.value = false;
+  activeNodeId.value = node.id;
+  selectedNodeIds.value = [node.id];
+  aiTargetNodeId.value = node.id;
+  referencedNodeIds.value = expandConnectedNodeIds([node.id]);
+  isAgentDrawerOpen.value = true;
+  if (!inputContent.value.trim()) inputContent.value = '请结合关联的风格与参考节点，优化这个小框中的内容，补充可执行的视听细节。';
   nextTick(() => textareaRef.value?.focus({ preventScroll: true }));
 }
 function sendMessage() {
@@ -1676,9 +2053,269 @@ function formatFullTime(isoStr?: string | null) {
   const d = new Date(isoStr);
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
+
+// ==================== 全片 AI 统筹向导与画布节点生成 ====================
+const showDirectorModal = ref(false);
+
+function openDirectorModal() {
+  if (loading.value || !currentConvId.value) return;
+  if (!countryList.value.length && !isLoadingCountries.value) {
+    void fetchCountryNegativePrompts();
+  }
+  showDirectorModal.value = true;
+}
+
+function handleApplyGlobalPlan(plan: DirectorBreakdownResponse) {
+  const hasUserContent = nodes.value.some(
+    (n) => (n.type === 'text' && n.content?.trim()) || (n.type === 'image' && n.url) || n.type === 'video'
+  );
+
+  let baseX = 140;
+  let baseY = 120;
+
+  if (!hasUserContent) {
+    nodes.value = [];
+    connections.value = [];
+    pan.value.x = 80;
+    pan.value.y = 60;
+    zoom.value = 0.9;
+  } else {
+    const maxRight = nodes.value.reduce((max, n) => Math.max(max, n.x), 100);
+    baseX = maxRight + 340;
+  }
+
+  const colGap = 340;
+  const rowGap = 330;
+
+  const styleNodeId = newId();
+  const culturalNodeId = newId();
+  const assetPromptNodeId = newId();
+
+  const rawCultural = (plan.cultural_node_content || '').trim();
+  const formattedCulturalContent = rawCultural.startsWith('负面提示词：')
+    ? rawCultural
+    : `负面提示词：${rawCultural}`;
+
+  const newNodes: FlowNode[] = [
+    {
+      id: styleNodeId,
+      type: 'text',
+      title: '整体风格',
+      x: baseX,
+      y: baseY,
+      content: plan.style_node_content,
+    },
+    {
+      id: culturalNodeId,
+      type: 'text',
+      title: '负面提示词',
+      x: baseX,
+      y: baseY + rowGap,
+      content: formattedCulturalContent,
+    },
+    {
+      id: assetPromptNodeId,
+      type: 'text',
+      title: '图片素材提示词',
+      x: baseX,
+      y: baseY + rowGap * 2,
+      content: plan.image_asset_prompts,
+    },
+  ];
+
+  const newConnections: FlowConnection[] = [];
+  const segmentIds: string[] = [];
+
+  plan.segments.forEach((seg, idx) => {
+    const segNodeId = newId();
+    segmentIds.push(segNodeId);
+    newNodes.push({
+      id: segNodeId,
+      type: 'text',
+      title: seg.title,
+      x: baseX + colGap,
+      y: baseY + idx * rowGap,
+      content: seg.timeline_prompt,
+    });
+
+    newConnections.push(
+      { id: newId(), from: styleNodeId, to: segNodeId },
+      { id: newId(), from: culturalNodeId, to: segNodeId }
+    );
+  });
+
+  nodes.value.push(...newNodes);
+  connections.value.push(...newConnections);
+
+  if (!canvas.value.video_duration_seconds) {
+    canvas.value.video_duration_seconds = 15;
+  }
+  if (segmentIds.length > 0) {
+    isManualPreciseSelect.value = false;
+    activeNodeId.value = segmentIds[0];
+    selectedNodeIds.value = [segmentIds[0]];
+  }
+
+  notice.value = `已完成全片统筹：成功生成 ${plan.segments.length} 个片段节点及整体风格、负面提示词、图片素材提示词节点！`;
+}
 </script>
 
 <style scoped>
+.canvas-node.perspective {
+  width: 380px !important;
+  height: 400px !important;
+  border-color: rgba(56, 189, 248, 0.45);
+}
+
+.perspective-node-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.perspective-preview-area {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #090d16;
+  height: 155px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.perspective-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e2e8f0;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.perspective-empty:hover {
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.perspective-frames-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  padding: 6px;
+  box-sizing: border-box;
+}
+
+.p-frame-item {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.p-frame-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.p-frame-badge {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  background: rgba(15, 23, 42, 0.85);
+  color: #38bdf8;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.p-frame-badge.end {
+  color: #a5b4fc;
+}
+
+.p-frame-arrow {
+  color: #38bdf8;
+  font-weight: bold;
+  font-size: 15px;
+}
+
+.perspective-actions-bar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+}
+.p-action-pill {
+  background: rgba(15, 23, 42, 0.92);
+  /* 删掉 backdrop-filter: blur(6px); 避免画布拖拽合成卡顿 */
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #f8fafc;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.p-action-pill:hover {
+  border-color: #38bdf8;
+  color: #fff;
+}
+
+.p-action-pill.highlight {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.9), rgba(14, 165, 233, 0.9));
+  border-color: transparent;
+}
+
+.perspective-desc-box {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.p-desc-label {
+  font-size: 12px;
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+/* 与文本节点 .text-body textarea 完全一致的 13px 字号与 1.5 行高 */
+.p-desc-textarea {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+  user-select: text !important;
+  cursor: text;
+}
+
+.p-desc-textarea:focus {
+  border-color: #38bdf8;
+}
 .video-review-feedback.blocked {
   border-color: rgba(234, 179, 8, .35);
   background: rgba(234, 179, 8, .06);
@@ -1735,10 +2372,13 @@ function formatFullTime(isoStr?: string | null) {
 }
 
 @keyframes tvDotPulse {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 0.5;
     transform: scale(0.9);
   }
+
   50% {
     opacity: 1;
     transform: scale(1.2);
@@ -1803,7 +2443,7 @@ function formatFullTime(isoStr?: string | null) {
   color: #cbd5e1;
   box-sizing: border-box;
   user-select: text;
-  cursor: text;
+  cursor: pointer;
 }
 
 .node-text-preview:focus-visible {
@@ -2691,15 +3331,49 @@ button:disabled {
   position: relative;
   overflow: clip;
   user-select: none;
-  cursor: default;
+  cursor: crosshair;
   background-color: #07090e;
   background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
-.canvas-viewport.panning,
-.canvas-viewport:active {
-  cursor: grabbing;
+.canvas-viewport.pan-mode {
+  cursor: grab;
+}
+
+.canvas-viewport.is-panning {
+  cursor: grabbing !important;
+}
+
+.mode-switch-group {
+  display: inline-flex;
+  background: rgba(15, 20, 32, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 2px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.mode-switch-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  padding: 4px 11px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.mode-switch-btn:hover {
+  color: #f8fafc;
+}
+
+.mode-switch-btn.active {
+  background: #4f46e5;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.45);
 }
 
 .canvas-plane {
@@ -2790,6 +3464,7 @@ button:disabled {
   from {
     transform: scale(1);
   }
+
   to {
     transform: scale(1.2);
   }
@@ -2799,6 +3474,7 @@ button:disabled {
   from {
     stroke-dashoffset: 24;
   }
+
   to {
     stroke-dashoffset: 0;
   }
@@ -2838,6 +3514,11 @@ button:disabled {
 .canvas-node.selected {
   border-color: #818cf8 !important;
   box-shadow: 0 0 0 1.5px #818cf8, 0 12px 30px rgba(0, 0, 0, 0.7) !important;
+}
+
+.canvas-node.linked-selected {
+  border-color: rgba(56, 189, 248, 0.75) !important;
+  box-shadow: 0 0 0 1.5px rgba(56, 189, 248, 0.55), 0 12px 28px rgba(0, 0, 0, 0.65) !important;
 }
 
 .node-port {
@@ -3043,9 +3724,35 @@ button:disabled {
   z-index: 10;
 }
 
-.image-generate-entry { color: #c7c8ff; border-color: #605e9666; }
-.image-generate-node { position: absolute; right: 9px; bottom: 9px; z-index: 12; border: 1px solid #7874b788; border-radius: 7px; background: #24253ce8; color: #d0ceff; font-size: 11px; padding: 6px 9px; cursor: pointer; box-shadow: 0 3px 10px #0004; }
-.image-generate-node:hover { background: #44416a; }
+.image-generate-entry {
+  color: #c7c8ff;
+  border-color: #605e9666;
+}
+
+.image-generate-node {
+  position: absolute;
+  right: 9px;
+  bottom: 9px;
+  z-index: 12;
+  border: 1px solid #7874b788;
+  border-radius: 7px;
+  background: #24253ce8;
+  color: #d0ceff;
+  font-size: 11px;
+  padding: 6px 9px;
+  cursor: pointer;
+  box-shadow: 0 3px 10px #0004;
+}
+
+.image-generate-node:hover {
+  background: #44416a;
+}
+
+.director-entry-btn {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(56, 189, 248, 0.25));
+  color: #e0e7ff;
+  border-color: rgba(129, 140, 248, 0.55);
+}
 
 .image-upload-hover-pill svg {
   width: 14px;
@@ -3279,6 +3986,7 @@ button:disabled {
   from {
     box-shadow: 0 0 10px #6366f1;
   }
+
   to {
     box-shadow: 0 0 25px #38bdf8;
   }
@@ -3595,6 +4303,7 @@ button:disabled {
   0% {
     left: -35%;
   }
+
   100% {
     left: 100%;
   }
@@ -3987,9 +4696,12 @@ button:disabled {
   }
 
   @keyframes iconBounce {
-    0%, 100% {
+
+    0%,
+    100% {
       transform: translateY(0);
     }
+
     50% {
       transform: translateY(-8px);
     }
@@ -4065,17 +4777,105 @@ button:disabled {
   }
 }
 
-.video-failure-detail { color: #fca5a5; font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0; }
-.portrait-failure-mask { position: fixed; inset: 0; z-index: 1800; display: flex; align-items: center; justify-content: center; background: #020617b8; backdrop-filter: blur(4px); padding: 24px; }
-.portrait-failure-dialog { width: min(460px, 100%); padding: 26px; background: #151b29; border: 1px solid #3b465f; border-radius: 15px; color: #e2e8f0; box-shadow: 0 24px 90px #0009; }
-.portrait-failure-dialog h3 { margin: 0 0 16px; font-size: 18px; }
-.portrait-failure-dialog p { line-height: 1.8; font-size: 14px; overflow-wrap: anywhere; }
-.portrait-failure-dialog .portrait-vendor-detail { color: #94a3b8; font-size: 12px; white-space: pre-wrap; }
-.portrait-failure-dialog button { display: block; margin: 22px 0 0 auto; border: 1px solid #818cf8; border-radius: 7px; background: #6366f1; padding: 10px 22px; color: white; cursor: pointer; }
+.video-failure-detail {
+  color: #fca5a5;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 10px 0;
+}
 
-.image-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 16px 20px; }
-.empty-image-portrait-note { max-width: 180px; margin: 12px 0 0; text-align: center; font-size: 10px; line-height: 1.7; color: #78869e; cursor: default; }
-.empty-image-portrait-note button, .portrait-channel-help button { display: inline; border: 0; background: none; padding: 0; color: #a5b4fc; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
-.portrait-channel-help button { margin-left: 5px; white-space: nowrap; }
-.empty-image-portrait-note button:focus-visible, .portrait-channel-help button:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; border-radius: 2px; }
+.portrait-failure-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #020617b8;
+  backdrop-filter: blur(4px);
+  padding: 24px;
+}
+
+.portrait-failure-dialog {
+  width: min(460px, 100%);
+  padding: 26px;
+  background: #151b29;
+  border: 1px solid #3b465f;
+  border-radius: 15px;
+  color: #e2e8f0;
+  box-shadow: 0 24px 90px #0009;
+}
+
+.portrait-failure-dialog h3 {
+  margin: 0 0 16px;
+  font-size: 18px;
+}
+
+.portrait-failure-dialog p {
+  line-height: 1.8;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.portrait-failure-dialog .portrait-vendor-detail {
+  color: #94a3b8;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.portrait-failure-dialog button {
+  display: block;
+  margin: 22px 0 0 auto;
+  border: 1px solid #818cf8;
+  border-radius: 7px;
+  background: #6366f1;
+  padding: 10px 22px;
+  color: white;
+  cursor: pointer;
+}
+
+.image-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px 20px;
+}
+
+.empty-image-portrait-note {
+  max-width: 180px;
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1.7;
+  color: #78869e;
+  cursor: default;
+}
+
+.empty-image-portrait-note button,
+.portrait-channel-help button {
+  display: inline;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #a5b4fc;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.portrait-channel-help button {
+  margin-left: 5px;
+  white-space: nowrap;
+}
+
+.empty-image-portrait-note button:focus-visible,
+.portrait-channel-help button:focus-visible {
+  outline: 2px solid #a5b4fc;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 </style>

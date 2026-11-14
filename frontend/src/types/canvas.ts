@@ -2,7 +2,7 @@ import type { VideoBrief } from './api';
 
 export interface FlowNode {
   id: string;
-  type: 'text' | 'image' | 'video';
+  type: 'text' | 'image' | 'video'| 'perspective';
   title: string;
   x: number;
   y: number;
@@ -17,7 +17,27 @@ export interface FlowNode {
   ai_error?: string;
   last_ai?: { before: string; after: string; message_id: string; brief?: VideoBrief; suggested_prompt?: string | null };
   pending_ai?: { source_model?: string; content: string; message_id: string; apply_mode: 'replace' | 'append'; original?: string; brief?: VideoBrief; suggested_prompt?: string | null };
+ perspective_data?: PerspectiveSceneData | null;  
 }
+export interface Perspective3DObject {
+  id: string;
+  shape: 'box' | 'cylinder' | 'sphere' | 'cone';
+  color: string;
+  colorName: string;
+  alias?: string;
+  position: [number, number, number];
+  scale: [number, number, number];
+}
+
+export interface PerspectiveSceneData {
+  aspectRatio: '16:9' | '9:16' | '1:1';
+  groundColor: string;
+  objects: Perspective3DObject[];
+  startCamera: { position: [number, number, number]; target: [number, number, number] };
+  endCamera?: { position: [number, number, number]; target: [number, number, number] } | null;
+  endFrameUrl?: string | null;
+}
+
 
 export interface FlowConnection { id: string; from: string; to: string }
 

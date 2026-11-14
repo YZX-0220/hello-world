@@ -134,3 +134,36 @@ export interface VideoApiConfigView {
   created_at: string;
   updated_at: string;
 }
+export interface Perspective3DObject {
+  id: string;
+  shape: 'box' | 'cylinder' | 'sphere' | 'cone';
+  color: string;
+  colorName: string;
+  alias?: string; // 可选：色块代称替换词（如“穿红衣的侠客”），不在3D画面显示，仅替换生成的描述
+  position: [number, number, number];
+  scale: [number, number, number];
+}
+
+export interface PerspectiveSceneData {
+  aspectRatio: '16:9' | '9:16' | '1:1';
+  groundColor: string;
+  objects: Perspective3DObject[];
+  startCamera: { position: [number, number, number]; target: [number, number, number] };
+  endCamera?: { position: [number, number, number]; target: [number, number, number] } | null;
+  endFrameUrl?: string | null;
+}
+
+export interface FlowNode {
+  id: string;
+  type: 'text' | 'image' | 'video' | 'perspective';
+  title: string;
+  x: number;
+  y: number;
+  content?: string;
+  url?: string;
+  asset_id?: string | null;
+  job_id?: string | null;
+  status?: string | null;
+  error?: string | null;
+  perspective_data?: PerspectiveSceneData | null;
+}

@@ -7,7 +7,7 @@ from app.db.models.agent import AgentRun
 from app.db.models.asset import Asset
 from app.db.models.image_generation import ImageJob
 from app.db.models.material_library import MaterialLibraryItem
-from app.db.models.site_traffic import SiteTrafficTotal
+from app.db.models.site_traffic import LLMUsageRecord, SiteTrafficTotal
 from app.db.models.user import User
 from app.db.models.video_job import VideoJob
 from pytest import mark
@@ -68,6 +68,15 @@ async def test_platform_metrics_aggregation(client, db_engine):
             output_tokens=800,
             created_at=now_dt - timedelta(days=1),
         )
+        # 写入后台独立大模型调用记录 (LLMUsageRecord)
+        usage1 = LLMUsageRecord(
+            user_id=u1.id,
+            conversation_id="conv_01",
+            operation="director_outline",
+            input_tokens=300,
+            output_tokens=700,
+            created_at=now_dt - timedelta(days=3),
+        )
         run_old = AgentRun(
             user_id=u1.id,
             conversation_id="conv_03",
@@ -77,9 +86,9 @@ async def test_platform_metrics_aggregation(client, db_engine):
             output_tokens=500,
             created_at=now_dt - timedelta(days=30),  # 超过 14 天
         )
-        session.add_all([run1, run2, run_old])
+        session.add_all([run1, run2, run_old, usage1])
 
-        # 写入创作任务
+        # 写入创作任务（包含 1 成功 1 失败，验证只统计 succeeded）
         v1 = VideoJob(
             id="vjob_01",
             user_id=u1.id,
@@ -97,6 +106,23 @@ async def test_platform_metrics_aggregation(client, db_engine):
             prompt="test prompt",
             status="succeeded",
         )
+        v_failed = VideoJob(
+            id="vjob_02",
+            user_id=u1.id,
+            conversation_id="conv_01",
+            project_id="proj_01",
+            project_version_id="pver_01",
+            project_version=1,
+            api_config_id="cfg_01",
+            api_config_revision_id="crev_01",
+            idempotency_key="v_idem_02",
+            request_fingerprint="v_fp_02",
+            protocol_code="generic_async_json_v1",
+            remote_model_id="test-model",
+            mode="text_to_video",
+            prompt="test prompt failed",
+            status="failed",
+        )
         img1 = ImageJob(
             id="ijob_01",
             user_id=u1.id,
@@ -113,7 +139,7 @@ async def test_platform_metrics_aggregation(client, db_engine):
             encrypted_api_key="enc_key",
             status="succeeded",
         )
-        session.add_all([v1, img1])
+        session.add_all([v1, v_failed, img1])
 
         # 写入资产
         asset1 = Asset(
@@ -170,9 +196,9 @@ async def test_platform_metrics_aggregation(client, db_engine):
 
     # 累计访问量
     assert data["total_visits"] == 128
-    # 累计 Token 消耗 (150+350 + 200+800 + 500+500 = 2500)
-    assert data["total_tokens"] == 2500
-    # 总创作次数 (1 video + 1 image = 2)
+    # 累计 Token 消耗: AgentRuns(500 + 1000 + 1000) + LLMUsageRecord(1000) = 3500
+    assert data["total_tokens"] == 3500
+    # 总创作次数 (只算 succeeded: 1 video + 1 image = 2，忽略 1 failed video)
     assert data["total_creations"] == 2
     assert data["creations_breakdown"]["videos"] == 1
     assert data["creations_breakdown"]["images"] == 1
@@ -189,5 +215,5 @@ async def test_platform_metrics_aggregation(client, db_engine):
     daily = data["daily_tokens_14d"]
     assert len(daily) == 14
     total_14d_tokens = sum(item["tokens"] for item in daily)
-    # 14 天内有 run1 (500) + run2 (1000) = 1500，30 天前的 run_old (1000) 不在 14 天内
-    assert total_14d_tokens == 1500
+    # 14 天内有 run1 (500) + run2 (1000) + usage1 (1000) = 2500，30 天前的 run_old (1000) 不在 14 天内
+    assert total_14d_tokens == 2500

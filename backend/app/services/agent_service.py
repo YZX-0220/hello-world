@@ -28,6 +28,7 @@ from app.services.context_builder import (
     VIDEO_REVIEW_SYSTEM_PROMPT,
     build_context,
 )
+from app.services.llm_usage_service import record_llm_usage
 from app.services.project_service import ProjectService
 
 
@@ -52,6 +53,12 @@ class AgentService:
             result = await self._provider.generate(prompt_messages, structured=False)
         except TextProviderError:
             return None
+        await record_llm_usage(
+            self._session,
+            operation="history_summary",
+            result=result,
+            provider_code=self._provider.code,
+        )
         summary = (result.reply or "").strip()
         return summary[:MAX_SUMMARY_LENGTH] or None
 
@@ -288,11 +295,25 @@ class AgentService:
             result = await provider.generate(messages, structured=False)
         except TextProviderError:
             return None
+        await record_llm_usage(
+            self._session,
+            operation="refine_with_search",
+            result=result,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            provider_code=provider.code,
+        )
         reply = (result.reply or "").strip()
         return reply or None
 
     async def prepare_video(
-        self, brief: VideoBrief, content: str, *, images: list[dict] | None = None
+        self,
+        brief: VideoBrief,
+        content: str,
+        *,
+        images: list[dict] | None = None,
+        user_id: str | None = None,
+        conversation_id: str | None = None,
     ) -> AgentOutput:
         """Deliver a complete plan in one pass; chat clarification rules do not apply here."""
         try:
@@ -313,6 +334,16 @@ class AgentService:
                 else TEXT_PROVIDER_UNAVAILABLE
             )
             raise AppError(code, exc.message) from exc
+
+        await record_llm_usage(
+            self._session,
+            operation="prepare_video",
+            result=result,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            provider_code=provider.code,
+        )
+
         output = self._parse_output(result.structured, result.reply)
         output.contains_portrait = bool(images) and output.contains_portrait
         return output

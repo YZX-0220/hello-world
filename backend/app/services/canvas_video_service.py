@@ -454,7 +454,13 @@ class CanvasVideoService:
             assumptions = []
             suggestions = []
             for _attempt in range(2):
-                output = await agent.prepare_video(asset_spec, instruction, images=images)
+                output = await agent.prepare_video(
+                    asset_spec,
+                    instruction,
+                    images=images,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                )
                 contains_portrait = contains_portrait or (bool(images) and output.contains_portrait)
                 assumptions.extend(output.assumptions)
                 suggestions.extend(output.suggestions)

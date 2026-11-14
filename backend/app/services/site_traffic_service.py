@@ -35,7 +35,7 @@ from app.db.models.agent import AgentRun
 from app.db.models.asset import Asset
 from app.db.models.image_generation import ImageJob
 from app.db.models.material_library import MaterialLibraryItem
-from app.db.models.site_traffic import SiteTrafficTotal, SiteVisit, SiteVisitEvent
+from app.db.models.site_traffic import LLMUsageRecord, SiteTrafficTotal, SiteVisit, SiteVisitEvent
 from app.db.models.user import User, UserSession
 from app.db.models.video_job import VideoJob
 from app.schemas.site_traffic import (
@@ -217,8 +217,7 @@ class SiteTrafficService:
     async def summary(self) -> SiteTrafficSummary:
         total = await self.session.get(SiteTrafficTotal, 1)
 
-        # 1. 累计 Token 消耗：统计 agent_runs 中记录的实际 prompt_tokens + completion_tokens 总和
-        #    并兜底合并 messages 中填写的 input_tokens + output_tokens（若有直接落库）
+        # 1. 累计 Token 消耗：统计 agent_runs 与 llm_usage_records 中记录的全部大模型实际 Token 总和
         agent_tokens_sum = (
             await self.session.exec(
                 select(
@@ -233,9 +232,32 @@ class SiteTrafficService:
             )
         ).first() or 0
 
-        # 2. 平台总创作次数（视频 + 图片）
-        video_count = (await self.session.exec(select(func.count(col(VideoJob.id))))).first() or 0
-        image_count = (await self.session.exec(select(func.count(col(ImageJob.id))))).first() or 0
+        extra_llm_tokens_sum = (
+            await self.session.exec(
+                select(
+                    func.coalesce(
+                        func.sum(
+                            func.coalesce(col(LLMUsageRecord.input_tokens), 0)
+                            + func.coalesce(col(LLMUsageRecord.output_tokens), 0)
+                        ),
+                        0,
+                    )
+                )
+            )
+        ).first() or 0
+        total_tokens = int(agent_tokens_sum) + int(extra_llm_tokens_sum)
+
+        # 2. 平台总创作次数（成功生成的视频 + 图片，状态为 succeeded）
+        video_count = (
+            await self.session.exec(
+                select(func.count(col(VideoJob.id))).where(col(VideoJob.status) == "succeeded")
+            )
+        ).first() or 0
+        image_count = (
+            await self.session.exec(
+                select(func.count(col(ImageJob.id))).where(col(ImageJob.status) == "succeeded")
+            )
+        ).first() or 0
         total_creations = int(video_count) + int(image_count)
 
         # 3. 平台总用户量（活跃/正常用户）
@@ -274,14 +296,14 @@ class SiteTrafficService:
         unique_models_and_templates.add("image_model:ark_seededit")
         models_and_templates_count = max(len(unique_models_and_templates), 1)
 
-        # 7. 近 14 天每日 Token 消耗序列（连续 14 天补齐 0）
+        # 7. 近 14 天每日 Token 消耗序列（严格对齐服务器本地时间 00:00，连续 14 天补齐 0）
         current_time = now()
         today = current_time.date()
         date_list = [(today - timedelta(days=i)) for i in range(13, -1, -1)]
         start_date_bound = datetime.combine(date_list[0], datetime.min.time())
 
         # 聚合最近 14 天的 agent_runs Token 消耗
-        daily_rows = (
+        daily_agent_rows = (
             await self.session.exec(
                 select(
                     func.date(col(AgentRun.created_at)).label("day"),
@@ -295,7 +317,31 @@ class SiteTrafficService:
             )
         ).all()
 
-        tokens_by_day = {str(row[0]): int(row[1] or 0) for row in daily_rows if row[0] is not None}
+        # 聚合最近 14 天的 llm_usage_records Token 消耗
+        daily_extra_rows = (
+            await self.session.exec(
+                select(
+                    func.date(col(LLMUsageRecord.created_at)).label("day"),
+                    func.sum(
+                        func.coalesce(col(LLMUsageRecord.input_tokens), 0)
+                        + func.coalesce(col(LLMUsageRecord.output_tokens), 0)
+                    ).label("tokens"),
+                )
+                .where(col(LLMUsageRecord.created_at) >= start_date_bound)
+                .group_by(func.date(col(LLMUsageRecord.created_at)))
+            )
+        ).all()
+
+        tokens_by_day: dict[str, int] = {}
+        for row in daily_agent_rows:
+            if row[0] is not None:
+                day_str = str(row[0])
+                tokens_by_day[day_str] = tokens_by_day.get(day_str, 0) + int(row[1] or 0)
+        for row in daily_extra_rows:
+            if row[0] is not None:
+                day_str = str(row[0])
+                tokens_by_day[day_str] = tokens_by_day.get(day_str, 0) + int(row[1] or 0)
+
         daily_tokens_14d = [
             DailyTokens(
                 date=d.strftime("%Y-%m-%d"),
@@ -307,7 +353,7 @@ class SiteTrafficService:
         return SiteTrafficSummary(
             total_visits=total.total_visits if total else 0,
             started_at=total.started_at if total else None,
-            total_tokens=int(agent_tokens_sum),
+            total_tokens=total_tokens,
             total_creations=total_creations,
             creations_breakdown=CreationsBreakdown(
                 videos=int(video_count),

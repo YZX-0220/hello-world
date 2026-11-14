@@ -31,6 +31,7 @@ from app.schemas.director import (
     DirectorOutlineRequest,
     DirectorOutlineResponse,
 )
+from app.services.llm_usage_service import record_llm_usage
 
 
 class DirectorAgentService:
@@ -134,6 +135,16 @@ class DirectorAgentService:
             )
         except TextProviderError as exc:
             raise self._map_provider_error(exc) from exc
+
+        # 异步记账：记录生成大纲所消耗的 prompt_tokens 与 completion_tokens
+        await record_llm_usage(
+            self._session,
+            operation="director_outline",
+            result=result,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            provider_code=self._provider.code,
+        )
 
         draft = (result.reply or "").strip()
         if not draft:
@@ -280,6 +291,16 @@ class DirectorAgentService:
         except TextProviderError as exc:
             raise self._map_provider_error(exc) from exc
 
+        # 记录首次分镜拆解的 Token 消耗
+        await record_llm_usage(
+            self._session,
+            operation="director_breakdown",
+            result=result,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            provider_code=self._provider.code,
+        )
+
         try:
             return self._normalize_breakdown(
                 result.structured,
@@ -314,6 +335,16 @@ class DirectorAgentService:
                 )
             except TextProviderError as exc:
                 raise self._map_provider_error(exc) from exc
+
+            # 记录重试修复的 Token 消耗
+            await record_llm_usage(
+                self._session,
+                operation="director_breakdown_repair",
+                result=repaired,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                provider_code=self._provider.code,
+            )
 
             return self._normalize_breakdown(
                 repaired.structured,

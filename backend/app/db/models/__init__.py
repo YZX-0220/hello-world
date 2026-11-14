@@ -13,7 +13,7 @@ from app.db.models.cultural_guidance import (
 from app.db.models.image_generation import ImageApiConfig, ImageJob
 from app.db.models.material_library import MaterialLibraryItem
 from app.db.models.project import VideoProject, VideoProjectVersion
-from app.db.models.site_traffic import SiteTrafficTotal, SiteVisit, SiteVisitEvent
+from app.db.models.site_traffic import LLMUsageRecord, SiteTrafficTotal, SiteVisit, SiteVisitEvent
 from app.db.models.user import User, UserSession
 from app.db.models.video_api_config import VideoApiConfig, VideoApiConfigRevision
 from app.db.models.video_job import VideoJob, VideoJobAsset, VideoJobEvent
@@ -28,6 +28,7 @@ __all__ = [
     "CulturalGuidance",
     "ImageApiConfig",
     "ImageJob",
+    "LLMUsageRecord",
     "MaterialLibraryItem",
     "Message",
     "MessageCitation",

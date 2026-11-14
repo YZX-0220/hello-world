@@ -41,6 +41,7 @@ from app.services.image_inputs import (
     inspect_reference,
     read_reference,
 )
+from app.services.llm_usage_service import record_llm_usage
 from app.storage import ObsStorage, get_storage
 
 IMAGE_NOT_FOUND = ErrorCode("IMAGE_NOT_FOUND", 404, "生图记录不存在或无权访问")
@@ -347,6 +348,14 @@ class ImageGenerationService:
                     {"role": "user", "content": content},
                 ],
                 structured=True,
+            )
+            await record_llm_usage(
+                self.session,
+                operation="image_suggest_prompt",
+                result=result,
+                user_id=user_id,
+                conversation_id=req.conversation_id,
+                provider_code=provider.code,
             )
             value = result.structured or json_loads(
                 result.reply.strip().removeprefix("```json").removesuffix("```")

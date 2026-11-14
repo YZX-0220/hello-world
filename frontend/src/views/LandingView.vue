@@ -45,6 +45,7 @@
     <a href="javascript:void(0)" class="nav-btn nav-link-about" @click="scrollToAbout">关于项目</a>
     <a href="javascript:void(0)" class="nav-btn nav-link-pricing" @click="scrollToPricing">价格优势</a>
     <a href="javascript:void(0)" class="nav-btn nav-link-painpoints" @click="scrollToPainPoints">用户痛点</a>
+    <a href="javascript:void(0)" class="nav-btn nav-link-metrics" @click="scrollToMetrics">运行实况</a>
     <router-link to="/settings/api" class="nav-btn nav-link-api">API 配置中心</router-link>
     <!-- ... 头像 / 登录按钮 ... -->
          <!-- 已登录：展示用户头像 SVG 徽章 -->
@@ -123,13 +124,15 @@
             </div>
           </div>
           <div class="site-traffic" role="status" aria-live="polite"
-            title="统计启用以来的累计访问次数；同一浏览器连续访问合并计数，超过30分钟无页面访问后再次进入计为新访问。">
-            <span class="traffic-dot" aria-hidden="true"></span>
-            <span>网站已有累计访问</span>
-            <template v-if="formattedVisits !== null">
-              <strong data-testid="site-traffic-count">{{ formattedVisits }}</strong><span>次.</span>
+            title="全平台自上线以来累计消耗的模型 Token 总量，按后端聚合口径统计。">
+            <span class="traffic-dot" :class="{ 'is-live': hasToken }" aria-hidden="true"></span>
+            <span>全平台已累计消耗</span>
+            <template v-if="hasToken">
+              <strong data-testid="platform-token-count">{{ formattedTokens }}</strong><span>Tokens</span>
             </template>
-            <span v-else class="traffic-placeholder">{{ trafficUnavailable ? '暂不可用' : '统计加载中…' }}</span>
+            <span v-else class="traffic-placeholder">
+              <strong class="traffic-dash">—</strong><span>Tokens</span><span class="traffic-note">统计接入中</span>
+            </span>
           </div>
         </div>
 
@@ -479,16 +482,160 @@
         </div>
       </section>
 
+      <!-- ================= 第五屏：平台运行实况 ================= -->
+      <section class="snap-section metrics-screen" ref="metricsSectionRef">
+        <div class="metrics-container">
+          <div class="scroll-up-hint" @click="scrollToPainPoints">
+            <svg class="scroll-arrow rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+            <span>返回用户痛点</span>
+          </div>
+
+          <div class="external-header metrics-header">
+            <div class="section-badge-pill">PLATFORM IN MOTION</div>
+            <h2 class="platform-main-title">
+              <span class="en-title">运行实况</span>
+              <span class="cn-title">看得见的创作吞吐</span>
+            </h2>
+            <p class="pricing-sub-desc">
+              从一句描述到成片交付，平台的每一次推理与生成都在这里留下刻度
+            </p>
+          </div>
+
+          <div class="chart-mega-card metrics-card">
+            <div class="chart-card-inner">
+
+              <div class="chart-meta-row">
+                <span class="chart-spec-tag">统计口径：全平台运行数据 · 自动聚合</span>
+                <span class="chart-model-tag">{{ metricsUpdatedLabel }}</span>
+              </div>
+
+              <div class="metrics-kpi-grid">
+                <div class="kpi-cell kpi-cell-hero">
+                  <div class="kpi-head">
+                    <span class="kpi-label">累计 Token 消耗</span>
+                    <span class="kpi-state" :class="{ 'is-pending': !hasToken }">
+                      {{ hasToken ? '实时' : '待接入' }}
+                    </span>
+                  </div>
+                  <div class="kpi-value kpi-value-hero" :class="{ 'is-pending': !hasToken }">
+                    {{ hasToken ? formattedTokens : '—' }}
+                  </div>
+                  <div class="kpi-foot">
+                    {{ hasToken ? '输入与输出全量合计' : '等待平台统计接口接入' }}
+                  </div>
+                </div>
+
+                <div class="kpi-cell" :class="{ 'kpi-cell-pending': !hasCreations }">
+                  <div class="kpi-head">
+                    <span class="kpi-label">累计创作</span>
+                    <span class="kpi-state" :class="{ 'is-pending': !hasCreations }">
+                      {{ hasCreations ? '实时' : '待接入' }}
+                    </span>
+                  </div>
+                  <div class="kpi-value" :class="{ 'is-pending': !hasCreations }">
+                    {{ hasCreations ? formattedCreations : '—' }}
+                  </div>
+                  <div class="kpi-foot">
+                    {{ hasCreations ? `视频 ${formattedVideos} · 图片 ${formattedImages}` : '视频与图片生成次数' }}
+                  </div>
+                </div>
+
+                <div class="kpi-cell">
+                  <div class="kpi-head"><span class="kpi-label">已发布作品</span></div>
+                  <div class="kpi-value">{{ formattedWorks }}</div>
+                  <div class="kpi-foot">公众作品库</div>
+                </div>
+
+                <div class="kpi-cell">
+                  <div class="kpi-head"><span class="kpi-label">累计访问</span></div>
+                  <div class="kpi-value">{{ formattedVisits }}</div>
+                  <div class="kpi-foot">访客会话 · {{ formattedUsers }} 位创作者</div>
+                </div>
+              </div>
+
+              <div class="metrics-chart-block">
+                <div class="chart-block-head">
+                  <span class="chart-block-title">近 14 天 Token 消耗</span>
+                  <span class="chart-block-hint">单位 tokens · 每日</span>
+                </div>
+
+                <div class="token-bars" :class="{ 'is-pending': !hasDaily }">
+                  <div class="token-bar-col" v-for="(bar, index) in displayBars" :key="index">
+                    <div class="token-bar-track">
+                      <div class="token-bar-fill" :style="{ height: bar.height + '%' }"></div>
+                    </div>
+                    <span class="token-bar-label">{{ bar.label }}</span>
+                  </div>
+                </div>
+
+                <div v-if="!hasDaily" class="chart-pending-note">
+                  <span class="pending-pulse" aria-hidden="true"></span>
+                  趋势数据接入后自动绘制
+                </div>
+              </div>
+
+              <div class="metrics-reserved-strip">
+                <span class="reserved-label">创作构成</span>
+                <span class="reserved-items">
+                  <span>视频生成 {{ formattedVideos }}</span>
+                  <span>图片生成 {{ formattedImages }}</span>
+                  <span>注册创作者 {{ formattedUsers }}</span>
+                  <span>公开作品 {{ formattedWorks }}</span>
+                </span>
+                <span class="kpi-state" :class="{ 'is-pending': !hasCreations }">
+                  {{ hasCreations ? '实时' : '待接入' }}
+                </span>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </section>
+
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import request from '@/utils/request';
-import { useSiteTraffic } from '@/composables/useSiteTraffic';
-const { formattedVisits, unavailable: trafficUnavailable } = useSiteTraffic();
+import { usePlatformMetrics, type DailyBar } from '@/composables/usePlatformMetrics';
+
+const {
+  state: metricsState,
+  hasToken,
+  hasCreations,
+  hasDaily,
+  dailyBars,
+  formattedTokens,
+  formattedVisits,
+  formattedCreations,
+  formattedVideos,
+  formattedImages,
+  formattedUsers,
+  formattedWorks,
+} = usePlatformMetrics();
+
+const metricsUpdatedLabel = computed(() =>
+  metricsState.updatedAt ? `更新于 ${metricsState.updatedAt}` : '统计同步中',
+);
+
+/** 后端 Token 聚合接口就绪前，用等高骨架占住 14 日趋势的位置 */
+const SKELETON_BARS = [34, 52, 41, 63, 48, 72, 58, 86, 66, 92, 74, 81, 69, 96];
+const displayBars = computed<DailyBar[]>(() => {
+  if (dailyBars.value.length) return dailyBars.value;
+  const today = new Date();
+  return SKELETON_BARS.map((height, index) => {
+    const day = new Date(today);
+    day.setDate(today.getDate() - (SKELETON_BARS.length - 1 - index));
+    const label = `${String(day.getMonth() + 1).padStart(2, '0')}/${String(day.getDate()).padStart(2, '0')}`;
+    return { date: '', label, height, tokens: 0 };
+  });
+});
+
 const heroSectionRef = ref<HTMLElement | null>(null);
 
 function scrollToHero() {
@@ -499,6 +646,7 @@ const scrollContainerRef = ref<HTMLElement | null>(null);
 const aboutSectionRef = ref<HTMLElement | null>(null);
 const pricingSectionRef = ref<HTMLElement | null>(null);
 const painpointsSectionRef = ref<HTMLElement | null>(null);
+const metricsSectionRef = ref<HTMLElement | null>(null);
 
 const isLoggedIn = ref(false);
 
@@ -533,6 +681,10 @@ function scrollToPricing() {
 
 function scrollToPainPoints() {
   painpointsSectionRef.value?.scrollIntoView({ behavior: 'smooth' });
+}
+
+function scrollToMetrics() {
+  metricsSectionRef.value?.scrollIntoView({ behavior: 'smooth' });
 }
 
 function scrollToTop() {
@@ -2124,12 +2276,304 @@ left-action-btn:hover {
   animation-duration: 3.6s;
 }
 
+/* ================= 第五屏：平台运行实况 ================= */
+.metrics-screen {
+  padding-top: clamp(70px, 8vh, 90px);
+  padding-bottom: clamp(24px, 3vh, 36px);
+  background: linear-gradient(180deg, rgba(9, 12, 20, 1) 0%, rgba(7, 9, 14, 0.98) 100%);
+}
+
+.metrics-container {
+  width: min(94vw, 1300px);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.metrics-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: clamp(14px, 2.4vh, 26px);
+}
+
+.metrics-card {
+  padding: clamp(20px, 2.4vw, 34px);
+}
+
+.metrics-kpi-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+.kpi-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.kpi-cell-hero {
+  border-color: rgba(129, 140, 248, 0.32);
+  background: linear-gradient(135deg, rgba(67, 56, 202, 0.22) 0%, rgba(15, 23, 42, 0.5) 62%);
+}
+
+.kpi-cell-pending {
+  border-style: dashed;
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.32);
+}
+
+.kpi-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kpi-label {
+  font-size: 13px;
+  color: #94a3b8;
+  letter-spacing: 0.02em;
+}
+
+.kpi-state {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  white-space: nowrap;
+}
+
+.kpi-state.is-pending {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.1);
+  border-color: rgba(148, 163, 184, 0.26);
+}
+
+.kpi-value {
+  font-size: clamp(22px, 2.1vw, 29px);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: #e2e8f0;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-value-hero {
+  font-size: clamp(30px, 3.2vw, 44px);
+}
+
+.kpi-value-hero:not(.is-pending) {
+  background: linear-gradient(100deg, #c7d2fe 0%, #818cf8 46%, #38bdf8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.kpi-value.is-pending {
+  color: #64748b;
+}
+
+.kpi-foot {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.metrics-chart-block {
+  margin-top: 4px;
+}
+
+.chart-block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.chart-block-title {
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+.chart-block-hint {
+  font-size: 12px;
+  color: #64748b;
+  font-family: monospace;
+}
+
+.token-bars {
+  display: grid;
+  grid-template-columns: repeat(14, 1fr);
+  gap: clamp(4px, 0.7vw, 10px);
+  align-items: end;
+  height: clamp(92px, 13vh, 132px);
+  padding: 0 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.token-bar-col {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.token-bar-track {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  border-radius: 6px 6px 0 0;
+}
+
+.token-bar-fill {
+  width: 100%;
+  border-radius: 6px 6px 0 0;
+  background: linear-gradient(180deg, #818cf8 0%, rgba(129, 140, 248, 0.22) 100%);
+  box-shadow: 0 0 18px -6px rgba(129, 140, 248, 0.75);
+  transition: height 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.token-bar-label {
+  height: 12px;
+  margin-top: 6px;
+  font-size: 10px;
+  line-height: 12px;
+  text-align: center;
+  color: #64748b;
+  font-family: monospace;
+}
+
+.token-bars.is-pending .token-bar-fill {
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(129, 140, 248, 0.34) 0 6px,
+    rgba(129, 140, 248, 0.1) 6px 12px
+  );
+  box-shadow: none;
+}
+
+.chart-pending-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.metrics-reserved-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  color: #64748b;
+}
+
+.reserved-label {
+  color: #94a3b8;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.reserved-items {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+
+.reserved-items span {
+  position: relative;
+  padding-left: 11px;
+}
+
+.reserved-items span::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 5px;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.5);
+  transform: translateY(-50%);
+}
+
+.traffic-placeholder {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.traffic-dash {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  color: #64748b;
+}
+
+.traffic-note {
+  margin-left: 4px;
+  padding-left: 9px;
+  border-left: 1px solid rgba(148, 163, 184, 0.28);
+  font-size: 12px;
+  color: #64748b;
+}
+
+.pending-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #818cf8;
+  animation: pending-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes pending-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.traffic-dot.is-live {
+  animation: traffic-live 2.4s ease-in-out infinite;
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.16);
+}
+
+@keyframes traffic-live {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pending-pulse,
+  .traffic-dot.is-live {
+    animation: none;
+  }
+
+  .token-bar-fill {
+    transition: none;
+  }
+}
+
 /* ================= 移动端适配 (<= 868px) ================= */
 @media (max-width: 868px) {
 
   .nav-link-about,
   .nav-link-pricing,
   .nav-link-painpoints,
+  .nav-link-metrics,
   .nav-link-api {
     display: none;
   }
@@ -2349,6 +2793,39 @@ left-action-btn:hover {
 
   .x-axis-bar {
     margin-left: 0;
+  }
+
+  /* 第五屏移动端 */
+  .metrics-kpi-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .kpi-cell-hero {
+    grid-column: 1 / -1;
+  }
+
+  .kpi-cell {
+    padding: 14px;
+  }
+
+  .metrics-card {
+    padding: 20px 16px;
+  }
+
+  .token-bars {
+    height: 108px;
+    gap: 4px;
+  }
+
+  .token-bar-label {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .metrics-kpi-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

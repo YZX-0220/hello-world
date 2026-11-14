@@ -1,87 +1,89 @@
 <template>
-  <div class="tv-admin-layout">
-    <!-- 顶栏 -->
-    <header class="admin-header">
-      <div class="left-action">
-        <button class="back-tv-btn" @click="router.push('/tv')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-          <span>返回 TV 频道</span>
-        </button>
-        <h2 class="page-title">TV 素材管理控制台</h2>
+  <div class="admin-shell">
+    <div class="admin-ambient" aria-hidden="true" />
+
+    <header class="admin-top">
+      <button class="pill-btn" @click="router.push('/tv')" title="返回 TV 频道">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+        </svg>
+        <span>返回 TV 频道</span>
+      </button>
+
+      <div class="top-center">
+        <p class="kicker">HELLO WORLD · TV</p>
+        <h1 class="admin-title">素材管理</h1>
       </div>
-      <button class="create-btn" @click="openCreateModal">+ 录入新视频素材</button>
+
+      <button class="pill-btn pill-primary" @click="openCreateModal">+ 录入新素材</button>
     </header>
 
-    <!-- 列表展示区 -->
     <main class="admin-main">
-      <div v-if="loading" class="state-hint">加载素材列表中...</div>
-      <div v-else-if="adminItems.length === 0" class="state-hint">暂无素材，请点击右上角录入。</div>
-      
-      <table v-else class="admin-table">
-        <thead>
-          <tr>
-            <th>标题</th>
-            <th>模型</th>
-            <th>状态</th>
-            <th>更新时间</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in adminItems" :key="item.id">
-            <td class="item-title">{{ item.title }}</td>
-            <td><span class="badge">{{ item.model_name }}</span></td>
-            <td>
-              <span :class="['status-pill', item.status]">
-                {{ item.status === 'published' ? '已发布' : '草稿' }}
-              </span>
-            </td>
-            <td class="date-col">{{ new Date(item.updated_at).toLocaleString() }}</td>
-            <td class="action-cell">
-              <button 
-                class="btn-toggle" 
-                @click="togglePublish(item)"
-              >
+      <section class="admin-sheet">
+        <div class="sheet-head">
+          <span class="sheet-label">全部作品</span>
+          <span class="sheet-count">{{ adminItems.length }} 条</span>
+        </div>
+
+        <p v-if="loading" class="state-hint">正在读取素材列表…</p>
+        <p v-else-if="adminItems.length === 0" class="state-hint">还没有素材，点右上角「录入新素材」开始。</p>
+
+        <ul v-else class="item-list">
+          <li v-for="item in adminItems" :key="item.id" class="item-row">
+            <div class="item-main">
+              <p class="item-title">{{ item.title }}</p>
+              <p class="item-meta">
+                <span class="chip">{{ item.model_name }}</span>
+                <span class="dot-sep" aria-hidden="true">·</span>
+                <span>{{ new Date(item.updated_at).toLocaleString() }}</span>
+              </p>
+            </div>
+            <span :class="['status-pill', item.status]">
+              <i class="status-dot" aria-hidden="true" />
+              {{ item.status === 'published' ? '已发布' : '草稿' }}
+            </span>
+            <div class="row-actions">
+              <button class="ghost-btn" @click="togglePublish(item)">
                 {{ item.status === 'published' ? '下架' : '发布' }}
               </button>
-              <button class="btn-del" @click="deleteItem(item)">删除</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+              <button class="ghost-btn is-danger" @click="deleteItem(item)">删除</button>
+            </div>
+          </li>
+        </ul>
+      </section>
     </main>
 
-    <!-- 上传录入弹窗 -->
     <div v-if="showModal" class="modal-mask" @click.self="showModal = false">
-      <div class="modal-box">
-        <h3>录入新视频素材</h3>
+      <div class="modal-box" role="dialog" aria-modal="true" aria-label="录入新视频素材">
+        <div class="modal-head">
+          <p class="kicker">NEW ENTRY</p>
+          <h3 class="modal-title">录入新视频素材</h3>
+        </div>
 
-        <div class="form-group">
-          <label>作品标题 *</label>
+        <label class="field">
+          <span class="field-label">作品标题</span>
           <input v-model="form.title" placeholder="如：赛博朋克雨夜街道" />
-        </div>
+        </label>
 
-        <div class="form-group">
-          <label>使用模型 *</label>
+        <label class="field">
+          <span class="field-label">使用模型</span>
           <input v-model="form.model_name" placeholder="如：Veo 2 或 Seedance 2.5" />
-        </div>
+        </label>
 
-        <div class="form-group">
-          <label>提示词 / Markdown 描述 *</label>
-          <textarea v-model="form.description" rows="4" placeholder="填写生成该视频的 Prompt"></textarea>
-        </div>
+        <label class="field">
+          <span class="field-label">提示词 / Markdown 描述</span>
+          <textarea v-model="form.description" rows="4" placeholder="填写生成该视频的 Prompt" />
+        </label>
 
-        <div class="form-group">
-          <label>MP4 视频文件 *</label>
-          <input type="file" accept="video/mp4" @change="handleFileChange" />
-        </div>
+        <label class="field">
+          <span class="field-label">MP4 视频文件</span>
+          <input class="file-input" type="file" accept="video/mp4" @change="handleFileChange" />
+        </label>
 
         <div class="modal-actions">
-          <button class="btn-cancel" @click="showModal = false">取消</button>
-          <button class="btn-submit" :disabled="submitting" @click="submitCreate">
-            {{ submitting ? '正在上传保存...' : '立即发布' }}
+          <button class="ghost-btn" @click="showModal = false">取消</button>
+          <button class="pill-btn pill-primary" :disabled="submitting" @click="submitCreate">
+            {{ submitting ? '正在上传保存…' : '立即发布' }}
           </button>
         </div>
       </div>
@@ -247,211 +249,402 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.tv-admin-layout {
-  min-height: 100vh;
-  background-color: #0c0b0e;
-  color: #fff;
-  padding: 32px 48px;
+.admin-shell {
+  position: relative;
+  min-height: 100dvh;
+  padding: 26px clamp(20px, 4vw, 56px) 56px;
   box-sizing: border-box;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  background: radial-gradient(120% 85% at 50% 12%, #191b26 0%, #0d0e14 46%, #040406 100%);
+  color: #f2f1ee;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
-.admin-header {
-  display: flex;
-  justify-content: space-between;
+.admin-ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(58% 42% at 18% 8%, rgba(139, 127, 245, 0.13), transparent 70%),
+    radial-gradient(50% 40% at 84% 82%, rgba(240, 214, 176, 0.07), transparent 70%);
+}
+
+.admin-top {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  padding-bottom: 24px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 18px;
 }
 
-.left-action {
-  display: flex;
-  align-items: center;
-  gap: 20px;
+.admin-top > .pill-btn:first-child {
+  justify-self: start;
+  width: fit-content;
 }
 
-.back-tv-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #94a3b8;
-  padding: 6px 14px;
-  border-radius: 8px;
-  cursor: pointer;
+.admin-top > .pill-btn:last-child {
+  justify-self: end;
+  width: fit-content;
 }
 
-.back-tv-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.back-tv-btn:hover {
-  color: #fff;
-}
-
-.page-title {
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.create-btn {
-  background: #6366f1;
-  color: #fff;
-  border: none;
-  padding: 8px 18px;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.admin-main {
-  margin-top: 24px;
-}
-
-.state-hint {
-  color: #64748b;
-  padding: 48px;
+.top-center {
   text-align: center;
 }
 
-.admin-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
+.kicker {
+  margin: 0 0 6px;
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(226, 224, 240, 0.45);
 }
 
-.admin-table th, .admin-table td {
-  padding: 14px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+.admin-title {
+  margin: 0;
+  font-family: 'Songti SC', 'Noto Serif SC', 'Source Han Serif SC', Georgia, serif;
+  font-size: clamp(26px, 3vw, 34px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
 }
 
-.admin-table th {
-  color: #64748b;
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 15px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #f2f1ee;
   font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.pill-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.pill-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.pill-primary {
+  border-color: rgba(167, 155, 255, 0.45);
+  background: linear-gradient(180deg, rgba(139, 127, 245, 0.34) 0%, rgba(99, 88, 210, 0.26) 100%);
+  color: #f6f4ff;
+}
+
+.pill-primary:hover {
+  background: linear-gradient(180deg, rgba(139, 127, 245, 0.48) 0%, rgba(99, 88, 210, 0.38) 100%);
+}
+
+.admin-main {
+  position: relative;
+  z-index: 1;
+  max-width: 1080px;
+  margin: clamp(22px, 3.4vh, 38px) auto 0;
+}
+
+.admin-sheet {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.028);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+  padding: 8px 8px 18px;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 16px 18px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.sheet-label {
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  color: rgba(240, 238, 246, 0.66);
+}
+
+.sheet-count {
+  font-family: 'SF Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: rgba(240, 238, 246, 0.4);
+}
+
+.state-hint {
+  margin: 0;
+  padding: 56px 18px;
+  text-align: center;
+  color: rgba(240, 238, 246, 0.45);
+  font-size: 13px;
+}
+
+.item-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.2s ease;
+}
+
+.item-row:last-child {
+  border-bottom: none;
+}
+
+.item-row:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.item-main {
+  min-width: 0;
 }
 
 .item-title {
+  margin: 0 0 6px;
+  font-family: 'Songti SC', 'Noto Serif SC', 'Source Han Serif SC', Georgia, serif;
+  font-size: 17px;
   font-weight: 600;
-  color: #f1f5f9;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.badge {
-  background: rgba(255, 255, 255, 0.06);
-  padding: 3px 8px;
-  border-radius: 6px;
+.item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
   font-size: 12px;
-  color: #94a3b8;
+  color: rgba(240, 238, 246, 0.42);
+}
+
+.chip {
+  padding: 2px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: rgba(226, 224, 240, 0.72);
+}
+
+.dot-sep {
+  color: rgba(240, 238, 246, 0.24);
 }
 
 .status-pill {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 .status-pill.published {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
+  color: #7ee2b8;
+  background: rgba(45, 212, 160, 0.12);
+  border: 1px solid rgba(45, 212, 160, 0.22);
 }
 
 .status-pill.draft {
-  background: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
+  color: #f2c879;
+  background: rgba(240, 190, 90, 0.11);
+  border: 1px solid rgba(240, 190, 90, 0.22);
 }
 
-.date-col {
-  font-size: 12px;
-  color: #64748b;
+.status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
-.action-cell {
+.row-actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
 }
 
-.btn-toggle, .btn-del {
-  padding: 4px 10px;
-  border-radius: 6px;
+.ghost-btn {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(240, 238, 246, 0.72);
   font-size: 12px;
+  font-family: inherit;
   cursor: pointer;
-  border: 1px solid transparent;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
-.btn-toggle {
-  background: rgba(255, 255, 255, 0.08);
-  color: #cbd5e1;
+.ghost-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
 }
 
-.btn-del {
-  background: rgba(239, 68, 68, 0.1);
-  color: #f87171;
-  border-color: rgba(239, 68, 68, 0.2);
+.ghost-btn.is-danger {
+  border-color: rgba(240, 120, 120, 0.24);
+  color: rgba(248, 150, 150, 0.9);
 }
 
-/* 弹窗 */
+.ghost-btn.is-danger:hover {
+  background: rgba(240, 90, 90, 0.14);
+  color: #ffb4b4;
+}
+
+.ghost-btn:disabled,
+.pill-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  z-index: 60;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  padding: 24px;
+  background: rgba(3, 4, 8, 0.72);
+  backdrop-filter: blur(6px);
 }
 
 .modal-box {
-  background: #18171d;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  padding: 28px;
-  width: 480px;
+  width: min(520px, 100%);
+  max-height: 86dvh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 26px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, #1a1a24 0%, #101017 100%);
+  box-shadow: 0 40px 90px rgba(0, 0, 0, 0.65);
 }
 
-.form-group {
+.modal-head .kicker {
+  margin-bottom: 4px;
+}
+
+.modal-title {
+  margin: 0;
+  font-family: 'Songti SC', 'Noto Serif SC', 'Source Han Serif SC', Georgia, serif;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
-.form-group label {
-  font-size: 13px;
-  color: #94a3b8;
+.field-label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: rgba(240, 238, 246, 0.52);
 }
 
-.form-group input, .form-group textarea {
-  background: #0f0e13;
+.field input,
+.field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 13px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #fff;
-  padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #f4f2ef;
+  font-family: inherit;
+  font-size: 13.5px;
   outline: none;
+  resize: vertical;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.field input:focus,
+.field textarea:focus {
+  border-color: rgba(167, 155, 255, 0.55);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.field input::placeholder,
+.field textarea::placeholder {
+  color: rgba(240, 238, 246, 0.3);
+}
+
+.file-input {
+  padding: 9px 12px;
+  cursor: pointer;
+  color: rgba(240, 238, 246, 0.6);
+  font-size: 12.5px;
+}
+
+.file-input::file-selector-button {
+  margin-right: 12px;
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #f2f1ee;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.file-input::file-selector-button:hover {
+  background: rgba(255, 255, 255, 0.13);
 }
 
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  margin-top: 10px;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
 }
 
-.btn-cancel {
-  background: transparent;
-  color: #94a3b8;
-  border: none;
-  cursor: pointer;
-}
-
-.btn-submit {
-  background: #6366f1;
-  color: #fff;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 8px;
-  cursor: pointer;
+@media (max-width: 760px) {
+  .admin-top {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 12px;
+  }
+  .admin-top > .pill-btn:last-child {
+    justify-self: center;
+  }
+  .item-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 12px;
+  }
+  .row-actions {
+    grid-column: 1 / -1;
+  }
 }
 </style>

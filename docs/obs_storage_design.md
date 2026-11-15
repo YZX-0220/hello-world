@@ -87,7 +87,7 @@
      ```python
      obs_client.setBucketFetchJob(
          bucketName=bucket,
-         job={"url": provider_task_result_url, "object": f"outputs/{user_id}/{job_id}.mp4"}
+         job={"url": provider_task_result_url, "object": f"outputs/{user_id}/{job_id}.mp4"},
      )
      ```
   2. 华为云数据中心节点直接通过多线公网拉取厂商视频，直接落入 `hello-world-yzx` 桶中。

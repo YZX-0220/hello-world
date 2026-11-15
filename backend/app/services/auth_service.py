@@ -56,10 +56,6 @@ def _dummy_hash() -> str:
     return _DUMMY_PASSWORD_HASH
 
 
-def _login_rate_key(email: str, ip: str) -> str:
-    return f"auth:login:{email}:{ip}"
-
-
 def make_csrf_token(session_token: str) -> str:
     """生成与当前会话绑定的 CSRF token（session token 的 HMAC 签名）。"""
     return hmac_new(
@@ -97,7 +93,7 @@ async def _consume_or_raise(
 
 async def _enforce_login_rate(redis: AsyncRedis, email: str, ip: str) -> None:
     count = await redis.eval(
-        _LOGIN_RATE_LUA, 1, _login_rate_key(email, ip), str(_LOGIN_WINDOW_SECONDS)
+        _LOGIN_RATE_LUA, 1, f"auth:login:{email}:{ip}", str(_LOGIN_WINDOW_SECONDS)
     )
     if int(count) > _LOGIN_MAX_ATTEMPTS:
         raise AppError(RATE_LIMITED)

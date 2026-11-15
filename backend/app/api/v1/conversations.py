@@ -180,11 +180,6 @@ async def send_message(
     }
 
 
-def _sse_event(event: str, data: dict) -> str:
-    """SSE 编码：`event:` 一行 + `data:` 一行（JSON）+ 空行分隔，便于前端逐帧解析。"""
-    return f"event: {event}\ndata: {json_dumps(data, ensure_ascii=False)}\n\n"
-
-
 @router.post("/conversations/{conversation_id}/messages/stream")
 async def send_message_stream(
     conversation_id: str,
@@ -209,7 +204,7 @@ async def send_message_stream(
             payload.web_search_enabled,
             payload.canvas_collaboration,
         ):
-            yield _sse_event(event_type, data)
+            yield f"event: {event_type}\ndata: {json_dumps(data, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_stream(),

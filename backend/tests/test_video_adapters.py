@@ -53,7 +53,7 @@ def _no_dns(monkeypatch: MonkeyPatch) -> None:
             path_prefix="",
         )
 
-    monkeypatch.setattr("app.providers.video.ark_seedance_v1.check_base_url", _fake)
+    monkeypatch.setattr("app.providers.video.base.check_base_url", _fake)
 
     def _public_test_host(host: str) -> str:
         assert host == "cdn.example.com", f"Unexpected media hostname in contract test: {host}"
@@ -77,7 +77,7 @@ def _no_dns_generic(monkeypatch: MonkeyPatch) -> None:
             path_prefix="",
         )
 
-    monkeypatch.setattr("app.providers.video.generic_async_json_v1.check_base_url", _fake)
+    monkeypatch.setattr("app.providers.video.base.check_base_url", _fake)
 
 
 def _ctx(model: str = "doubao-seedance-1-5-pro-251215") -> AdapterContext:
@@ -535,7 +535,7 @@ def _no_dns_dashscope(monkeypatch: MonkeyPatch) -> None:
             path_prefix="",
         )
 
-    monkeypatch.setattr("app.providers.video.dashscope_async_v1.check_base_url", _fake)
+    monkeypatch.setattr("app.providers.video.base.check_base_url", _fake)
 
 
 def _dash_ctx(model: str = "wan2.5-t2v-preview") -> AdapterContext:
@@ -717,7 +717,7 @@ def _no_dns_fal(monkeypatch: MonkeyPatch) -> None:
             path_prefix="",
         )
 
-    monkeypatch.setattr("app.providers.video.fal_queue_v1.check_base_url", _fake)
+    monkeypatch.setattr("app.providers.video.base.check_base_url", _fake)
 
 
 def _fal_ctx(model: str = "fal-ai/wan/v2.2-a14b/text-to-video/turbo") -> AdapterContext:

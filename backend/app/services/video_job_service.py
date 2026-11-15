@@ -127,10 +127,6 @@ def _build_custom_template(custom_template_json: str | None) -> ProtocolTemplate
     )
 
 
-def _fingerprint(payload: dict[str, Any]) -> str:
-    return sha256(json_dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
-
-
 def _asset_ids(spec: VideoBrief) -> list[tuple[str, str, int]]:
     rows: list[tuple[str, str, int]] = []
     if spec.first_frame_asset_id:
@@ -223,21 +219,25 @@ class VideoJobService:
             raise AppError(
                 VIDEO_INPUT_INVALID, "当前方案内容为空，无法生成视频，请先在对话中完善方案"
             )
-        fingerprint = _fingerprint(
-            {
-                "project_version": command.spec_version,
-                "api_config_revision": revision_identifier,
-                "mode": command.mode,
-                "request": request_json,
-            }
-        )
+        fingerprint = sha256(
+            json_dumps(
+                {
+                    "project_version": command.spec_version,
+                    "api_config_revision": revision_identifier,
+                    "mode": command.mode,
+                    "request": request_json,
+                },
+                sort_keys=True,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
 
         # 平台通道：提交厂商前先检查每日配额（放在幂等命中之后，重复请求不误触发限流）。
         if is_platform:
             await self._check_platform_quota(user_id)
 
         # Linearize acceptance against canvas/model edits before the immutable job is inserted.
-        locked = await self._session.execute(
+        locked = await self._session.exec(
             update(VideoProject)
             .where(
                 col(VideoProject.id) == project.id,
@@ -251,7 +251,7 @@ class VideoJobService:
         if locked.first() is None:
             raise AppError(PROJECT_NOT_CONFIRMED, "提交期间画布已变化，请重新审理。")
         if revision is not None:
-            locked_config = await self._session.execute(
+            locked_config = await self._session.exec(
                 update(VideoApiConfig)
                 .where(
                     col(VideoApiConfig.id) == api_config_id,

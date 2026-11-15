@@ -27,7 +27,7 @@ ARK_BASE = "https://ark.cn-beijing.volces.com"
 
 @mark.asyncio
 async def test_ark_seedance_poll_parses_usage(monkeypatch):
-    monkeypatch.setattr("app.providers.video.ark_seedance_v1.check_base_url", lambda url: None)
+    monkeypatch.setattr("app.providers.video.base.check_base_url", lambda url: None)
     provider = ArkSeedanceProvider()
     ctx = AdapterContext(
         base_url=ARK_BASE,
@@ -59,7 +59,7 @@ async def test_ark_seedance_poll_parses_usage(monkeypatch):
 async def test_video_job_refresh_records_and_dedupes_tokens_in_summary(
     client, db_engine, monkeypatch
 ):
-    monkeypatch.setattr("app.providers.video.ark_seedance_v1.check_base_url", lambda url: None)
+    monkeypatch.setattr("app.providers.video.base.check_base_url", lambda url: None)
     monkeypatch.setattr("app.core.config.settings.video_provider", "ark_seedance_v1")
     monkeypatch.setattr("app.core.config.settings.video_platform_api_key", "test-platform-key")
     monkeypatch.setattr("app.core.config.settings.video_platform_base_url", ARK_BASE)
@@ -158,7 +158,7 @@ async def test_ark_image_parses_usage():
 
 @mark.asyncio
 async def test_backfill_ark_video_usage(db_engine, monkeypatch):
-    monkeypatch.setattr("app.providers.video.ark_seedance_v1.check_base_url", lambda url: None)
+    monkeypatch.setattr("app.providers.video.base.check_base_url", lambda url: None)
     monkeypatch.setattr("app.core.config.settings.video_provider", "ark_seedance_v1")
     monkeypatch.setattr("app.core.config.settings.video_platform_api_key", "test-platform-key")
     monkeypatch.setattr("app.core.config.settings.video_platform_base_url", ARK_BASE)

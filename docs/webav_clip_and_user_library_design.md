@@ -64,19 +64,23 @@ class ClipProject(SQLModel, table=True):
     user_id: str = Field(foreign_key="users.id", index=True, ondelete="CASCADE")
     title: str = Field(default="未命名工程", max_length=100)
     description: str = Field(default="", max_length=500)
-    
+
     # WebAV 时间线草稿结构（JSON 字符串），包含 tracks、clips、effects、transitions 等
     timeline_json: str = Field(default="{}", sa_column=Column(Text))
-    
+
     # 剪辑配置元数据
     duration_ms: int = Field(default=0)  # 总时长（毫秒）
     fps: int = Field(default=30)
     width: int = Field(default=1080)
     height: int = Field(default=1920)
-    
-    cover_asset_id: str | None = Field(default=None, foreign_key="assets.id", ondelete="SET NULL")
-    exported_asset_id: str | None = Field(default=None, foreign_key="assets.id", ondelete="SET NULL")
-    
+
+    cover_asset_id: str | None = Field(
+        default=None, foreign_key="assets.id", ondelete="SET NULL"
+    )
+    exported_asset_id: str | None = Field(
+        default=None, foreign_key="assets.id", ondelete="SET NULL"
+    )
+
     version: int = Field(default=1)  # 乐观锁版本号
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
@@ -131,7 +135,7 @@ used_bytes = await quota_service.get_user_storage_used(user.id)
 if used_bytes + request.byte_size > max_bytes:
     raise AppError(
         STORAGE_QUOTA_EXCEEDED,
-        f"云端资料库空间不足。当前已用 {used_bytes / (1024**2):.1f}MB，配额 {settings.default_user_storage_quota_gb}GB"
+        f"云端资料库空间不足。当前已用 {used_bytes / (1024**2):.1f}MB，配额 {settings.default_user_storage_quota_gb}GB",
     )
 ```
 

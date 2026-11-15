@@ -33,10 +33,6 @@ def _attempts_key(purpose: EmailCodePurpose, email: str) -> str:
     return f"otp:attempts:{purpose.value}:{email}"
 
 
-def _send_rate_key(email: str, ip: str) -> str:
-    return f"otp:ratesend:{email}:{ip}"
-
-
 def generate_code() -> str:
     """生成 6 位数字验证码。"""
     return f"{randbelow(1_000_000):06d}"
@@ -133,7 +129,7 @@ async def enforce_send_rate(
     max_per_window: int = _SEND_MAX_PER_WINDOW,
 ) -> None:
     """发送前限流（邮箱 + IP），超限抛 RATE_LIMITED。"""
-    count = await redis.eval(_SEND_RATE_LUA, 1, _send_rate_key(email, ip), str(window))
+    count = await redis.eval(_SEND_RATE_LUA, 1, f"otp:ratesend:{email}:{ip}", str(window))
     if int(count) > max_per_window:
         raise AppError(RATE_LIMITED)
 

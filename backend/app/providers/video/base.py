@@ -7,6 +7,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+from httpx import AsyncClient
+
+from app.core.config import settings
+from app.core.ssrf import UnsafeUrlError, check_base_url
+
 
 class VideoProviderError(Exception):
     """视频 Provider 错误，带分类（是否可重试）与稳定错误码。"""
@@ -52,8 +57,46 @@ class AdapterContext:
     template: Any | None = None  # ProtocolTemplate 或 None
 
 
+def extract_dotpath(obj: Any, dotpath: str) -> Any:
+    """按点分路径取值（如 output.task_id / choices.0.url）；不支持则返回 None。"""
+    if not dotpath:
+        return None
+    cur: Any = obj
+    for part in dotpath.split("."):
+        if isinstance(cur, dict):
+            cur = cur.get(part)
+        elif isinstance(cur, list) and part.isdigit():
+            idx = int(part)
+            cur = cur[idx] if idx < len(cur) else None
+        else:
+            return None
+        if cur is None:
+            return None
+    return cur
+
+
 class VideoProvider(ABC):
     """视频厂商统一接口。所有实现都返回本站定义的类型。"""
+
+    _auth_scheme: str = "Bearer"
+
+    def _client(self) -> AsyncClient:
+        return AsyncClient(
+            timeout=settings.video_provider_timeout,
+            trust_env=False,
+            follow_redirects=False,
+        )
+
+    async def _require_public(self, base_url: str) -> None:
+        try:
+            check_base_url(base_url)
+        except UnsafeUrlError as exc:
+            raise VideoProviderError("UNSAFE_BASE_URL", str(exc), retryable=False) from exc
+
+    @classmethod
+    def _headers(cls, ctx: AdapterContext) -> dict[str, str]:
+        api_key = ctx.auth.get("api_key")
+        return {"Authorization": f"{cls._auth_scheme} {api_key}"} if api_key else {}
 
     @property
     @abstractmethod
@@ -92,4 +135,5 @@ __all__ = [
     "VideoProviderError",
     "VideoSubmitResult",
     "VideoTaskStatus",
+    "extract_dotpath",
 ]

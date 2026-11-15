@@ -18,10 +18,9 @@ from re import sub as regex_sub
 from typing import Any
 from urllib.parse import urlsplit
 
-from httpx import AsyncClient, HTTPError, Response
+from httpx import HTTPError, Response
 
-from app.core.config import settings
-from app.core.ssrf import UnsafeUrlError, check_base_url, validate_public_host
+from app.core.ssrf import UnsafeUrlError, validate_public_host
 from app.providers.video.base import (
     AdapterContext,
     VideoProvider,
@@ -207,24 +206,6 @@ def _build_body(request: dict[str, Any]) -> dict[str, Any]:
 class ArkSeedanceProvider(VideoProvider):
     code = "ark_seedance_v1"
 
-    def _client(self) -> AsyncClient:
-        return AsyncClient(
-            timeout=settings.video_provider_timeout,
-            trust_env=False,
-            follow_redirects=False,
-        )
-
-    async def _require_public(self, base_url: str) -> None:
-        try:
-            check_base_url(base_url)
-        except UnsafeUrlError as exc:
-            raise VideoProviderError("UNSAFE_BASE_URL", str(exc), retryable=False) from exc
-
-    @staticmethod
-    def _headers(ctx: AdapterContext) -> dict[str, str]:
-        api_key = ctx.auth.get("api_key")
-        return {"Authorization": f"Bearer {api_key}"} if api_key else {}
-
     def _task_url(self, ctx: AdapterContext, task_id: str) -> str:
         return (ctx.base_url.rstrip("/") + _TASK_PATH).replace("{task_id}", task_id)
 
@@ -318,8 +299,8 @@ class ArkSeedanceProvider(VideoProvider):
         if not url:
             return None
         try:
-            check_base_url(url)
-        except UnsafeUrlError:
+            await self._require_public(url)
+        except VideoProviderError:
             return None
         try:
             async with self._client() as c:

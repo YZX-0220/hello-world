@@ -19,16 +19,17 @@
 
 from typing import Any
 
-from httpx import AsyncClient, HTTPError
+from httpx import HTTPError
 
-from app.core.config import settings
-from app.core.ssrf import UnsafeUrlError, check_base_url
 from app.providers.video.base import (
     AdapterContext,
     VideoProvider,
     VideoProviderError,
     VideoSubmitResult,
     VideoTaskStatus,
+)
+from app.providers.video.base import (
+    extract_dotpath as _extract,
 )
 
 # 远端状态 -> 本站统一状态（fal 原生语义；未列出的原样透传）
@@ -39,24 +40,6 @@ _STATUS_MAP = {
     "FAILED": "failed",
     "CANCELED": "cancelled",
 }
-
-
-def _extract(obj: Any, dotpath: str) -> Any:
-    """按点分字段路径取值（如 output.video.url）；支持字典与数组下标。结构不支持则返回 None。"""
-    if not dotpath:
-        return None
-    cur: Any = obj
-    for part in dotpath.split("."):
-        if isinstance(cur, dict):
-            cur = cur.get(part)
-        elif isinstance(cur, list) and part.isdigit():
-            idx = int(part)
-            cur = cur[idx] if idx < len(cur) else None
-        else:
-            return None
-        if cur is None:
-            return None
-    return cur
 
 
 def _video_url(data: dict[str, Any]) -> str | None:
@@ -80,24 +63,7 @@ def _video_url(data: dict[str, Any]) -> str | None:
 
 class FalQueueV1Provider(VideoProvider):
     code = "fal_queue_v1"
-
-    def _client(self) -> AsyncClient:
-        return AsyncClient(
-            timeout=settings.video_provider_timeout,
-            trust_env=False,
-            follow_redirects=False,
-        )
-
-    async def _require_public(self, base_url: str) -> None:
-        try:
-            check_base_url(base_url)
-        except UnsafeUrlError as exc:
-            raise VideoProviderError("UNSAFE_BASE_URL", str(exc), retryable=False) from exc
-
-    @staticmethod
-    def _headers(ctx: AdapterContext) -> dict[str, str]:
-        api_key = ctx.auth.get("api_key")
-        return {"Authorization": f"Key {api_key}"} if api_key else {}
+    _auth_scheme = "Key"
 
     def _requests_url(self, ctx: AdapterContext, task_id: str) -> str:
         """request_id（provider_task_id）对应的一组查询 URL 的基址（{base}/fal-ai/requests/{task_id}）。"""
@@ -170,8 +136,8 @@ class FalQueueV1Provider(VideoProvider):
         if not url:
             return None
         try:
-            check_base_url(url)
-        except UnsafeUrlError:
+            await self._require_public(url)
+        except VideoProviderError:
             return None
         try:
             async with self._client() as c:

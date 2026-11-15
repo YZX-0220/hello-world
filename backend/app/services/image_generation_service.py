@@ -259,7 +259,7 @@ class ImageGenerationService:
             secret = values.pop("api_key")
             values.update(encrypted_api_key=_encrypt(secret), key_hint="••••" + secret[-4:])
         values.update(revision=req.expected_revision + 1, updated_at=now())
-        result = await self.session.execute(
+        result = await self.session.exec(
             update(ImageApiConfig)
             .where(
                 col(ImageApiConfig.id) == config_id,
@@ -355,7 +355,7 @@ class ImageGenerationService:
                 result=result,
                 user_id=user_id,
                 conversation_id=req.conversation_id,
-                provider_code=provider.code,
+                provider_code=getattr(provider, "code", None),
             )
             value = result.structured or json_loads(
                 result.reply.strip().removeprefix("```json").removesuffix("```")
@@ -429,7 +429,7 @@ class ImageGenerationService:
         # Read files before taking the DB write lock, including potentially remote OBS reads.
         references, _images, history = await self.input_context(user_id, req)
         await self.session.commit()
-        await self.session.execute(
+        await self.session.exec(
             update(User).where(col(User.id) == user_id).values(status=User.status)
         )
         await self.conversation(user_id, req.conversation_id)
@@ -513,7 +513,7 @@ class ImageGenerationService:
 
     async def cancel(self, user_id, job_id):
         await self.get(user_id, job_id)
-        result = await self.session.execute(
+        result = await self.session.exec(
             update(ImageJob)
             .where(
                 col(ImageJob.id) == job_id,
@@ -534,7 +534,7 @@ class ImageGenerationService:
         row = await self.get(user_id, job_id)
         if row.status != "storage_failed" or not (row.encrypted_result_url or row.simulation):
             raise AppError(IMAGE_CONFLICT, "此任务没有可重试保存的结果，不会重新调用生图模型。")
-        result = await self.session.execute(
+        result = await self.session.exec(
             update(ImageJob)
             .where(col(ImageJob.id) == job_id, col(ImageJob.status) == "storage_failed")
             .values(status="saving", lease_until=None, error_message=None, updated_at=now())
@@ -547,7 +547,7 @@ class ImageGenerationService:
 
     async def acknowledge_unknown(self, user_id, job_id):
         row = await self.get(user_id, job_id)
-        result = await self.session.execute(
+        result = await self.session.exec(
             update(ImageJob)
             .where(
                 col(ImageJob.id) == job_id,
@@ -564,7 +564,7 @@ class ImageGenerationService:
         return job_view(row)
 
     async def recover_expired(self):
-        await self.session.execute(
+        await self.session.exec(
             update(ImageJob)
             .where(
                 col(ImageJob.status) == "generating",
@@ -582,7 +582,7 @@ class ImageGenerationService:
     async def _release_claim(self, job_id, lease_token, generation_status, generation_message):
         """Only the current claimant may terminate a job, including after cancellation."""
         await self.session.rollback()
-        await self.session.execute(
+        await self.session.exec(
             update(ImageJob)
             .where(
                 col(ImageJob.id) == job_id,
@@ -611,7 +611,7 @@ class ImageGenerationService:
         if row is None or row.status not in ("queued", "saving"):
             return
         initial = row.status
-        claimed = await self.session.execute(
+        claimed = await self.session.exec(
             update(ImageJob)
             .where(
                 col(ImageJob.id) == job_id,
@@ -671,7 +671,7 @@ class ImageGenerationService:
                         images=images,
                         watermark=row.watermark,
                     )
-                checkpoint = await self.session.execute(
+                checkpoint = await self.session.exec(
                     update(ImageJob)
                     .where(
                         col(ImageJob.id) == job_id,
@@ -719,7 +719,7 @@ class ImageGenerationService:
                     raise ValueError("missing result")
             # Hold the DB write lock while writing the final file and inserting its asset.
             # A stale worker must not overwrite a newer claimant's file or asset row.
-            locked = await self.session.execute(
+            locked = await self.session.exec(
                 update(ImageJob)
                 .where(
                     col(ImageJob.id) == job_id,
@@ -735,7 +735,7 @@ class ImageGenerationService:
             asset = await shield(pending_store)
             self.session.add(asset)
             await self.session.flush()
-            await self.session.execute(
+            await self.session.exec(
                 update(ImageJob)
                 .where(
                     col(ImageJob.id) == job_id,

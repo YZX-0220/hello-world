@@ -10,10 +10,8 @@
 
 from typing import Any
 
-from httpx import AsyncClient, HTTPError
+from httpx import HTTPError
 
-from app.core.config import settings
-from app.core.ssrf import UnsafeUrlError, check_base_url
 from app.providers.video.base import (
     AdapterContext,
     VideoProvider,
@@ -21,25 +19,10 @@ from app.providers.video.base import (
     VideoSubmitResult,
     VideoTaskStatus,
 )
+from app.providers.video.base import (
+    extract_dotpath as _extract,
+)
 from app.video_registry.core_protocols import V1_VIDEOS_TEMPLATE
-
-
-def _extract(obj: Any, dotpath: str) -> Any:
-    """按点分字段路径取值（如 data.task_id）；不支持则返回 None。"""
-    if not dotpath:
-        return None
-    cur: Any = obj
-    for part in dotpath.split("."):
-        if isinstance(cur, dict):
-            cur = cur.get(part)
-        elif isinstance(cur, list):
-            try:
-                cur = cur[int(part)]
-            except (ValueError, IndexError):
-                return None
-        else:
-            return None
-    return cur
 
 
 def _fill(template: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
@@ -77,24 +60,6 @@ class GenericAsyncJsonV1Provider(VideoProvider):
 
     def __init__(self) -> None:
         self._template = V1_VIDEOS_TEMPLATE
-
-    def _client(self) -> AsyncClient:
-        return AsyncClient(
-            timeout=settings.video_provider_timeout,
-            trust_env=False,
-            follow_redirects=False,
-        )
-
-    async def _require_public(self, base_url: str) -> None:
-        try:
-            check_base_url(base_url)
-        except UnsafeUrlError as exc:
-            raise VideoProviderError("UNSAFE_BASE_URL", str(exc), retryable=False) from exc
-
-    @staticmethod
-    def _headers(ctx: AdapterContext) -> dict[str, str]:
-        api_key = ctx.auth.get("api_key")
-        return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     async def submit(self, request: dict[str, Any], ctx: AdapterContext) -> VideoSubmitResult:
         tpl = ctx.template or self._template

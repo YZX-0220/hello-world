@@ -140,13 +140,17 @@ async def migrate_all_local_assets():
         local_file = Path(asset.storage_path)
         if not local_file.exists():
             continue
-        
+
         # 2. 构造规范 OBS Key
-        obs_key = f"migrated/{asset.user_id}/{asset.kind}s/{asset.id}{local_file.suffix}"
-        
+        obs_key = (
+            f"migrated/{asset.user_id}/{asset.kind}s/{asset.id}{local_file.suffix}"
+        )
+
         # 3. 校验并上传到 OBS
-        obs_client.putFile(bucketName=bucket, objectKey=obs_key, file_path=str(local_file))
-        
+        obs_client.putFile(
+            bucketName=bucket, objectKey=obs_key, file_path=str(local_file)
+        )
+
         # 4. 更新数据库
         asset.storage_provider = "obs"
         asset.storage_path = obs_key

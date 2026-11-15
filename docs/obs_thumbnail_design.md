@@ -88,6 +88,7 @@ THUMBNAIL_PRESETS: dict[str, str] = {
     "medium": "image/resize,m_lfit,w_800,limit_1/format,webp/quality,q_85",
 }
 
+
 def generate_presigned_download_url(
     self,
     key: str,

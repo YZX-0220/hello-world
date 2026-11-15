@@ -13,9 +13,16 @@ MAX_CANVAS_IMAGES = 9
 MAX_CANVAS_IMAGE_BYTES = 20_000_000
 
 
-async def load_canvas_images(session, user_id, nodes, *, bindings=None, pending_assets=()):
+async def load_canvas_images(
+    session, user_id, nodes, *, bindings=None, pending_assets=(), include_perspective: bool = False
+):
     """Return ephemeral labeled bytes; bindings refer to the actual video input after adaptation."""
-    selected = [node for node in nodes if node.get("type") == "image"]
+    selected = [
+        node
+        for node in nodes
+        if node.get("type") == "image"
+        or (include_perspective and node.get("type") == "perspective" and node.get("asset_id"))
+    ]
     if len(selected) > MAX_CANVAS_IMAGES:
         raise AppError(CANVAS_IMAGE_INVALID, "一次最多分析 9 张图片，请减少所选图片。")
     repo = AssetRepository(session)
@@ -70,7 +77,10 @@ async def load_canvas_images(session, user_id, nodes, *, bindings=None, pending_
             result.append(
                 {
                     "node_id": node["id"],
-                    "title": str(node.get("title") or "图片")[:200],
+                    "title": str(
+                        node.get("title")
+                        or ("3D视角参考" if node.get("type") == "perspective" else "图片")
+                    )[:200],
                     "role": binding["role"],
                     "asset_id": asset_id,
                     "data_url": cache[asset_id],

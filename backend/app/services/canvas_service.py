@@ -88,7 +88,10 @@ class CanvasService:
                 raise AppError(CANVAS_NODE_INVALID, "参考小框已变化，请重新选择。")
             # Validate/read before persisting ai_running: failed reads cannot leave a lock behind.
             images = await load_canvas_images(
-                self._session, user_id, [node for node in nodes if node.get("id") in selected_ids]
+                self._session,
+                user_id,
+                [node for node in nodes if node.get("id") in selected_ids],
+                include_perspective=True,
             )
             original = target.get("content") or ""
             parts = [f"协作目标【{target.get('title', '文本节点')}】：\n{original[:12000]}"]

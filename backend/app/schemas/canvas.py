@@ -9,13 +9,14 @@ class CanvasNode(BaseModel):
     model_config = ConfigDict(extra="allow", allow_inf_nan=False)
 
     id: str = Field(min_length=1, max_length=128)
-    type: Literal["text", "image", "video"]
+    type: Literal["text", "image", "video", "perspective"]
     title: str = Field(default="", max_length=200)
     x: float = 0
     y: float = 0
     content: str | None = Field(default=None, max_length=100000)
     url: str | None = None
     asset_id: str | None = None
+    perspective_data: dict[str, Any] | None = None
 
 
 class CanvasConnection(BaseModel):

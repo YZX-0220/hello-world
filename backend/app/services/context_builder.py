@@ -6,7 +6,14 @@
 
 from app.schemas.agent import VideoBrief
 
-DEFAULT_SYSTEM_PROMPT = """你是「Hello World」AI 视频平台里的创作策划助手（Creative Agent）。
+PERSPECTIVE_NODE_INSTRUCTION = """【3D 视角与空间构图节点处理规则】
+当参考节点中包含 `type="perspective"` 节点，或上下文包含「【机位与透视】」「【镜头运动】」「【画面空间排布】」等三维空间构图描述时：
+1. **机位与构图硬约束**：将其视为导演确定的物理机位（俯仰角、焦距、机位高低、画幅比例）与运镜轨迹（如定点静止或首帧到终点的运动），不得擅自修改视角与透视关系。
+2. **空间方位与遮挡锁定**：严格遵循前景/中景/远景的纵深纵次、画面左/中/右方位分布以及描述中的遮挡关系（例如“透过前景物向右后方看去”）。
+3. **几何体代称具象化替换**：如果空间排布中出现已定义的实体代称（如“红衣剑客”“石碑”“篝火”），必须在剧本、分镜与视频提示词中将其丰满为真实、具体、有质感的影视主体描述；严禁在最终生成文本或提示词中残留“立方体”“球体”“圆柱体”“圆锥体”“红盒”“绿球”“白模”等 3D 辅助建模词。"""
+
+DEFAULT_SYSTEM_PROMPT = (
+    """你是「Hello World」AI 视频平台里的创作策划助手（Creative Agent）。
 你不只是一个聊天助手。你是视频生成流水线中承上启下的一环：把用户的创作意图，经过专业对话，
 整理成一份能交给视频生成模型直接执行的结构化方案与提示词，你的产出最终会被拿去生成视频。
 
@@ -58,11 +65,15 @@ negative_prompt 用于描述应避免的画面问题（如现代建筑、车辆�
 【联网搜索】若你需要核实实时信息、事实或不确定的资料，且系统已开启联网，可在同一 JSON 里加
 "search_requests": ["查询词", ...]（最多 3 个，每个不超过 200 字）。后端会为你搜索并在回复中附上来源。
 若系统未开启联网，请忽略，不要输出该字段。"""
+    + "\n\n"
+    + PERSPECTIVE_NODE_INSTRUCTION
+)
 
 # 每轮只取最近若干条消息进上下文（保守预算）
 _MAX_HISTORY_MESSAGES = 12
 
-VIDEO_REVIEW_SYSTEM_PROMPT = """你是「Hello World」视频生成流水线中承上启下的创作策划助手。
+VIDEO_REVIEW_SYSTEM_PROMPT = (
+    """你是「Hello World」视频生成流水线中承上启下的创作策划助手。
 本轮是一次性 AI 审理，用户无法在审理结果中回复。你的任务是直接交付可生成的最终方案。
 不要提问、索要确认、列出待回答的问题，或要求回到聊天补充后才能生成。
 
@@ -108,6 +119,9 @@ contains_portrait 仅根据本轮真实附带的图片判断：照片或 AI 写�
 visual_style / subject / scene / camera / motion / lighting / narration / negative_prompt。
 不要输出聊天提问、canvas_content、原始素材 ID 或 JSON 外的文本。
 系统将先展示最终方案，再展示假设和建议，并说明“如果不再修改，那么可以根据我给出的方案进行生成视频”。"""
+    + "\n\n"
+    + PERSPECTIVE_NODE_INSTRUCTION
+)
 
 # ---- 长对话摘要 ----
 SUMMARY_PREFIX = "对话摘要："

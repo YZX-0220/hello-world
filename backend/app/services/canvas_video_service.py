@@ -347,11 +347,14 @@ class CanvasVideoService:
             raise AppError(VIDEO_INPUT_INVALID, "请等待 AI 协作完成，再审理方案。")
         snapshot = source_snapshot(data, node_ids)
         texts = [n for n in snapshot if n["type"] == "text"]
+        perspectives = [
+            n for n in snapshot if n["type"] == "perspective" and (n.get("content") or "").strip()
+        ]
         if not texts:
             raise AppError(
                 VIDEO_INPUT_INVALID, "请至少选择一个文本小框，可填写想法或留空由 AI 创作。"
             )
-        if sum(len(n["content"] or "") for n in texts) > 30000:
+        if sum(len(n["content"] or "") for n in (*texts, *perspectives)) > 30000:
             raise AppError(VIDEO_INPUT_INVALID, "所选文字超过 30000 字，请精简内容。")
         issues = []
         if any(n["type"] == "video" for n in snapshot):
@@ -374,7 +377,7 @@ class CanvasVideoService:
             allow_identical_frames=bool(target.profile and target.profile.allows_identical_frames),
         )
         issues.extend(role_issues)
-        inputs = "\n\n".join(
+        input_blocks = [
             f"小框【{n['title']}】：\n{n['content'] or '（空白，请自由创作并说明假设）'}"
             + (
                 "\n该小框已确认的结构化方案："
@@ -385,7 +388,12 @@ class CanvasVideoService:
                 else ""
             )
             for n in texts
+        ]
+        input_blocks.extend(
+            f"3D 视角参考小框【{n['title']}】（type=perspective）：\n{n['content']}"
+            for n in perspectives
         )
+        inputs = "\n\n".join(input_blocks)
         ratios = regex_findall(r"(?<!\d)(\d{1,2})\s*[:：]\s*(\d{1,2})(?!\d)", inputs)
         requested_ratio = next((f"{a}:{b}" for a, b in ratios if int(a) and int(b)), None)
         proposal = propose_settings(

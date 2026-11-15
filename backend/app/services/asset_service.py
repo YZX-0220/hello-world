@@ -44,6 +44,7 @@ _UPLOAD_KIND_BY_PURPOSE = {
     "first_frame": "image",
     "last_frame": "image",
     "reference": "image",
+    "perspective_capture": "image",
     "source_video": "video",
     "audio": "audio",
     "material_library_video": "video",

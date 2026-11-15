@@ -41,7 +41,7 @@ from app.services.image_inputs import (
     inspect_reference,
     read_reference,
 )
-from app.services.llm_usage_service import record_llm_usage
+from app.services.llm_usage_service import record_llm_usage, record_token_usage
 from app.storage import ObsStorage, get_storage
 
 IMAGE_NOT_FOUND = ErrorCode("IMAGE_NOT_FOUND", 404, "生图记录不存在或无权访问")
@@ -691,6 +691,20 @@ class ImageGenerationService:
                     return
                 await self.session.commit()
                 await self.session.refresh(row)
+                if result.input_tokens is not None or result.output_tokens is not None:
+                    await record_token_usage(
+                        self.session,
+                        operation="image_generation",
+                        input_tokens=result.input_tokens,
+                        output_tokens=result.output_tokens,
+                        user_id=row.user_id,
+                        conversation_id=row.conversation_id,
+                        provider_code="ark_image",
+                        model_name=row.model,
+                        provider_request_id=result.request_id,
+                        created_at=row.generated_at or now(),
+                        dedupe_by_request_id=True,
+                    )
                 data = result.data
             if data is None:
                 if row.simulation:

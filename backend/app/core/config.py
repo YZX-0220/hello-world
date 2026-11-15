@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     video_platform_model: str = ""  # 平台通道使用的模型/接入点（如 ep-…）
     video_platform_protocol: str = "ark_seedance_v1"
     video_platform_profile_code: str = ""  # ep-* 等接入点必须显式绑定已登记能力
+    # ---- 火山方舟管控面用量查询（可选，用于 GetInferenceUsage 对账/回填）----
+    ark_access_key: str = ""
+    ark_secret_key: str = ""
+    ark_region: str = "cn-beijing"
 
     # ---- 生图：方舟普通/订阅 API，产物原样保存到本地 ----
     image_provider: Literal["ark", "ark_plan", "fake"] = "ark"

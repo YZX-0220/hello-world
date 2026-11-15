@@ -27,6 +27,9 @@ class VideoTaskStatus:
     result_url: str | None = None
     error_code: str | None = None
     error_message: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 

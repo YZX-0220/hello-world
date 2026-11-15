@@ -55,6 +55,7 @@ from app.repositories.video_jobs import (
 from app.schemas.agent import VideoBrief
 from app.schemas.video_job import CreateVideoCommand, ErrorInfo, VideoJobEventView, VideoJobView
 from app.services.canvas_video_service import reviewed_version
+from app.services.llm_usage_service import record_token_usage
 from app.services.provider_asset_url import sign_provider_asset
 from app.services.video_download_service import VideoDownloadService
 from app.storage import ObsStorage, get_asset_storage
@@ -533,6 +534,23 @@ class VideoJobService:
                 )
             )
         await self._repo.save(job)
+        if mapped == VideoJobStatus.SUCCEEDED.value and (
+            status.input_tokens is not None or status.output_tokens is not None
+        ):
+            await record_token_usage(
+                self._session,
+                operation="video_generation",
+                input_tokens=status.input_tokens,
+                output_tokens=status.output_tokens,
+                user_id=job.user_id,
+                conversation_id=job.conversation_id,
+                provider_code=job.protocol_code,
+                model_name=job.remote_model_id,
+                provider_request_id=job.provider_task_id,
+                created_at=job.completed_at or now(),
+                dedupe_by_request_id=True,
+            )
+            await self._session.refresh(job)
         if (
             mapped == VideoJobStatus.SUCCEEDED.value
             and job.download_status == DownloadStatus.NOT_STARTED.value

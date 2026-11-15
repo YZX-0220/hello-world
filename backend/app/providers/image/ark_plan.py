@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw
 
 from app.core.config import settings
 from app.core.ssrf import validate_public_host
+from app.services.llm_usage_service import parse_token_usage
 
 logger = getLogger(__name__)
 
@@ -42,6 +43,9 @@ class ImageResult:
     url: str | None = None
     data: bytes | None = None
     request_id: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 class ImageProviderError(Exception):
@@ -123,10 +127,23 @@ async def generate_image(
                 )
             item = items[0]
             rid = response.headers.get("x-request-id") or payload.get("request_id")
+            input_tokens, output_tokens, total_tokens = parse_token_usage(payload.get("usage"))
             if item.get("url"):
-                return ImageResult(url=item["url"], request_id=rid)
+                return ImageResult(
+                    url=item["url"],
+                    request_id=rid,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens,
+                )
             if item.get("b64_json"):
-                return ImageResult(data=b64decode(item["b64_json"], validate=True), request_id=rid)
+                return ImageResult(
+                    data=b64decode(item["b64_json"], validate=True),
+                    request_id=rid,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens,
+                )
             raise ImageProviderError("生图服务未返回可保存的图片，请核对结果。", uncertain=True)
     except ImageProviderError:
         raise

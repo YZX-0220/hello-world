@@ -29,6 +29,7 @@ from app.providers.video.base import (
     VideoSubmitResult,
     VideoTaskStatus,
 )
+from app.services.llm_usage_service import parse_token_usage
 
 _SUBMIT_PATH = "/api/v3/contents/generations/tasks"
 logger = getLogger("app.providers.video.ark")
@@ -287,10 +288,14 @@ class ArkSeedanceProvider(VideoProvider):
             code, message = _failure(data.get("error"))
         elif raw == "expired":
             code, message = "PROVIDER_TASK_EXPIRED", "厂商任务排队或执行超时，请稍后重试。"
+        input_tokens, output_tokens, total_tokens = parse_token_usage(data.get("usage"))
         return VideoTaskStatus(
             raw_status=str(mapped),
             error_code=code,
             error_message=message,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
             extra={"remote_status": str(raw)},
         )
 

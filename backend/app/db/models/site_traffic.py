@@ -65,11 +65,15 @@ class LLMUsageRecord(SQLModel, table=True):
     __tablename__ = "llm_usage_records"
 
     id: str = Field(default_factory=new_id, primary_key=True)
-    user_id: str | None = Field(default=None, foreign_key="users.id", index=True, ondelete="CASCADE")
+    user_id: str | None = Field(
+        default=None, foreign_key="users.id", index=True, ondelete="CASCADE"
+    )
     conversation_id: str | None = Field(
         default=None, foreign_key="conversations.id", index=True, ondelete="CASCADE"
     )
-    operation: str = Field(max_length=64, index=True)  # outline / breakdown / video_review / image_suggest / summary
+    operation: str = Field(
+        max_length=64, index=True
+    )  # outline / breakdown / video_review / image_suggest / summary
     provider_code: str | None = Field(default=None, max_length=64)
     model_name: str | None = Field(default=None, max_length=200)
     provider_request_id: str | None = Field(default=None, max_length=200)
@@ -77,4 +81,3 @@ class LLMUsageRecord(SQLModel, table=True):
     output_tokens: int | None = Field(default=None)
     status: str = Field(default="succeeded", max_length=20)
     created_at: datetime = Field(default_factory=now, index=True)
-

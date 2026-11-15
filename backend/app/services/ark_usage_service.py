@@ -6,7 +6,7 @@
    通过任务查询接口补齐 `LLMUsageRecord`（按 `provider_task_id` 自动去重）。
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from hashlib import sha256
 from hmac import new as hmac_new
 from json import dumps as json_dumps
@@ -15,7 +15,7 @@ from typing import Any
 
 from httpx import AsyncClient
 from sqlalchemy import and_
-from sqlmodel import col, select
+from sqlmodel import col, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import settings
@@ -144,7 +144,8 @@ async def fetch_ark_inference_usage(
     )
     async with AsyncClient(timeout=settings.video_provider_timeout, trust_env=False) as client:
         resp = await client.post(url, content=body, headers=headers)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise ValueError(f"GetInferenceUsage HTTP {resp.status_code}: {resp.text}")
         return resp.json()
 
 
@@ -224,3 +225,99 @@ async def backfill_ark_video_usage(session: AsyncSession) -> dict[str, int]:
             failed += 1
 
     return {"total": len(jobs), "recorded": recorded, "skipped": skipped, "failed": failed}
+
+
+async def sync_ark_inference_usage_to_records(
+    session: AsyncSession,
+    *,
+    start_time: str,
+    end_time: str,
+) -> dict[str, int]:
+    """按天拉取方舟 `GetInferenceUsage` 并补齐 `llm_usage_records` 历史差额（自动分段、幂等去重）。"""
+    start_d = date.fromisoformat(start_time)
+    end_d = date.fromisoformat(end_time)
+    if end_d < start_d:
+        raise ValueError("end_time 不能早于 start_time")
+
+    days_seen = 0
+    recorded = 0
+    tokens_added = 0
+
+    cursor = start_d
+    while cursor <= end_d:
+        chunk_end = min(cursor + timedelta(days=29), end_d)
+        resp = await fetch_ark_inference_usage(
+            start_time=cursor.isoformat(),
+            end_time=chunk_end.isoformat(),
+            query_interval="Day",
+        )
+        result = resp.get("Result") or {}
+        fields = [f.get("Name") for f in (result.get("Fields") or []) if isinstance(f, dict)]
+        idx = {name: i for i, name in enumerate(fields) if name}
+        day_i = idx.get("Day")
+        in_i = idx.get("InputTokens")
+        out_i = idx.get("OutputTokens")
+        total_i = idx.get("TotalTokens")
+
+        if day_i is not None and total_i is not None:
+            for row in result.get("Data") or []:
+                day_str = str(row[day_i])
+                total_tok = int(row[total_i] or 0)
+                if total_tok <= 0:
+                    continue
+                days_seen += 1
+                sync_req_id = f"ark_usage_sync:{day_str}"
+                already_synced = (
+                    await session.exec(
+                        select(LLMUsageRecord.id).where(
+                            col(LLMUsageRecord.operation) == "video_generation",
+                            col(LLMUsageRecord.provider_request_id) == sync_req_id,
+                        )
+                    )
+                ).first()
+                if already_synced is not None:
+                    continue
+
+                existing_total = (
+                    await session.exec(
+                        select(
+                            func.coalesce(
+                                func.sum(
+                                    func.coalesce(col(LLMUsageRecord.input_tokens), 0)
+                                    + func.coalesce(col(LLMUsageRecord.output_tokens), 0)
+                                ),
+                                0,
+                            )
+                        ).where(
+                            col(LLMUsageRecord.operation) == "video_generation",
+                            func.date(col(LLMUsageRecord.created_at)) == day_str,
+                        )
+                    )
+                ).first() or 0
+
+                delta_total = max(total_tok - int(existing_total), 0)
+                if delta_total <= 0:
+                    continue
+                in_tok = int(row[in_i] or 0) if in_i is not None else 0
+                out_tok = int(row[out_i] or 0) if out_i is not None else delta_total
+                delta_in = min(in_tok, delta_total)
+                delta_out = delta_total - delta_in if out_tok >= 0 else delta_total
+
+                day_dt = datetime.combine(date.fromisoformat(day_str), time(12, 0))
+                item = await record_token_usage(
+                    session,
+                    operation="video_generation",
+                    input_tokens=delta_in,
+                    output_tokens=delta_out,
+                    provider_code="ark_seedance_v1",
+                    provider_request_id=sync_req_id,
+                    created_at=day_dt,
+                    dedupe_by_request_id=True,
+                )
+                if item is not None:
+                    recorded += 1
+                    tokens_added += delta_total
+
+        cursor = chunk_end + timedelta(days=1)
+
+    return {"days": days_seen, "recorded": recorded, "tokens_added": tokens_added}

@@ -42,7 +42,7 @@
 | **媒体总存储量** | 全平台所有就绪素材文件大小累计 | `assets.size_bytes` (`status = 'ready'`) 求和 | 评估华为云 OBS 及磁盘存储成本与容量水位 |
 | **存储介质分布** | 按 OBS 与 Local 分布的存储量与文件数 | `assets.storage_provider` 分组聚合 `size_bytes` | 混合存储演进与数据迁移监控 |
 | **素材类型占比** | 视频、图片、音频各类型文件数量与容量 | `assets.kind` 分组聚合 | 了解平台媒体资产构成 |
-| **大模型 Token 消耗量** | 智能体对话、分镜拆解、大纲生成、AI审理、图片提示词建议消耗的 Token 总量 | `agent_runs` 与 `llm_usage_records` 的 `input_tokens` + `output_tokens` 求和 | 大模型 LLM 采购成本监控与全片统筹开销 |
+| **大模型与多模态 Token 消耗量** | 智能体对话、分镜拆解、大纲生成、AI审理、图片提示词建议、视频生成（`video_generation`）、图片生成（`image_generation`）消耗的 Token 总量 | `agent_runs` 与 `llm_usage_records` 的 `input_tokens` + `output_tokens` 求和 | 大模型与多模态生成采购成本监控与全片统筹开销 |
 
 ### 2.4 性能与服务质量指标 (QoS & Reliability Metrics)
 
@@ -167,4 +167,15 @@ GROUP BY storage_provider, kind;
 ### 5.2 字段兼容性与无痛迁移
 - 基础字段 `total_visits`、`started_at`、`session_timeout_minutes` 与原结构完全兼容，现有前端逻辑读取不受影响。
 - 新增指标均具备默认值（0 或空数组），在数据库冷启动或空数据时均保证平稳响应。
+
+### 5.3 多模态生成 Token 记账与历史补齐（火山方舟）
+- **实时记账**：
+  - 视频生成（`ark_seedance_v1`）：任务轮询进入 `succeeded` 终态时，解析响应中的 `usage`（`completion_tokens` / `total_tokens`），以 `operation="video_generation"` 写入 `llm_usage_records`（按 `(operation, provider_request_id)` 幂等去重）。平台通道与用户自配通道均支持统计。
+  - 图片生成（`ark` / `ark_plan`）：生图成功时解析响应中的 `usage`，以 `operation="image_generation"` 写入 `llm_usage_records`。
+- **历史补齐脚本（`backend/scripts/sync_ark_token_usage.py`）**：
+  - 方舟单任务查询接口（`GET /api/v3/contents/generations/tasks/{id}`）仅保留近期任务（约 7 天），过期任务会返回 `404 ResourceNotFound`；更早的历史消耗需通过火山方舟管控面 `GetInferenceUsage`（需配置 `ARK_ACCESS_KEY` / `ARK_SECRET_KEY`、`ARK_REGION`）按天拉取差额补齐。
+  - 运维命令（在 `backend/` 下执行，自动按 30 天分段并幂等去重）：
+    ```bash
+    uv run python scripts/sync_ark_token_usage.py --start 2026-11-01 --end 2026-11-15
+    ```
 

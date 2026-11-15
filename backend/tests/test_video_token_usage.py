@@ -15,6 +15,7 @@ from app.services.ark_usage_service import (
     backfill_ark_video_usage,
     build_volcengine_v4_headers,
     fetch_ark_inference_usage,
+    sync_ark_inference_usage_to_records,
 )
 from app.services.video_job_service import VideoJobService
 from pytest import mark
@@ -263,3 +264,51 @@ async def test_get_inference_usage_signing_and_request():
             secret_key="sk_test",
         )
     assert res["Result"]["TotalTokens"] == 2254947
+
+
+@mark.asyncio
+async def test_sync_ark_inference_usage_to_records(db_engine, monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.ark_access_key", "ak_test")
+    monkeypatch.setattr("app.core.config.settings.ark_secret_key", "sk_test")
+
+    async with AsyncSession(db_engine) as session:
+        # 预先写入一条 2026-11-15 的单任务记账（模拟 backfill 已录入 100000）
+        session.add(
+            LLMUsageRecord(
+                operation="video_generation",
+                provider_code="ark_seedance_v1",
+                provider_request_id="cgt-existing-1",
+                input_tokens=0,
+                output_tokens=100000,
+                created_at=datetime(2026, 11, 15, 10, 0, 0),
+            )
+        )
+        await session.commit()
+
+        with respx.mock(assert_all_called=True) as mock:
+            mock.post(
+                "https://ark.cn-beijing.volcengineapi.com/?Action=GetInferenceUsage&Version=2024-01-01"
+            ).mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "Result": {
+                            "Fields": [
+                                {"Name": "Day", "Type": "DATE"},
+                                {"Name": "InputTokens", "Type": "BIGINT"},
+                                {"Name": "OutputTokens", "Type": "BIGINT"},
+                                {"Name": "TotalTokens", "Type": "BIGINT"},
+                            ],
+                            "Data": [
+                                ["2026-11-13", "0", "324900", "324900"],
+                                ["2026-11-15", "0", "324900", "324900"],
+                            ],
+                        }
+                    },
+                )
+            )
+            stats = await sync_ark_inference_usage_to_records(
+                session, start_time="2026-11-13", end_time="2026-11-15"
+            )
+
+        assert stats == {"days": 2, "recorded": 2, "tokens_added": 549800}

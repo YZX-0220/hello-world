@@ -81,10 +81,20 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import request from '@/utils/request';
+import type { FlowConnection } from '@/types/canvas';
 import type { FlowNode } from '@/types/canvas';
 import type { ImageApiConfig, ImageDraft, ImageJob, ImageOptions, ImageReferenceUpload } from '@/types/imageGeneration';
 import { imageAlreadyInserted, imageDraftKey, imageEditDraft, imageJobActive, imageJobBlocksGeneration, imageJobLabels, imageDisplayModel, imageSourceDraft, imageSourceParent, imageSubmission, imageSuggestionRequest, imageTextOnlyDraft, readImageDraft, sanitizeImageReferences } from '@/services/imageGeneration';
-const props = defineProps<{ open: boolean; embedded?: boolean; accountId: string; conversationId: string; nodes: FlowNode[]; canvasBusy: boolean; sourceNodeId?: string }>();
+const props = defineProps<{
+  open: boolean;
+  embedded?: boolean;
+  accountId: string;
+  conversationId: string;
+  nodes: FlowNode[];
+  connections?: FlowConnection[];
+  canvasBusy: boolean;
+  sourceNodeId?: string;
+}>();
 defineEmits<{ close: []; insert: [job: ImageJob]; 'portrait-notice': [] }>();
 const panel = ref<HTMLElement | null>(null);
 const lightbox = ref<HTMLElement | null>(null);
@@ -102,7 +112,11 @@ watch(preview, async value => { if (value) { previewFocus = document.activeEleme
 const displayModel = (id: string, channel: string) => imageDisplayModel(options.value?.models || [], id, channel);
 const selectedModel = computed(() => draft.value.api_config_id === 'platform' ? options.value?.platform.model : configs.value.find(c => c.id === draft.value.api_config_id)?.model);
 const selectedAvailable = computed(() => draft.value.api_config_id === 'platform' ? !!options.value?.platform.available : configs.value.some(c => c.id === draft.value.api_config_id));
-const sourceNode = computed(() => props.nodes.find(node => node.id === props.sourceNodeId && node.type === 'image'));
+const sourceNode = computed(() =>
+  props.nodes.find(
+    node => node.id === props.sourceNodeId && (node.type === 'image' || node.type === 'perspective')
+  )
+);
 const maxReferences = computed(() => Math.min(4, Math.max(1, options.value?.max_reference_images || 4)));
 const inputsLocked = computed(() => !!draft.value.pending || submitting.value || uploading.value);
 const canSuggest = computed(() => !!imageSuggestionRequest(draft.value, props.conversationId) && selectedAvailable.value && !inputsLocked.value && !suggesting.value
@@ -152,7 +166,15 @@ watch(() => props.open, async open => {
 watch(() => props.sourceNodeId, () => { if (props.open) applySourceNode(); });
 function applySourceNode(force = false) {
   if (inputsLocked.value || !props.sourceNodeId) return;
-  const next = imageSourceDraft(draft.value, sourceNode.value, jobs.value, force);
+  const next = imageSourceDraft(
+    draft.value,
+    sourceNode.value,
+    jobs.value,
+    force,
+    props.nodes,
+    props.connections || [],
+    options.value?.aspect_ratios || []
+  );
   if (next !== draft.value) { draft.value = next; suggestion.value = null; }
   linkSourceParent();
 }

@@ -30,3 +30,5 @@ export interface ImageDraft {
   source_entry?: { node_id: string; asset_id: string };
   pending?: { key: string; body: ImageSubmission };
 }
+
+

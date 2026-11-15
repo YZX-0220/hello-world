@@ -276,7 +276,7 @@
               ></textarea>
             </div>
 
-     <div class="p3d-footer">
+            <div class="p3d-footer">
               <button type="button" class="cancel-btn" @click="emit('close')">取消</button>
               <button
                 type="button"
@@ -295,7 +295,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue';
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Perspective3DObject, PerspectiveSceneData } from '@/types/api';
@@ -403,6 +403,7 @@ let groundMesh: THREE.Mesh | null = null;
 let gridHelper: THREE.GridHelper | null = null;
 let selectionBoxHelper: THREE.BoxHelper | null = null;
 let animFrameId = 0;
+let resizeObserver: ResizeObserver | null = null;
 
 const meshMap = new Map<string, THREE.Mesh>();
 const raycaster = new THREE.Raycaster();
@@ -418,8 +419,9 @@ function initThreeScene() {
 
   cleanupThree();
 
-  viewportSize.w = wrap.clientWidth || 800;
-  viewportSize.h = wrap.clientHeight || 600;
+  const rect = wrap.getBoundingClientRect();
+  viewportSize.w = Math.max(400, Math.round(rect.width || wrap.clientWidth || 800));
+  viewportSize.h = Math.max(300, Math.round(rect.height || wrap.clientHeight || 600));
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(sceneState.groundColor);
@@ -427,17 +429,29 @@ function initThreeScene() {
   camera = new THREE.PerspectiveCamera(45, viewportSize.w / viewportSize.h, 0.1, 200);
   camera.position.set(...sceneState.startCamera.position);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    preserveDrawingBuffer: true,
+    powerPreference: 'high-performance',
+  });
   renderer.setSize(viewportSize.w, viewportSize.h);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+  renderer.domElement.style.display = 'block';
+  renderer.domElement.style.width = '100%';
+  renderer.domElement.style.height = '100%';
+
   mount.innerHTML = '';
   mount.appendChild(renderer.domElement);
 
-  // 灯光
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.72);
+  // 灯光（半球光 + 环境光 + 平行光，确保任何背景色下明暗清晰不发黑）
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0xe2e8f0, 0.85);
+  hemiLight.position.set(0, 20, 0);
+  scene.add(hemiLight);
+
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.35);
   scene.add(ambientLight);
 
   const dirLight = new THREE.DirectionalLight(0xffffff, 0.85);
@@ -469,13 +483,12 @@ function initThreeScene() {
   controls.target.set(...sceneState.startCamera.target);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
-  controls.maxPolarAngle = Math.PI / 2 + 0.15; // 允许轻微仰拍
+  controls.maxPolarAngle = Math.PI / 2 + 0.15;
   controls.update();
 
   // 恢复或初始化默认几何体
   meshMap.clear();
   if (sceneState.objects.length === 0) {
-    // 默认放两个示例几何体帮助用户上手
     sceneState.objects.push(
       {
         id: 'obj_1',
@@ -512,6 +525,15 @@ function initThreeScene() {
   window.addEventListener('pointerup', onPointerUp);
   window.addEventListener('resize', onWindowResize);
 
+  // 监听中间视口容器自身尺寸变化，防止弹窗挂载瞬间宽高为 0 导致黑屏
+  resizeObserver = new ResizeObserver(() => {
+    onWindowResize();
+  });
+  resizeObserver.observe(wrap);
+
+  // 立即渲染首帧
+  renderer.render(scene, camera);
+
   const animate = () => {
     animFrameId = requestAnimationFrame(animate);
     controls?.update();
@@ -522,11 +544,12 @@ function initThreeScene() {
   };
   animate();
 
-  // 初始若无截图，自动定格一张起始视角
+  // 初始若无截图，待容器布局稳定后自动定格一张起始视角
   if (!startFrameDataUrl.value) {
     setTimeout(() => {
+      onWindowResize();
       captureFrame('start');
-    }, 120);
+    }, 180);
   }
 }
 
@@ -592,7 +615,7 @@ function onPointerDown(e: PointerEvent) {
     if (objId) {
       selectObjectById(objId);
       isDraggingMesh = true;
-      controls.enabled = false; // 拖拽物体时锁住相机旋转
+      controls.enabled = false;
       dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), hitMesh.position);
       const planeHit = new THREE.Vector3();
       if (raycaster.ray.intersectPlane(dragPlane, planeHit)) {
@@ -634,11 +657,15 @@ function onPointerUp() {
 
 function onWindowResize() {
   if (!viewportWrapRef.value || !renderer || !camera) return;
-  viewportSize.w = viewportWrapRef.value.clientWidth;
-  viewportSize.h = viewportWrapRef.value.clientHeight;
-  camera.aspect = viewportSize.w / viewportSize.h;
+  const w = viewportWrapRef.value.clientWidth;
+  const h = viewportWrapRef.value.clientHeight;
+  if (!w || !h) return;
+  viewportSize.w = w;
+  viewportSize.h = h;
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(viewportSize.w, viewportSize.h);
+  renderer.setSize(w, h);
+  if (scene) renderer.render(scene, camera);
 }
 
 // ==================== 左侧工具栏操作 ====================
@@ -748,7 +775,6 @@ function capturePureViewfinderDataUrl(): string {
   const rect = viewfinderRect.value;
 
   const cropCanvas = document.createElement('canvas');
-  // 统一输出高清尺寸
   const outWidth = sceneState.aspectRatio === '9:16' ? 720 : 960;
   const ratioMap = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1 };
   const outHeight = Math.round(outWidth / ratioMap[sceneState.aspectRatio]);
@@ -819,7 +845,6 @@ function getObjectFullLabel(obj: Perspective3DObject): string {
 function recalculateDescription() {
   if (!camera || !controls) return;
 
-  // 使用已定格的起始相机（若尚未定格则用当前实时相机）计算首帧构图
   const tempCam = camera.clone();
   if (sceneState.startCamera) {
     tempCam.position.set(...sceneState.startCamera.position);
@@ -847,12 +872,11 @@ function recalculateDescription() {
   else if (dist > 13.5) shotScaleDesc = '大远景/全景（展现宏大空间环境纵深）';
   else shotScaleDesc = '中景构图（空间透视自然均衡）';
 
-  // 投影每个几何体的 8 个包围盒顶点到取景框局部归一化坐标
   interface ProjectedItem {
     obj: Perspective3DObject;
     label: string;
-    cxPct: number; // 0~100% (从左到右)
-    cyPct: number; // 0~100% (从上到下)
+    cxPct: number;
+    cyPct: number;
     depth: number;
     areaPct: number;
     gridName: string;
@@ -893,7 +917,6 @@ function recalculateDescription() {
 
     for (const c of corners) {
       c.project(tempCam);
-      // 转换到 viewport 像素，再映射到取景安全框内部归一化 [0, 1]
       const px = ((c.x + 1) / 2) * viewportSize.w;
       const py = ((1 - c.y) / 2) * viewportSize.h;
       const u = (px - vf.left) / vf.w;
@@ -907,7 +930,6 @@ function recalculateDescription() {
     const center3D = new THREE.Vector3(...obj.position);
     const depth = center3D.distanceTo(camPos);
 
-    // 计算在取景框内的有效裁剪面积占比
     const clampedMinX = Math.max(0, Math.min(1, minX));
     const clampedMaxX = Math.max(0, Math.min(1, maxX));
     const clampedMinY = Math.max(0, Math.min(1, minY));
@@ -921,7 +943,6 @@ function recalculateDescription() {
     const cxPct = Math.round(Math.max(0, Math.min(100, cx * 100)));
     const cyPct = Math.round(Math.max(0, Math.min(100, cy * 100)));
 
-    // 维度 1：九宫格方位判定
     const colName = cx < 0.36 ? '左' : cx > 0.64 ? '右' : '中';
     const rowName = cy < 0.36 ? '上' : cy > 0.64 ? '下' : '中';
     let gridName = `${colName}${rowName}区域`;
@@ -948,10 +969,8 @@ function recalculateDescription() {
     });
   }
 
-  // 按离相机由近到远排序（前景 -> 中景 -> 远景）
   projectedList.sort((a, b) => a.depth - b.depth);
 
-  // 组装每个主体的空间排布描述
   const itemLines: string[] = [];
   projectedList.forEach((item, idx) => {
     const layerTag =
@@ -963,12 +982,10 @@ function recalculateDescription() {
         ? '深远背景'
         : '中景层次';
 
-    // 维度 2：画面面积占比描述
     let sizeDesc = `约占画面 ${Math.max(1, item.areaPct)}% 面积`;
     if (item.areaPct >= 35) sizeDesc = `占据画面主导地位（约 ${item.areaPct}% 面积，贴近镜头大体量）`;
     else if (item.areaPct <= 6) sizeDesc = `占画面约 ${Math.max(1, item.areaPct)}% 面积（远景深处点缀）`;
 
-    // 高低姿态描述
     const heightNote =
       item.obj.position[1] > 2.2
         ? '悬浮/伫立于高处'
@@ -976,7 +993,6 @@ function recalculateDescription() {
         ? '呈纵向高耸形态立于地面'
         : '稳固置于地面';
 
-    // 维度 5：边缘半入画裁切检测
     const cutEdges: string[] = [];
     if (item.isCutLeft) cutEdges.push('左侧延伸出画外');
     if (item.isCutRight) cutEdges.push('右侧延伸出画外');
@@ -991,14 +1007,12 @@ function recalculateDescription() {
     );
   });
 
-  // 维度 3：检测两两之间的前后遮挡关系 (Occlusion) 与三维相对间距
   const relationNotes: string[] = [];
   for (let i = 0; i < projectedList.length; i++) {
     for (let j = i + 1; j < projectedList.length; j++) {
       const front = projectedList[i];
       const back = projectedList[j];
 
-      // 计算 2D 投影框交集
       const ix0 = Math.max(front.minX, back.minX);
       const iy0 = Math.max(front.minY, back.minY);
       const ix1 = Math.min(front.maxX, back.maxX);
@@ -1015,7 +1029,6 @@ function recalculateDescription() {
         }
       }
 
-      // 相对纵深与左右对角关系
       const depthGap = (back.depth - front.depth).toFixed(1);
       const horizontalRel = back.cxPct > front.cxPct ? '右后方' : '左后方';
       relationNotes.push(
@@ -1024,7 +1037,6 @@ function recalculateDescription() {
     }
   }
 
-  // 维度 6：首尾双机位三维运镜轨迹分解
   let cameraMotionLine = '固定机位拍摄（保持上述透视构图稳定呈现，画面内部主体自然运动）。';
   if (sceneState.endCamera && endFrameDataUrl.value) {
     const startP = new THREE.Vector3(...sceneState.startCamera.position);
@@ -1039,14 +1051,12 @@ function recalculateDescription() {
     const d1 = endVec.length();
     const distDiffPct = Math.round(((d1 - d0) / (d0 || 1)) * 100);
 
-    // 水平方位角变化
     const az0 = Math.atan2(startVec.x, startVec.z);
     const az1 = Math.atan2(endVec.x, endVec.z);
     let azDiffDeg = Math.round(((az1 - az0) * 180) / Math.PI);
     if (azDiffDeg > 180) azDiffDeg -= 360;
     if (azDiffDeg < -180) azDiffDeg += 360;
 
-    // 俯仰角变化
     const p0 = Math.round((Math.asin(startVec.y / (d0 || 1)) * 180) / Math.PI);
     const p1 = Math.round((Math.asin(endVec.y / (d1 || 1)) * 180) / Math.PI);
     const pitchDiff = p1 - p0;
@@ -1093,7 +1103,6 @@ function recalculateDescription() {
 }
 
 function handleConfirmSave() {
-  // 如果用户调整了视角但忘了点“定格当前视角”，或者还没有截图，自动帮用户定格当前画面
   if (!startFrameDataUrl.value) {
     captureFrame('start');
   }
@@ -1109,7 +1118,6 @@ function handleConfirmSave() {
     sceneData: JSON.parse(JSON.stringify(sceneState)),
   };
 
-  // 先彻底释放 Three.js WebGL 循环与事件，再通知父组件写入并立即关闭弹窗
   cleanupThree();
   emit('confirm', payload);
   emit('close');
@@ -1117,11 +1125,19 @@ function handleConfirmSave() {
 
 function cleanupThree() {
   if (animFrameId) cancelAnimationFrame(animFrameId);
+  animFrameId = 0;
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
   window.removeEventListener('pointerup', onPointerUp);
   window.removeEventListener('resize', onWindowResize);
-  if (renderer?.domElement) {
-    renderer.domElement.removeEventListener('pointerdown', onPointerDown);
-    renderer.domElement.removeEventListener('pointermove', onPointerMove);
+  if (renderer) {
+    if (renderer.domElement) {
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+      renderer.domElement.removeEventListener('pointermove', onPointerMove);
+    }
+    renderer.forceContextLoss();
     renderer.dispose();
   }
   meshMap.clear();
@@ -1131,42 +1147,53 @@ function cleanupThree() {
   controls = null;
 }
 
+function hydrateAndInit() {
+  if (props.initialData) {
+    sceneState.aspectRatio = props.initialData.aspectRatio || '16:9';
+    sceneState.groundColor = props.initialData.groundColor || '#ffffff';
+    sceneState.objects = JSON.parse(JSON.stringify(props.initialData.objects || []));
+    sceneState.startCamera = props.initialData.startCamera || {
+      position: [0, 4.5, 10],
+      target: [0, 1, 0],
+    };
+    sceneState.endCamera = props.initialData.endCamera || null;
+    endFrameDataUrl.value = props.initialData.endFrameUrl || null;
+  } else {
+    sceneState.aspectRatio = '16:9';
+    sceneState.groundColor = '#ffffff';
+    sceneState.objects = [];
+    sceneState.startCamera = { position: [0, 4.5, 10], target: [0, 1, 0] };
+    sceneState.endCamera = null;
+    endFrameDataUrl.value = null;
+  }
+  startFrameDataUrl.value = props.initialUrl || '';
+  spatialDescription.value = props.initialDescription || '';
+
+  initThreeScene();
+  if (!spatialDescription.value) {
+    recalculateDescription();
+  }
+}
+
 watch(
   () => props.open,
   async (val) => {
     if (val) {
-      // 恢复外部传入的数据
-      if (props.initialData) {
-        sceneState.aspectRatio = props.initialData.aspectRatio || '16:9';
-        sceneState.groundColor = props.initialData.groundColor || '#ffffff';
-        sceneState.objects = JSON.parse(JSON.stringify(props.initialData.objects || []));
-        sceneState.startCamera = props.initialData.startCamera || {
-          position: [0, 4.5, 10],
-          target: [0, 1, 0],
-        };
-        sceneState.endCamera = props.initialData.endCamera || null;
-        endFrameDataUrl.value = props.initialData.endFrameUrl || null;
-      } else {
-        sceneState.aspectRatio = '16:9';
-        sceneState.groundColor = '#ffffff';
-        sceneState.objects = [];
-        sceneState.startCamera = { position: [0, 4.5, 10], target: [0, 1, 0] };
-        sceneState.endCamera = null;
-        endFrameDataUrl.value = null;
-      }
-      startFrameDataUrl.value = props.initialUrl || '';
-      spatialDescription.value = props.initialDescription || '';
-
       await nextTick();
-      initThreeScene();
-      if (!spatialDescription.value) {
-        recalculateDescription();
-      }
+      hydrateAndInit();
     } else {
       cleanupThree();
     }
   }
 );
+
+// 兼容父组件使用 v-if="perspectiveModal.open" 挂载时立即触发初始化
+onMounted(async () => {
+  if (props.open) {
+    await nextTick();
+    hydrateAndInit();
+  }
+});
 
 watch(
   () => sceneState.aspectRatio,
@@ -1436,6 +1463,8 @@ onBeforeUnmount(() => {
 }
 
 .p3d-canvas-mount {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
 }
@@ -1443,6 +1472,7 @@ onBeforeUnmount(() => {
 .viewfinder-overlay {
   position: absolute;
   inset: 0;
+  z-index: 2;
   pointer-events: none;
   display: flex;
   align-items: center;
@@ -1502,6 +1532,7 @@ onBeforeUnmount(() => {
   bottom: 14px;
   left: 50%;
   transform: translateX(-50%);
+  z-index: 3;
   display: flex;
   gap: 8px;
   background: rgba(15, 23, 42, 0.82);

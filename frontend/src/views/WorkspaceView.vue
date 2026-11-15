@@ -487,10 +487,10 @@
               <button role="tab" :aria-selected="agentTab === 'video'" @click="agentTab = 'video'">生成视频</button>
             </div>
 
-            <ImageGenerationPanel embedded :open="imageGenerationOpen" :account-id="accountId"
-              :conversation-id="currentConvId" :nodes="nodes" :canvas-busy="loading" :source-node-id="imageSourceNodeId"
-              @close="isAgentDrawerOpen = false" @insert="insertGeneratedImage"
-              @portrait-notice="portraitNoticeOpen = true" />
+        <ImageGenerationPanel embedded :open="imageGenerationOpen" :account-id="accountId"
+  :conversation-id="currentConvId" :nodes="nodes" :connections="connections" :canvas-busy="loading" :source-node-id="imageSourceNodeId"
+  @close="isAgentDrawerOpen = false" @insert="insertGeneratedImage"
+  @portrait-notice="portraitNoticeOpen = true" />
 
             <div v-show="agentTab === 'chat'" class="drawer-conversation">
               <div class="ai-target-picker">
@@ -711,16 +711,16 @@
     <GlobalAiDirectorModal :open="showDirectorModal" :conversation-id="currentConvId" :countries="countryList"
       @close="showDirectorModal = false" @apply-plan="handleApplyGlobalPlan" />
 <!-- 只有真正打开时才挂载 3D 引擎，关闭时彻底销毁释放 GPU 和全局事件！ -->
-    <Perspective3DModal
-      v-if="perspectiveModal.open"
-      :open="perspectiveModal.open"
-      :initial-data="editingPerspectiveNode?.perspective_data || null"
-      :initial-url="editingPerspectiveNode?.url || ''"
-      :initial-description="editingPerspectiveNode?.content || ''"
-      :is-saving="perspectiveModal.saving"
-      @close="perspectiveModal.open = false"
-      @confirm="handleConfirmPerspective"
-    />
+   <Perspective3DModal
+  v-if="perspectiveModal.open"
+  :open="perspectiveModal.open"
+  :initial-data="editingPerspectiveNode?.perspective_data || null"
+  :initial-url="editingPerspectiveNode?.url || ''"
+  :initial-description="editingPerspectiveNode?.content || ''"
+  :is-saving="perspectiveModal.saving"
+  @close="perspectiveModal.open = false"
+  @confirm="handleConfirmPerspective"
+/>
     <!-- ================= 国际传播指引弹窗（多选 & 后端负面提示词合并） ================= -->
     <div v-if="showGuideModal" class="guide-modal-mask" @click.self="closeGuideModal">
       <div class="guide-modal-box">
@@ -818,7 +818,8 @@ import {
   videoSettingsBlockReason,
 } from '@/services/generationState';
 import { useRouter, useRoute } from 'vue-router';
-
+// 在文件顶部导入 request（若尚未导入）
+import request from '@/utils/request';
 const router = useRouter();
 const route = useRoute();
 
@@ -1061,33 +1062,33 @@ function openPerspectiveEditor(node: FlowNode) {
   perspectiveModal.open = true;
 }
 
-async function uploadPerspectiveDataUrl(convId: string, dataUrl: string, filename: string): Promise<{ id?: string; url?: string } | null> {
+
+
+async function uploadPerspectiveDataUrl(
+  convId: string,
+  dataUrl: string,
+  filename: string
+): Promise<{ id?: string; url?: string } | null> {
   try {
     const res = await fetch(dataUrl);
     const blob = await res.blob();
     const file = new File([blob], filename, { type: 'image/png' });
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('purpose', 'reference');
+    formData.append('purpose', 'perspective_capture');
     formData.append('conversation_id', convId);
 
-    const token = document.cookie.match(/(?:^|;\s*)hw_csrf=([^;]+)/)?.[1];
-    const headers: Record<string, string> = {};
-    if (token) headers['X-CSRF-Token'] = decodeURIComponent(token);
-
-    const uploadRes = await fetch('/api/v1/assets', {
-      method: 'POST',
-      credentials: 'include',
-      headers,
-      body: formData,
-    });
-    if (!uploadRes.ok) return null;
-    const data = await uploadRes.json();
+    const asset = await request.post<{ id: string; content_url?: string }, { id: string; content_url?: string }>(
+      '/assets',
+      formData,
+      { headers: { 'Content-Type': undefined } }
+    );
     return {
-      id: data.id,
-      url: data.content_url || (data.id ? `/api/v1/assets/${data.id}/content` : undefined),
+      id: asset.id,
+      url: asset.content_url || (asset.id ? `/api/v1/assets/${asset.id}/content` : undefined),
     };
   } catch {
+    notice.value = '3D 视口截图上传失败，可点击重进弹窗再次确认';
     return null;
   }
 }
@@ -1185,7 +1186,7 @@ const videoSourceNodes = computed(() => {
 
 const videoImageNodes = computed(() =>
   generationSources(canvas.value, videoSourceIds.value).filter(
-    n => (n.type === 'image' || n.type === 'perspective') && n.asset_id
+    n => n.type === 'image' && n.asset_id
   )
 );
 

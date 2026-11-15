@@ -1,6 +1,6 @@
 import type { FlowNode } from '../types/canvas.ts';
 import type { ImageApiType, ImageDraft, ImageJob, ImageModel, ImageReference, ImageSubmission } from '../types/imageGeneration.ts';
-
+import type { FlowConnection } from '../types/canvas.ts';
 export const imageJobActive = (job: ImageJob) => ['queued', 'generating', 'saving'].includes(job.status);
 export const imageJobBlocksGeneration = (job: ImageJob) => imageJobActive(job) || job.status === 'unknown';
 export const imageJobLabels: Record<ImageJob['status'], string> = {
@@ -64,11 +64,83 @@ export function imageTextOnlyDraft(current: ImageDraft): ImageDraft {
 export function imageSourceParent(node: FlowNode, jobs: ImageJob[]): string | null {
   return jobs.find(job => job.id === node.job_id && job.asset_id === node.asset_id && job.status === 'succeeded')?.id || null;
 }
-export function imageSourceDraft(current: ImageDraft, node: FlowNode | undefined, jobs: ImageJob[], force = false): ImageDraft {
-  if (current.pending || node?.type !== 'image' || !node.asset_id) return current;
-  if (!force && current.source_entry?.node_id === node.id && current.source_entry.asset_id === node.asset_id) return current;
-  return { ...current, source_node_id: node.id, source_entry: { node_id: node.id, asset_id: node.asset_id }, parent_job_id: imageSourceParent(node, jobs),
-    reference_images: [{ asset_id: node.asset_id, content_url: `/api/v1/assets/${encodeURIComponent(node.asset_id)}/content?thumbnail=raw`, original_name: node.title || '画布参考图' }] };
+export function imageSourceDraft(
+  current: ImageDraft,
+  source?: FlowNode,
+  jobs: ImageJob[] = [],
+  force = false,
+  nodes: FlowNode[] = [],
+  connections: FlowConnection[] = [],
+  supportedRatios: string[] = []
+): ImageDraft {
+  if (
+    current.pending ||
+    !source ||
+    !['image', 'perspective'].includes(source.type) ||
+    !source.asset_id ||
+    !source.url
+  ) {
+    return current;
+  }
+
+  const isNewEntry =
+    force ||
+    current.source_entry?.node_id !== source.id ||
+    current.source_entry?.asset_id !== source.asset_id;
+  if (!isNewEntry) return current;
+
+  const refs: ImageReference[] = [
+    {
+      asset_id: source.asset_id,
+      content_url: source.url,
+      original_name: source.title || (source.type === 'perspective' ? '3D 视角参考图' : '参考图'),
+    },
+  ];
+
+  // 若从视角节点发起，自动将连线关联的 image 节点加入参考图（最多凑齐 4 张去重）
+  if (source.type === 'perspective' && nodes.length > 0 && connections.length > 0) {
+    const linkedIds = new Set<string>();
+    for (const c of connections) {
+      if (c.from === source.id) linkedIds.add(c.to);
+      else if (c.to === source.id) linkedIds.add(c.from);
+    }
+    for (const linkedId of linkedIds) {
+      if (refs.length >= 4) break;
+      const linkedNode = nodes.find(n => n.id === linkedId);
+      if (
+        linkedNode?.type === 'image' &&
+        linkedNode.asset_id &&
+        linkedNode.url &&
+        !refs.some(r => r.asset_id === linkedNode.asset_id)
+      ) {
+        refs.push({
+          asset_id: linkedNode.asset_id,
+          content_url: linkedNode.url,
+          original_name: linkedNode.title || '关联参考图',
+        });
+      }
+    }
+  }
+
+  const next: ImageDraft = {
+    ...current,
+    source_node_id: source.id,
+    source_entry: { node_id: source.id, asset_id: source.asset_id },
+    parent_job_id: source.type === 'image' ? imageSourceParent(source, jobs) : null,
+    reference_images: sanitizeImageReferences(refs),
+  };
+
+  if (source.type === 'perspective') {
+    const pRatio = source.perspective_data?.aspectRatio;
+    if (pRatio && (!supportedRatios.length || supportedRatios.includes(pRatio))) {
+      next.aspect_ratio = pRatio;
+    }
+    if (!next.prompt.trim() && source.content?.trim()) {
+      next.prompt = source.content.trim();
+    }
+  }
+
+  return next;
 }
 export function imageAlreadyInserted(nodes: FlowNode[], job: ImageJob) {
   return nodes.some(node => node.type === 'image' && (node.job_id === job.id || (!!job.asset_id && node.asset_id === job.asset_id)));

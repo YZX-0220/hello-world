@@ -19,8 +19,7 @@
 <header class="landing-nav">
   <div class="nav-left">
     <div class="brand" @click="scrollToTop">
-      <div class="brand-avatar">H</div>
-      <span class="brand-name">Hello World</span>
+        <span class="brand-name">Hello World</span>
     </div>
 
     <router-link to="/tv" class="nav-tv-btn" title="浏览 TV 频道">
@@ -835,14 +834,16 @@ function scrollToTop() {
   left: 0;
   right: 0;
   z-index: 50;
-  height: clamp(60px, 7.5vh, 80px);
+  height: clamp(60px, 7.2vh, 72px);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 clamp(24px, 4vw, 56px);
-  background: rgba(7, 9, 14, 0.75);
+  gap: 20px;
+  padding: 0 clamp(20px, 3.2vw, 48px);
+  background: rgba(9, 11, 17, 0.78);
   backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  box-sizing: border-box;
 }
 
 .brand {
@@ -867,9 +868,11 @@ function scrollToTop() {
 }
 
 .brand-name {
-  font-size: 20px;
+  font-family: 'Space Grotesk', 'PingFang SC', 'HarmonyOS Sans SC', ui-sans-serif, system-ui, sans-serif;
   font-weight: 600;
-  letter-spacing: 0.5px;
+  font-style: normal;
+  letter-spacing: -0.015em;
+  font-size: 22px;
 }
 
 .nav-right {

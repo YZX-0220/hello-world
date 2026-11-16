@@ -77,28 +77,29 @@ export function imageSourceDraft(
     current.pending ||
     !source ||
     !['image', 'perspective'].includes(source.type) ||
-    !source.asset_id ||
     !source.url
   ) {
     return current;
   }
 
+  const currentAssetKey = source.asset_id || 'pending_upload';
   const isNewEntry =
     force ||
     current.source_entry?.node_id !== source.id ||
-    current.source_entry?.asset_id !== source.asset_id;
+    current.source_entry?.asset_id !== currentAssetKey;
   if (!isNewEntry) return current;
 
-  const refs: ImageReference[] = [
-    {
+  const refs: ImageReference[] = [];
+  if (source.asset_id) {
+    refs.push({
       asset_id: source.asset_id,
       content_url: source.url,
       original_name: source.title || (source.type === 'perspective' ? '3D 视角参考图' : '参考图'),
-    },
-  ];
+    });
+  }
 
-  // 若从视角节点发起，自动将连线关联的 image 节点加入参考图（最多凑齐 4 张去重）
-  if (source.type === 'perspective' && nodes.length > 0 && connections.length > 0) {
+  // 若从视角节点发起（或存在连线关联），自动将连线关联的 image/perspective 节点加入参考图（最多 4 张去重）
+  if (nodes.length > 0 && connections.length > 0) {
     const linkedIds = new Set<string>();
     for (const c of connections) {
       if (c.from === source.id) linkedIds.add(c.to);
@@ -108,7 +109,8 @@ export function imageSourceDraft(
       if (refs.length >= 4) break;
       const linkedNode = nodes.find(n => n.id === linkedId);
       if (
-        linkedNode?.type === 'image' &&
+        linkedNode &&
+        (linkedNode.type === 'image' || linkedNode.type === 'perspective') &&
         linkedNode.asset_id &&
         linkedNode.url &&
         !refs.some(r => r.asset_id === linkedNode.asset_id)
@@ -125,8 +127,8 @@ export function imageSourceDraft(
   const next: ImageDraft = {
     ...current,
     source_node_id: source.id,
-    source_entry: { node_id: source.id, asset_id: source.asset_id },
-    parent_job_id: source.type === 'image' ? imageSourceParent(source, jobs) : null,
+    source_entry: { node_id: source.id, asset_id: currentAssetKey },
+    parent_job_id: source.type === 'image' && source.asset_id ? imageSourceParent(source, jobs) : null,
     reference_images: sanitizeImageReferences(refs),
   };
 
@@ -135,8 +137,21 @@ export function imageSourceDraft(
     if (pRatio && (!supportedRatios.length || supportedRatios.includes(pRatio))) {
       next.aspect_ratio = pRatio;
     }
-    if (!next.prompt.trim() && source.content?.trim()) {
-      next.prompt = source.content.trim();
+    // 组合视角空间描述 + 连线关联文本节点的提示词
+    const linkedTexts: string[] = [];
+    if (nodes.length > 0 && connections.length > 0) {
+      for (const c of connections) {
+        const peerId = c.from === source.id ? c.to : c.to === source.id ? c.from : '';
+        if (!peerId) continue;
+        const peer = nodes.find(n => n.id === peerId);
+        if (peer?.type === 'text' && peer.content?.trim()) {
+          linkedTexts.push(peer.content.trim());
+        }
+      }
+    }
+    const combinedDesc = [source.content?.trim(), ...linkedTexts].filter(Boolean).join('\n');
+    if ((!next.prompt.trim() || force) && combinedDesc) {
+      next.prompt = combinedDesc.slice(0, 4000);
     }
   }
 

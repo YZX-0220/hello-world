@@ -987,7 +987,13 @@ const imageSourceNodeId = ref('');
 
 function openImageGeneration(node?: FlowNode) {
   if (loading.value || !currentConvId.value) return;
-  imageSourceNodeId.value = node?.id || '';
+  const fallbackSelectedVisual =
+    node ||
+    [...selectedNodeIds.value, activeNodeId.value]
+      .map(id => nodes.value.find(n => n.id === id))
+      .find((n): n is FlowNode => !!n && (n.type === 'image' || n.type === 'perspective') && !!n.url);
+
+  imageSourceNodeId.value = fallbackSelectedVisual?.id || '';
   agentTab.value = 'image';
   isAgentDrawerOpen.value = true;
 }
@@ -1070,22 +1076,56 @@ async function uploadPerspectiveDataUrl(
   filename: string
 ): Promise<{ id?: string; url?: string } | null> {
   try {
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
-    const file = new File([blob], filename, { type: 'image/png' });
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('3D 截图解码失败'));
+      img.src = dataUrl;
+    });
+
+    // 确保长边为 1280px，符合平台最小与最大尺寸区间
+    const minLongEdge = 1280;
+    const srcW = img.naturalWidth || 1280;
+    const srcH = img.naturalHeight || 720;
+    const scale = Math.max(1, minLongEdge / Math.max(srcW, srcH));
+    const targetW = Math.round(srcW * scale);
+    const targetH = Math.round(srcH * scale);
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = targetW;
+    offscreen.height = targetH;
+    // 关闭 alpha 通道，强制生成纯 RGB 图像
+    const ctx = offscreen.getContext('2d', { alpha: false });
+    if (ctx) {
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, 0, targetW, targetH);
+      ctx.drawImage(img, 0, 0, targetW, targetH);
+    }
+
+    // 导出为标准 RGB JPEG（质量 0.95），彻底消除 PNG Alpha 通道兼容性问题
+    const blob = await new Promise<Blob | null>(resolve =>
+      offscreen.toBlob(b => resolve(b), 'image/jpeg', 0.95)
+    );
+    if (!blob) return null;
+
+    const jpgName = filename.replace(/\.png$/i, '.jpg');
+    const file = new File([blob], jpgName, { type: 'image/jpeg' });
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('purpose', 'perspective_capture');
     formData.append('conversation_id', convId);
 
-    const asset = await request.post<{ id: string; content_url?: string }, { id: string; content_url?: string }>(
-      '/assets',
-      formData,
-      { headers: { 'Content-Type': undefined } }
-    );
+    const asset = await request.post<
+      unknown,
+      { id: string; content_url?: string }
+    >('/image-reference-uploads', formData, {
+      headers: { 'Content-Type': undefined },
+    });
+
     return {
       id: asset.id,
-      url: asset.content_url || (asset.id ? `/api/v1/assets/${asset.id}/content` : undefined),
+      url:
+        asset.content_url ||
+        (asset.id ? `/api/v1/assets/${asset.id}/content` : undefined),
     };
   } catch {
     notice.value = '3D 视口截图上传失败，可点击重进弹窗再次确认';
@@ -1153,8 +1193,23 @@ function openImageGenFromPerspective(node: FlowNode) {
   const linkedIds = expandConnectedNodeIds([node.id]);
   selectedNodeIds.value = linkedIds;
   referencedNodeIds.value = linkedIds;
+
+  // 若 3D 截图尚未拿到云端 asset_id，立即补发一次上传，面板监听到 asset_id 到位后会自动挂载参考图
+  if (!node.asset_id && node.url?.startsWith('data:') && currentConvId.value) {
+    void uploadPerspectiveDataUrl(
+      currentConvId.value,
+      node.url,
+      `perspective_start_${Date.now()}.png`
+    ).then(uploaded => {
+      if (uploaded?.url) node.url = uploaded.url;
+      if (uploaded?.id) node.asset_id = uploaded.id;
+    });
+  }
+
   openImageGeneration(node);
-  notice.value = '已将 3D 视角构图及连线参考图载入生图面板，可直接渲染真实首帧！';
+  notice.value = node.asset_id
+    ? '已将 3D 视角构图及连线参考图载入生图面板，可直接渲染真实首帧！'
+    : '正在同步 3D 视角截图至云端参考库，同步完成后将自动载入参考图…';
 }
 
 const connectedSelectionIds = computed(() => {

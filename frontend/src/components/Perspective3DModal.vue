@@ -29,7 +29,7 @@
 
         <!-- 主体三栏布局 -->
         <div class="p3d-body">
-          <!-- 左侧：几何体工具栏与选中物体属性 -->
+          <!-- 左侧：几何体工具栏、光源控制与选中物体属性 -->
           <aside class="p3d-left-panel">
             <div class="panel-section">
               <div class="section-title">1. 添加空间几何体</div>
@@ -57,8 +57,9 @@
               </div>
             </div>
 
+            <!-- 2. 地面背景与主光源方向 -->
             <div class="panel-section">
-              <div class="section-title">2. 地面背景颜色</div>
+              <div class="section-title">2. 地面背景与主光源方向</div>
               <div class="color-row">
                 <button
                   v-for="g in groundPalette"
@@ -66,14 +67,39 @@
                   type="button"
                   class="color-dot"
                   :class="{ active: sceneState.groundColor === g.hex }"
-                  :style="{ background: g.hex }"
+                  :style="{ background: g.color }"
                   :title="g.name"
                   @click="setGroundColor(g.hex)"
                 ></button>
               </div>
+
+              <div class="light-control-box">
+                <div class="control-group">
+                  <label>主光源水平方位: {{ sceneState.lightAzimuth }}° ({{ lightDirectionLabel }})</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="360"
+                    step="5"
+                    :value="sceneState.lightAzimuth"
+                    @input="updateLightDirection('azimuth', +($event.target as HTMLInputElement).value)"
+                  />
+                </div>
+                <div class="control-group">
+                  <label>主光源照射仰角: {{ sceneState.lightElevation }}°</label>
+                  <input
+                    type="range"
+                    min="15"
+                    max="85"
+                    step="5"
+                    :value="sceneState.lightElevation"
+                    @input="updateLightDirection('elevation', +($event.target as HTMLInputElement).value)"
+                  />
+                </div>
+              </div>
             </div>
 
-            <!-- 选中几何体属性调节 -->
+            <!-- 选中几何体属性调节（含物体旋转 & 放大缩放上限） -->
             <div v-if="selectedObj" class="panel-section active-obj-panel">
               <div class="section-header-row">
                 <span class="section-title">当前选中：{{ getObjectFullLabel(selectedObj) }}</span>
@@ -110,11 +136,23 @@
               </div>
 
               <div class="control-group">
+                <label>水平旋转朝向: {{ selectedObj.rotationY }}°</label>
+                <input
+                  type="range"
+                  min="-180"
+                  max="180"
+                  step="5"
+                  :value="selectedObj.rotationY"
+                  @input="updateSelectedTransform('rotY', +($event.target as HTMLInputElement).value)"
+                />
+              </div>
+
+              <div class="control-group">
                 <label>离地高度 (Y): {{ selectedObj.position[1].toFixed(1) }}</label>
                 <input
                   type="range"
                   min="0"
-                  max="8"
+                  max="15"
                   step="0.2"
                   :value="selectedObj.position[1]"
                   @input="updateSelectedTransform('posY', +($event.target as HTMLInputElement).value)"
@@ -125,8 +163,8 @@
                 <label>左右位置 (X): {{ selectedObj.position[0].toFixed(1) }}</label>
                 <input
                   type="range"
-                  min="-10"
-                  max="10"
+                  min="-16"
+                  max="16"
                   step="0.2"
                   :value="selectedObj.position[0]"
                   @input="updateSelectedTransform('posX', +($event.target as HTMLInputElement).value)"
@@ -137,8 +175,8 @@
                 <label>前后纵深 (Z): {{ selectedObj.position[2].toFixed(1) }}</label>
                 <input
                   type="range"
-                  min="-10"
-                  max="10"
+                  min="-16"
+                  max="16"
                   step="0.2"
                   :value="selectedObj.position[2]"
                   @input="updateSelectedTransform('posZ', +($event.target as HTMLInputElement).value)"
@@ -149,9 +187,9 @@
                 <label>宽度缩放: {{ selectedObj.scale[0].toFixed(1) }}x</label>
                 <input
                   type="range"
-                  min="0.3"
-                  max="5"
-                  step="0.1"
+                  min="0.2"
+                  max="12"
+                  step="0.2"
                   :value="selectedObj.scale[0]"
                   @input="updateSelectedTransform('scaleXZ', +($event.target as HTMLInputElement).value)"
                 />
@@ -161,16 +199,16 @@
                 <label>高度拉伸: {{ selectedObj.scale[1].toFixed(1) }}x</label>
                 <input
                   type="range"
-                  min="0.3"
-                  max="6"
-                  step="0.1"
+                  min="0.2"
+                  max="15"
+                  step="0.2"
                   :value="selectedObj.scale[1]"
                   @input="updateSelectedTransform('scaleY', +($event.target as HTMLInputElement).value)"
                 />
               </div>
             </div>
             <div v-else class="panel-section empty-obj-tip">
-              点击画面中的 3D 几何体可调整其高度、大小、颜色或拖拽位置
+              点击画面中的 3D 几何体可调整其旋转、高度、大小、颜色或拖拽位置
             </div>
           </aside>
 
@@ -272,7 +310,7 @@
                 v-model="spatialDescription"
                 class="spatial-textarea"
                 rows="8"
-                placeholder="定格视角后，系统将自动根据三维坐标、九宫格投影、画面占比与遮挡关系生成精确描述..."
+                placeholder="转动 3D 视角或定格后，系统将自动根据三维坐标、九宫格投影、光照方位与遮挡关系实时生成精确描述..."
               ></textarea>
             </div>
 
@@ -298,7 +336,18 @@
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { Perspective3DObject, PerspectiveSceneData } from '@/types/api';
+import type { Perspective3DObject, PerspectiveSceneData } from '@/types/canvas';
+
+type Extended3DObject = Omit<Perspective3DObject, 'alias'> & {
+  alias: string;
+  rotationY: number;
+};
+
+type ExtendedSceneData = Omit<PerspectiveSceneData, 'objects'> & {
+  objects: Extended3DObject[];
+  lightAzimuth: number;
+  lightElevation: number;
+};
 
 const props = defineProps<{
   open: boolean;
@@ -329,11 +378,11 @@ const shapeNameMap: Record<Perspective3DObject['shape'], string> = {
 };
 
 const groundPalette = [
-  { hex: '#ffffff', name: '纯白平面' },
-  { hex: '#e2e8f0', name: '浅灰地面' },
-  { hex: '#1e293b', name: '暗夜黑底' },
-  { hex: '#dcfce7', name: '草地浅绿' },
-  { hex: '#e0f2fe', name: '水天浅蓝' },
+  { hex: '#ffffff', color: '#ffffff', name: '纯白平面' },
+  { hex: '#e2e8f0', color: '#e2e8f0', name: '浅灰地面' },
+  { hex: '#1e293b', color: '#1e293b', name: '暗夜黑底' },
+  { hex: '#dcfce7', color: '#dcfce7', name: '草地浅绿' },
+  { hex: '#e0f2fe', color: '#e0f2fe', name: '水天浅蓝' },
 ];
 
 const objectPalette = [
@@ -345,9 +394,11 @@ const objectPalette = [
   { hex: '#64748b', name: '灰色' },
 ];
 
-const sceneState = reactive<PerspectiveSceneData>({
+const sceneState = reactive<ExtendedSceneData>({
   aspectRatio: '16:9',
   groundColor: '#ffffff',
+  lightAzimuth: 45,
+  lightElevation: 55,
   objects: [],
   startCamera: { position: [0, 4.5, 10], target: [0, 1, 0] },
   endCamera: null,
@@ -362,6 +413,18 @@ const spatialDescription = ref<string>('');
 const selectedObj = computed(() =>
   sceneState.objects.find((o) => o.id === selectedObjectId.value) || null
 );
+
+const lightDirectionLabel = computed(() => {
+  const az = ((sceneState.lightAzimuth % 360) + 360) % 360;
+  if (az >= 337.5 || az < 22.5) return '正前方顺光';
+  if (az < 67.5) return '右前侧顺光';
+  if (az < 112.5) return '右侧正侧光';
+  if (az < 157.5) return '右后侧逆光';
+  if (az < 202.5) return '正后方逆光/轮廓光';
+  if (az < 247.5) return '左后侧逆光';
+  if (az < 292.5) return '左侧正侧光';
+  return '左前侧顺光';
+});
 
 // 计算取景安全框尺寸
 const viewportWrapRef = ref<HTMLElement | null>(null);
@@ -399,11 +462,13 @@ let scene: THREE.Scene | null = null;
 let camera: THREE.PerspectiveCamera | null = null;
 let renderer: THREE.WebGLRenderer | null = null;
 let controls: OrbitControls | null = null;
+let dirLight: THREE.DirectionalLight | null = null;
 let groundMesh: THREE.Mesh | null = null;
 let gridHelper: THREE.GridHelper | null = null;
 let selectionBoxHelper: THREE.BoxHelper | null = null;
 let animFrameId = 0;
 let resizeObserver: ResizeObserver | null = null;
+let cameraLiveSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
 const meshMap = new Map<string, THREE.Mesh>();
 const raycaster = new THREE.Raycaster();
@@ -411,6 +476,25 @@ const mouseNDC = new THREE.Vector2();
 const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 let isDraggingMesh = false;
 const dragOffset = new THREE.Vector3();
+
+function applyDirLightPosition() {
+  if (!dirLight) return;
+  const radius = 32;
+  const azRad = (sceneState.lightAzimuth * Math.PI) / 180;
+  const elRad = (sceneState.lightElevation * Math.PI) / 180;
+  const horizontalDist = radius * Math.cos(elRad);
+  const x = horizontalDist * Math.sin(azRad);
+  const y = radius * Math.sin(elRad);
+  const z = horizontalDist * Math.cos(azRad);
+  dirLight.position.set(x, y, z);
+}
+
+function updateLightDirection(type: 'azimuth' | 'elevation', val: number) {
+  if (type === 'azimuth') sceneState.lightAzimuth = val;
+  else sceneState.lightElevation = val;
+  applyDirLightPosition();
+  recalculateDescription(true);
+}
 
 function initThreeScene() {
   const mount = canvasMountRef.value;
@@ -446,23 +530,31 @@ function initThreeScene() {
   mount.innerHTML = '';
   mount.appendChild(renderer.domElement);
 
-  // 灯光（半球光 + 环境光 + 平行光，确保任何背景色下明暗清晰不发黑）
-  const hemiLight = new THREE.HemisphereLight(0xffffff, 0xe2e8f0, 0.85);
-  hemiLight.position.set(0, 20, 0);
+  // 灯光（半球光 + 环境光 + 可调方向平行主光）
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0xe2e8f0, 0.75);
+  hemiLight.position.set(0, 25, 0);
   scene.add(hemiLight);
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.35);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.28);
   scene.add(ambientLight);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.85);
-  dirLight.position.set(12, 22, 14);
+  dirLight = new THREE.DirectionalLight(0xffffff, 1.05);
   dirLight.castShadow = true;
-  dirLight.shadow.mapSize.width = 1024;
-  dirLight.shadow.mapSize.height = 1024;
+  dirLight.shadow.mapSize.width = 2048;
+  dirLight.shadow.mapSize.height = 2048;
+  dirLight.shadow.camera.near = 1;
+  dirLight.shadow.camera.far = 90;
+  const d = 24;
+  dirLight.shadow.camera.left = -d;
+  dirLight.shadow.camera.right = d;
+  dirLight.shadow.camera.top = d;
+  dirLight.shadow.camera.bottom = -d;
+  dirLight.shadow.bias = -0.0005;
+  applyDirLightPosition();
   scene.add(dirLight);
 
   // 无限感大平面
-  const planeGeo = new THREE.PlaneGeometry(200, 200);
+  const planeGeo = new THREE.PlaneGeometry(240, 240);
   const planeMat = new THREE.MeshStandardMaterial({
     color: sceneState.groundColor,
     roughness: 0.9,
@@ -478,13 +570,20 @@ function initThreeScene() {
   gridHelper.position.y = 0.01;
   scene.add(gridHelper);
 
-  // 轨道控制器
+  // 轨道控制器 + 实时视角变动监听（鼠标旋转机位时实时刷新角度与空间描述）
   controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(...sceneState.startCamera.target);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.maxPolarAngle = Math.PI / 2 + 0.15;
   controls.update();
+
+  controls.addEventListener('change', () => {
+    if (cameraLiveSyncTimer) clearTimeout(cameraLiveSyncTimer);
+    cameraLiveSyncTimer = setTimeout(() => {
+      recalculateDescription(true);
+    }, 90);
+  });
 
   // 恢复或初始化默认几何体
   meshMap.clear();
@@ -498,6 +597,7 @@ function initThreeScene() {
         alias: '',
         position: [-1.6, 1.1, 1.5],
         scale: [1, 1.4, 1],
+        rotationY: 0,
       },
       {
         id: 'obj_2',
@@ -507,6 +607,7 @@ function initThreeScene() {
         alias: '',
         position: [2.2, 1.5, -2.5],
         scale: [1.8, 2.0, 1.8],
+        rotationY: 0,
       }
     );
   }
@@ -525,13 +626,11 @@ function initThreeScene() {
   window.addEventListener('pointerup', onPointerUp);
   window.addEventListener('resize', onWindowResize);
 
-  // 监听中间视口容器自身尺寸变化，防止弹窗挂载瞬间宽高为 0 导致黑屏
   resizeObserver = new ResizeObserver(() => {
     onWindowResize();
   });
   resizeObserver.observe(wrap);
 
-  // 立即渲染首帧
   renderer.render(scene, camera);
 
   const animate = () => {
@@ -544,7 +643,6 @@ function initThreeScene() {
   };
   animate();
 
-  // 初始若无截图，待容器布局稳定后自动定格一张起始视角
   if (!startFrameDataUrl.value) {
     setTimeout(() => {
       onWindowResize();
@@ -566,7 +664,7 @@ function createGeometry(shape: Perspective3DObject['shape']): THREE.BufferGeomet
   }
 }
 
-function createMeshForObject(obj: Perspective3DObject) {
+function createMeshForObject(obj: Extended3DObject) {
   if (!scene) return;
   const geo = createGeometry(obj.shape);
   const mat = new THREE.MeshStandardMaterial({
@@ -579,6 +677,7 @@ function createMeshForObject(obj: Perspective3DObject) {
   mesh.receiveShadow = true;
   mesh.position.set(...obj.position);
   mesh.scale.set(...obj.scale);
+  mesh.rotation.y = ((obj.rotationY || 0) * Math.PI) / 180;
   mesh.userData = { objectId: obj.id };
   scene.add(mesh);
   meshMap.set(obj.id, mesh);
@@ -598,7 +697,6 @@ function selectObjectById(id: string) {
   }
 }
 
-// 鼠标点击选中几何体并在水平面上直接拖拽移动
 function onPointerDown(e: PointerEvent) {
   if (e.button !== 0 || !renderer || !camera || !controls) return;
   const rect = renderer.domElement.getBoundingClientRect();
@@ -635,8 +733,8 @@ function onPointerMove(e: PointerEvent) {
   const planeHit = new THREE.Vector3();
   if (raycaster.ray.intersectPlane(dragPlane, planeHit)) {
     const newPos = planeHit.add(dragOffset);
-    const clampedX = Math.max(-12, Math.min(12, Number(newPos.x.toFixed(2))));
-    const clampedZ = Math.max(-12, Math.min(12, Number(newPos.z.toFixed(2))));
+    const clampedX = Math.max(-16, Math.min(16, Number(newPos.x.toFixed(2))));
+    const clampedZ = Math.max(-16, Math.min(16, Number(newPos.z.toFixed(2))));
     selectedObj.value.position[0] = clampedX;
     selectedObj.value.position[2] = clampedZ;
     const mesh = meshMap.get(selectedObj.value.id);
@@ -651,7 +749,7 @@ function onPointerUp() {
   if (isDraggingMesh) {
     isDraggingMesh = false;
     if (controls) controls.enabled = true;
-    recalculateDescription();
+    recalculateDescription(true);
   }
 }
 
@@ -673,7 +771,7 @@ function addShape(shape: Perspective3DObject['shape']) {
   const paletteItem = objectPalette[sceneState.objects.length % objectPalette.length];
   const id = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
   const offset = (sceneState.objects.length % 3 - 1) * 1.5;
-  const newObj: Perspective3DObject = {
+  const newObj: Extended3DObject = {
     id,
     shape,
     color: paletteItem.hex,
@@ -681,11 +779,12 @@ function addShape(shape: Perspective3DObject['shape']) {
     alias: '',
     position: [offset, 0.9, 0],
     scale: [1, 1, 1],
+    rotationY: 0,
   };
   sceneState.objects.push(newObj);
   createMeshForObject(newObj);
   selectObjectById(id);
-  recalculateDescription();
+  recalculateDescription(true);
 }
 
 function deleteSelectedObject() {
@@ -704,7 +803,7 @@ function deleteSelectedObject() {
   sceneState.objects = sceneState.objects.filter((o) => o.id !== id);
   selectedObjectId.value = sceneState.objects[0]?.id || '';
   if (selectedObjectId.value) selectObjectById(selectedObjectId.value);
-  recalculateDescription();
+  recalculateDescription(true);
 }
 
 function setGroundColor(hex: string) {
@@ -723,11 +822,11 @@ function updateSelectedColor(hex: string, name: string) {
   if (mesh) {
     (mesh.material as THREE.MeshStandardMaterial).color.set(hex);
   }
-  recalculateDescription();
+  recalculateDescription(true);
 }
 
 function updateSelectedTransform(
-  type: 'posX' | 'posY' | 'posZ' | 'scaleXZ' | 'scaleY',
+  type: 'posX' | 'posY' | 'posZ' | 'scaleXZ' | 'scaleY' | 'rotY',
   val: number
 ) {
   if (!selectedObj.value) return;
@@ -740,13 +839,15 @@ function updateSelectedTransform(
     obj.scale[2] = val;
   }
   if (type === 'scaleY') obj.scale[1] = val;
+  if (type === 'rotY') obj.rotationY = val;
 
   const mesh = meshMap.get(obj.id);
   if (mesh) {
     mesh.position.set(...obj.position);
     mesh.scale.set(...obj.scale);
+    mesh.rotation.y = ((obj.rotationY || 0) * Math.PI) / 180;
   }
-  recalculateDescription();
+  recalculateDescription(true);
 }
 
 function setPresetCamera(preset: 'eye' | 'high' | 'low' | 'Dutch') {
@@ -757,19 +858,17 @@ function setPresetCamera(preset: 'eye' | 'high' | 'low' | 'Dutch') {
   if (preset === 'low') camera.position.set(0, 0.25, 7.5);
   if (preset === 'Dutch') camera.position.set(-5.5, 2.8, 7.5);
   controls.update();
-  recalculateDescription();
+  recalculateDescription(true);
 }
 
 // ==================== 纯净画幅裁切截图（自动隐藏网格与选中框） ====================
 function capturePureViewfinderDataUrl(): string {
   if (!renderer || !scene || !camera) return '';
 
-  // 1. 临时隐藏网格线与选中高亮框，保证给 AI 的参考图 100% 纯净
   if (gridHelper) gridHelper.visible = false;
   if (selectionBoxHelper) selectionBoxHelper.visible = false;
   renderer.render(scene, camera);
 
-  // 2. 严格按取景安全框区域裁切导出
   const sourceCanvas = renderer.domElement;
   const dpr = renderer.getPixelRatio();
   const rect = viewfinderRect.value;
@@ -796,7 +895,6 @@ function capturePureViewfinderDataUrl(): string {
     );
   }
 
-  // 3. 恢复网格线与选中框
   if (gridHelper) gridHelper.visible = true;
   if (selectionBoxHelper) selectionBoxHelper.visible = true;
   renderer.render(scene, camera);
@@ -827,33 +925,40 @@ function captureFrame(slot: 'start' | 'end') {
     endFrameDataUrl.value = dataUrl;
     sceneState.endCamera = camSnapshot;
   }
-  recalculateDescription();
+  recalculateDescription(false);
 }
 
 function clearEndFrame() {
   endFrameDataUrl.value = null;
   sceneState.endCamera = null;
-  recalculateDescription();
+  recalculateDescription(true);
 }
 
-function getObjectFullLabel(obj: Perspective3DObject): string {
+function getObjectFullLabel(obj: Extended3DObject): string {
   const base = `${obj.colorName}${shapeNameMap[obj.shape]}`;
   return obj.alias?.trim() ? `${obj.alias.trim()}（${base}色块）` : `[${base}]`;
 }
 
 // ==================== 摄影级 6 维空间与运镜自动解算器 ====================
-function recalculateDescription() {
+function recalculateDescription(useLiveCamera: unknown = true) {
   if (!camera || !controls) return;
+  const isLive = useLiveCamera !== false;
 
   const tempCam = camera.clone();
-  if (sceneState.startCamera) {
+  if (isLive) {
+    tempCam.position.copy(camera.position);
+    tempCam.lookAt(controls.target);
+    tempCam.updateMatrixWorld();
+  } else if (sceneState.startCamera) {
     tempCam.position.set(...sceneState.startCamera.position);
     tempCam.lookAt(...sceneState.startCamera.target);
     tempCam.updateMatrixWorld();
   }
 
   const camPos = tempCam.position.clone();
-  const targetPos = new THREE.Vector3(...(sceneState.startCamera?.target || [0, 1, 0]));
+  const targetPos = isLive
+    ? controls.target.clone()
+    : new THREE.Vector3(...(sceneState.startCamera?.target || [0, 1, 0]));
   const toCam = camPos.clone().sub(targetPos);
   const dist = toCam.length();
 
@@ -873,7 +978,7 @@ function recalculateDescription() {
   else shotScaleDesc = '中景构图（空间透视自然均衡）';
 
   interface ProjectedItem {
-    obj: Perspective3DObject;
+    obj: Extended3DObject;
     label: string;
     cxPct: number;
     cyPct: number;
@@ -993,6 +1098,8 @@ function recalculateDescription() {
         ? '呈纵向高耸形态立于地面'
         : '稳固置于地面';
 
+    const rotNote = item.obj.rotationY ? `，朝向水平旋转 ${item.obj.rotationY}°` : '';
+
     const cutEdges: string[] = [];
     if (item.isCutLeft) cutEdges.push('左侧延伸出画外');
     if (item.isCutRight) cutEdges.push('右侧延伸出画外');
@@ -1003,7 +1110,7 @@ function recalculateDescription() {
       : '';
 
     itemLines.push(
-      `${idx + 1}. 【${layerTag}】${item.label}：位于${item.gridName}（横轴 ${item.cxPct}%，纵轴 ${item.cyPct}%），${heightNote}，${sizeDesc}${edgeNote}。`
+      `${idx + 1}. 【${layerTag}】${item.label}：位于${item.gridName}（横轴 ${item.cxPct}%，纵轴 ${item.cyPct}%），${heightNote}${rotNote}，${sizeDesc}${edgeNote}。`
     );
   });
 
@@ -1089,6 +1196,7 @@ function recalculateDescription() {
 
   const lines = [
     `【机位与透视】${sceneState.aspectRatio} 画幅，${angleDesc}，${shotScaleDesc}。`,
+    `【光影与主光源】主光源位于${lightDirectionLabel.value}（方位角 ${sceneState.lightAzimuth}°，照射仰角 ${sceneState.lightElevation}°），投射自然空间明暗与地面投影。`,
     `【主体空间排布（共 ${projectedList.length} 个空间体块）】`,
     ...(itemLines.length ? itemLines : ['画面中央为空旷场景平面。']),
   ];
@@ -1103,12 +1211,9 @@ function recalculateDescription() {
 }
 
 function handleConfirmSave() {
-  if (!startFrameDataUrl.value) {
-    captureFrame('start');
-  }
-  if (!spatialDescription.value?.trim()) {
-    recalculateDescription();
-  }
+  // 点击确认时，同步定格当前最新 3D 视口画面（若尚未手动定格或相机已移动）
+  captureFrame('start');
+  recalculateDescription(false);
 
   const finalStartUrl = startFrameDataUrl.value || capturePureViewfinderDataUrl();
   const payload = {
@@ -1126,6 +1231,10 @@ function handleConfirmSave() {
 function cleanupThree() {
   if (animFrameId) cancelAnimationFrame(animFrameId);
   animFrameId = 0;
+  if (cameraLiveSyncTimer) {
+    clearTimeout(cameraLiveSyncTimer);
+    cameraLiveSyncTimer = null;
+  }
   if (resizeObserver) {
     resizeObserver.disconnect();
     resizeObserver = null;
@@ -1145,22 +1254,31 @@ function cleanupThree() {
   camera = null;
   renderer = null;
   controls = null;
+  dirLight = null;
 }
 
 function hydrateAndInit() {
   if (props.initialData) {
-    sceneState.aspectRatio = props.initialData.aspectRatio || '16:9';
-    sceneState.groundColor = props.initialData.groundColor || '#ffffff';
-    sceneState.objects = JSON.parse(JSON.stringify(props.initialData.objects || []));
-    sceneState.startCamera = props.initialData.startCamera || {
+    const raw = props.initialData as Partial<ExtendedSceneData>;
+    sceneState.aspectRatio = raw.aspectRatio || '16:9';
+    sceneState.groundColor = raw.groundColor || '#ffffff';
+    sceneState.lightAzimuth = typeof raw.lightAzimuth === 'number' ? raw.lightAzimuth : 45;
+    sceneState.lightElevation = typeof raw.lightElevation === 'number' ? raw.lightElevation : 55;
+    sceneState.objects = JSON.parse(JSON.stringify(raw.objects || [])).map((o: any) => ({
+      ...o,
+      rotationY: typeof o.rotationY === 'number' ? o.rotationY : 0,
+    }));
+    sceneState.startCamera = raw.startCamera || {
       position: [0, 4.5, 10],
       target: [0, 1, 0],
     };
-    sceneState.endCamera = props.initialData.endCamera || null;
-    endFrameDataUrl.value = props.initialData.endFrameUrl || null;
+    sceneState.endCamera = raw.endCamera || null;
+    endFrameDataUrl.value = raw.endFrameUrl || null;
   } else {
     sceneState.aspectRatio = '16:9';
     sceneState.groundColor = '#ffffff';
+    sceneState.lightAzimuth = 45;
+    sceneState.lightElevation = 55;
     sceneState.objects = [];
     sceneState.startCamera = { position: [0, 4.5, 10], target: [0, 1, 0] };
     sceneState.endCamera = null;
@@ -1171,7 +1289,7 @@ function hydrateAndInit() {
 
   initThreeScene();
   if (!spatialDescription.value) {
-    recalculateDescription();
+    recalculateDescription(true);
   }
 }
 
@@ -1187,7 +1305,6 @@ watch(
   }
 );
 
-// 兼容父组件使用 v-if="perspectiveModal.open" 挂载时立即触发初始化
 onMounted(async () => {
   if (props.open) {
     await nextTick();
@@ -1198,7 +1315,7 @@ onMounted(async () => {
 watch(
   () => sceneState.aspectRatio,
   () => {
-    recalculateDescription();
+    recalculateDescription(true);
   }
 );
 
@@ -1318,7 +1435,7 @@ onBeforeUnmount(() => {
 .p3d-body {
   flex: 1;
   display: grid;
-  grid-template-columns: 270px 1fr 370px;
+  grid-template-columns: 275px 1fr 370px;
   min-height: 0;
 }
 
@@ -1329,7 +1446,7 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .p3d-left-panel {
@@ -1406,6 +1523,12 @@ onBeforeUnmount(() => {
   border-color: #38bdf8;
   transform: scale(1.15);
   box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35);
+}
+
+.light-control-box {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
 }
 
 .section-header-row {

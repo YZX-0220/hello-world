@@ -66,24 +66,29 @@ export function useWorkspace() {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
 
-function reflect(session: CanvasSession) {
+let reflectedConvId = '';
+
+  function reflect(session: CanvasSession) {
     if (session.id !== currentConvId.value) return;
     applying = true;
+    const isSameConversation = reflectedConvId === session.id;
+    reflectedConvId = session.id;
+
     if (canvas.value !== session.document) {
-      // 保护当前画布的 pan、zoom 以及前端专属的 perspective 视角节点不被底层旧快照覆盖丢失
-      const currentPan = canvas.value.pan;
-      const currentZoom = canvas.value.zoom;
-      const perspectiveNodes = (canvas.value.nodes || []).filter(n => n.type === 'perspective');
+      const currentPan = isSameConversation ? canvas.value.pan : null;
+      const currentZoom = isSameConversation ? canvas.value.zoom : null;
+      const perspectiveNodes = isSameConversation
+        ? (canvas.value.nodes || []).filter(n => n.type === 'perspective')
+        : [];
 
       canvas.value = session.document;
       if (currentPan && Number.isFinite(currentPan.x) && Number.isFinite(currentPan.y)) {
         canvas.value.pan.x = currentPan.x;
         canvas.value.pan.y = currentPan.y;
       }
-      if (Number.isFinite(currentZoom) && currentZoom > 0) {
-        canvas.value.zoom = currentZoom;
+      if (Number.isFinite(currentZoom) && currentZoom! > 0) {
+        canvas.value.zoom = currentZoom!;
       }
-      // 如果底层 normalize 洗掉了 perspective 节点，将其恢复回来
       for (const pNode of perspectiveNodes) {
         if (!canvas.value.nodes.some(n => n.id === pNode.id)) {
           canvas.value.nodes.push(pNode);
@@ -95,7 +100,6 @@ function reflect(session: CanvasSession) {
     if (session.error && session.status === 'saved') notice.value = session.error;
     applying = false;
   }
-
   let editDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   watch(canvas, () => {
     if (applying || loading.value || !currentConvId.value) return;

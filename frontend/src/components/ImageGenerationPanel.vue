@@ -21,16 +21,75 @@
           <p v-if="draft.api_config_id === 'platform' && !options?.platform.available" class="muted">{{ options?.platform.reason || '平台默认通道暂不可用，请添加自己的图片 API。' }}</p>
           <p v-if="draft.source_node_id" class="source-tag">从图片节点发起 · 生成结果将作为新素材插入</p>
           <button v-if="sourceNode?.asset_id" class="quiet source-reset" :disabled="inputsLocked" @click="applySourceNode(true)">重新使用此节点图片</button>
-          <section class="reference-section" aria-label="图片参考">
-            <div class="reference-heading"><span>{{ draft.parent_job_id ? '继续修改 · 上一版作为参考' : draft.reference_images.length ? '参考图创作' : '上传可参考图' }}</span><button v-if="draft.reference_images.length || draft.parent_job_id" class="quiet" :disabled="inputsLocked" @click="clearReferences">清空参考图</button></div>
+       <section class="reference-section" aria-label="图片参考">
+            <div class="reference-heading">
+              <span>{{ draft.parent_job_id ? '继续修改 · 上一版作为参考' : draft.reference_images.length ? '参考图创作' : '选择画布节点或上传参考图' }}</span>
+              <div class="reference-heading-actions">
+                <button
+                  v-if="linkedCanvasVisualNodes.length"
+                  type="button"
+                  class="quiet"
+                  :disabled="inputsLocked"
+                  @click="importLinkedCanvasNodes"
+                >
+                  带入选中/连线节点 ({{ linkedCanvasVisualNodes.length }})
+                </button>
+                <button v-if="draft.reference_images.length || draft.parent_job_id" class="quiet" :disabled="inputsLocked" @click="clearReferences">清空参考图</button>
+              </div>
+            </div>
+
+            <!-- 新增：画布节点直接参考列表（对齐生成视频的节点参考体验） -->
+            <div v-if="canvasVisualNodes.length" class="canvas-node-picker">
+              <div class="canvas-picker-label">
+                <span>画布视觉节点（点击勾选作为参考图）：</span>
+                <span v-if="pendingUploadVisualNodes.length" class="uploading-tip">有 {{ pendingUploadVisualNodes.length }} 个视角图正在同步云端…</span>
+              </div>
+              <div class="canvas-node-chips">
+                <button
+                  v-for="cNode in canvasVisualNodes"
+                  :key="cNode.id"
+                  type="button"
+                  :class="['canvas-node-chip', { active: isCanvasNodeReferenced(cNode), pending: !cNode.asset_id }]"
+                  :disabled="inputsLocked || !cNode.asset_id || (!isCanvasNodeReferenced(cNode) && draft.reference_images.length >= maxReferences)"
+                  :title="!cNode.asset_id ? '正在同步到云端资源库，请稍候…' : `点击${isCanvasNodeReferenced(cNode) ? '取消参考' : '添加为参考图'}：${cNode.title}`"
+                  @click="toggleCanvasNodeReference(cNode)"
+                >
+                  <img :src="cNode.url" :alt="cNode.title" />
+                  <span class="chip-badge">{{ cNode.type === 'perspective' ? '🎥' : '🖼' }}</span>
+                  <span class="chip-title">{{ cNode.title }}</span>
+                  <span class="chip-check">{{ !cNode.asset_id ? '同步中' : isCanvasNodeReferenced(cNode) ? '✓' : '+' }}</span>
+                </button>
+              </div>
+            </div>
+
             <div v-if="draft.reference_images.length" class="reference-grid">
-              <div v-for="(image, index) in draft.reference_images" :key="image.asset_id" class="reference-card"><button class="reference-image" @click="preview = { content_url: image.content_url, prompt: image.original_name }" :aria-label="'查看参考图：' + image.original_name"><img :src="image.content_url" :alt="image.original_name" /></button><span>{{ draft.parent_job_id && index === 0 ? '上一版本' : `参考图 ${index + 1}` }}</span><button class="remove-reference" :disabled="inputsLocked" @click="removeReference(index)" :aria-label="'移除参考图 ' + (index + 1)">×</button></div>
+              <div v-for="(image, index) in draft.reference_images" :key="image.asset_id" class="reference-card">
+                <button class="reference-image" @click="preview = { content_url: image.content_url, prompt: image.original_name }" :aria-label="'查看参考图：' + image.original_name">
+                  <img :src="image.content_url" :alt="image.original_name" />
+                </button>
+                <span>{{ draft.parent_job_id && index === 0 ? '上一版本' : `参考图 ${index + 1}` }}</span>
+                <button class="remove-reference" :disabled="inputsLocked" @click="removeReference(index)" :aria-label="'移除参考图 ' + (index + 1)">×</button>
+              </div>
             </div>
             <input ref="uploadInput" class="reference-file-input" type="file" accept="image/png,image/jpeg" multiple :disabled="inputsLocked || draft.reference_images.length >= maxReferences" @change="uploadReferences" />
-            <button class="upload-reference" :disabled="inputsLocked || draft.reference_images.length >= maxReferences" @click="uploadInput?.click()">{{ uploading ? '正在上传参考图…' : '+ 上传参考图' }} <span>{{ draft.reference_images.length }}/{{ maxReferences }}</span></button>
-            <small>PNG / JPEG，每张不超过 10 MB；最多 {{ maxReferences }} 张，包含继续修改的上一版本。</small>
+            <button class="upload-reference" :disabled="inputsLocked || draft.reference_images.length >= maxReferences" @click="uploadInput?.click()">{{ uploading ? '正在上传参考图…' : '+ 上传本地参考图' }} <span>{{ draft.reference_images.length }}/{{ maxReferences }}</span></button>
+            <small>支持直接点选画布中的「图片节点 / 视角节点」，或上传本地 PNG / JPEG（每张 ≤ 10 MB）；最多 {{ maxReferences }} 张。</small>
           </section>
-          <label class="prompt-label" for="image-prompt">{{ draft.parent_job_id ? '希望如何修改' : '画面描述' }}<span>{{ draft.prompt.length }} / 4000</span></label>
+         <label class="prompt-label" for="image-prompt">
+            <span>{{ draft.parent_job_id ? '希望如何修改' : '画面描述' }}</span>
+            <span class="prompt-label-right">
+              <button
+                v-if="canvasTextNodes.length"
+                type="button"
+                class="quiet inline-fill-btn"
+                :disabled="inputsLocked"
+                @click="fillPromptFromCanvasText"
+              >
+                填入画布文本节点
+              </button>
+              <span>{{ draft.prompt.length }} / 4000</span>
+            </span>
+          </label>
           <textarea id="image-prompt" v-model="draft.prompt" maxlength="4000" rows="5" :placeholder="draft.parent_job_id ? '例如：保留人物与构图，把背景改成黄昏海边，色调更温暖。' : '描述主体、场景、构图与风格；使用参考图时，请说明保留什么、改变什么。'" :disabled="inputsLocked"></textarea>
           <p class="muted model-hint">AI 会为 {{ displayModel(selectedModel || '', draft.api_config_id) || '所选模型' }} 优化画面描述{{ (draft.reference_images.length || draft.parent_job_id) && options?.vision?.available ? '，并结合参考图内容' : '' }}。</p>
           <p v-if="(draft.reference_images.length || draft.parent_job_id) && !options?.vision?.available" class="vision-unavailable" role="status">{{ options?.vision?.reason || '看图建议暂不可用，您仍可填写描述并使用参考图生成。' }}</p>
@@ -85,6 +144,95 @@ import type { FlowConnection } from '@/types/canvas';
 import type { FlowNode } from '@/types/canvas';
 import type { ImageApiConfig, ImageDraft, ImageJob, ImageOptions, ImageReferenceUpload } from '@/types/imageGeneration';
 import { imageAlreadyInserted, imageDraftKey, imageEditDraft, imageJobActive, imageJobBlocksGeneration, imageJobLabels, imageDisplayModel, imageSourceDraft, imageSourceParent, imageSubmission, imageSuggestionRequest, imageTextOnlyDraft, readImageDraft, sanitizeImageReferences } from '@/services/imageGeneration';
+// 画布中所有有画面的图片节点与视角节点
+const canvasVisualNodes = computed(() =>
+  props.nodes.filter(
+    node => (node.type === 'image' || node.type === 'perspective') && !!node.url
+  )
+);
+
+const pendingUploadVisualNodes = computed(() =>
+  canvasVisualNodes.value.filter(node => !node.asset_id)
+);
+
+// 与当前 sourceNode 连线关联的所有视觉节点（包含自身）
+const linkedCanvasVisualNodes = computed(() => {
+  if (!props.sourceNodeId) return [];
+  const ids = new Set<string>([props.sourceNodeId]);
+  for (const conn of props.connections || []) {
+    if (conn.from === props.sourceNodeId) ids.add(conn.to);
+    else if (conn.to === props.sourceNodeId) ids.add(conn.from);
+  }
+  return canvasVisualNodes.value.filter(n => ids.has(n.id) && !!n.asset_id);
+});
+
+// 画布中非空的文本节点
+const canvasTextNodes = computed(() =>
+  props.nodes.filter(node => node.type === 'text' && !!node.content?.trim())
+);
+
+function isCanvasNodeReferenced(node: FlowNode): boolean {
+  return !!node.asset_id && draft.value.reference_images.some(img => img.asset_id === node.asset_id);
+}
+
+function toggleCanvasNodeReference(node: FlowNode) {
+  if (inputsLocked.value || !node.asset_id || !node.url) return;
+  const idx = draft.value.reference_images.findIndex(img => img.asset_id === node.asset_id);
+  if (idx > -1) {
+    removeReference(idx);
+  } else if (draft.value.reference_images.length < maxReferences.value) {
+    draft.value.reference_images = sanitizeImageReferences(
+      [
+        ...draft.value.reference_images,
+        {
+          asset_id: node.asset_id,
+          content_url: node.url,
+          original_name: node.title || (node.type === 'perspective' ? '3D 视角参考图' : '画布参考图'),
+        },
+      ],
+      maxReferences.value
+    );
+    suggestion.value = null;
+  }
+}
+
+function importLinkedCanvasNodes() {
+  if (inputsLocked.value || !linkedCanvasVisualNodes.value.length) return;
+  const merged = [...draft.value.reference_images];
+  for (const node of linkedCanvasVisualNodes.value) {
+    if (merged.length >= maxReferences.value) break;
+    if (node.asset_id && node.url && !merged.some(r => r.asset_id === node.asset_id)) {
+      merged.push({
+        asset_id: node.asset_id,
+        content_url: node.url,
+        original_name: node.title || '关联节点参考图',
+      });
+    }
+  }
+  draft.value.reference_images = sanitizeImageReferences(merged, maxReferences.value);
+  suggestion.value = null;
+}
+
+function fillPromptFromCanvasText() {
+  if (inputsLocked.value || !canvasTextNodes.value.length) return;
+  // 优先取与 sourceNode 连线的文本节点，否则取所有非空文本节点合并
+  const linkedTextIds = new Set<string>();
+  if (props.sourceNodeId) {
+    for (const conn of props.connections || []) {
+      if (conn.from === props.sourceNodeId) linkedTextIds.add(conn.to);
+      else if (conn.to === props.sourceNodeId) linkedTextIds.add(conn.from);
+    }
+  }
+  const preferred = canvasTextNodes.value.filter(n => linkedTextIds.has(n.id));
+  const targetTexts = (preferred.length ? preferred : canvasTextNodes.value)
+    .map(n => n.content?.trim())
+    .filter(Boolean)
+    .join('\n\n');
+  if (targetTexts) {
+    draft.value.prompt = targetTexts.slice(0, 4000);
+    suggestion.value = null;
+  }
+}
 const props = defineProps<{
   open: boolean;
   embedded?: boolean;
@@ -164,6 +312,11 @@ watch(() => props.open, async open => {
   else { preview.value = null; if (!props.embedded) previousFocus?.focus(); }
 });
 watch(() => props.sourceNodeId, () => { if (props.open) applySourceNode(); });
+watch(() => sourceNode.value?.asset_id, (newAssetId, oldAssetId) => {
+  if (props.open && newAssetId && newAssetId !== oldAssetId) {
+    applySourceNode(true);
+  }
+});
 function applySourceNode(force = false) {
   if (inputsLocked.value || !props.sourceNodeId) return;
   const next = imageSourceDraft(
@@ -287,4 +440,19 @@ onBeforeUnmount(() => { disposed = true; ++epoch; clearTimeout(timer); });
 
 <style scoped>
 .portrait-notice-entry{margin:0 0 16px}.image-panel .portrait-notice-entry button{padding:0;border:0;background:none;color:#a5b4fc;font-size:12px;text-decoration:underline;text-underline-offset:3px}.portrait-notice-entry button:focus-visible{outline:2px solid #a5b4fc;outline-offset:3px}
+.reference-heading-actions{display:flex;align-items:center;gap:10px}
+.canvas-node-picker{margin-top:12px;padding:10px;border-radius:8px;background:#0f172a;border:1px solid #26324d}
+.canvas-picker-label{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#94a3b8;margin-bottom:8px}
+.uploading-tip{color:#38bdf8;font-size:10px}
+.canvas-node-chips{display:flex;flex-wrap:wrap;gap:6px}
+.image-panel .canvas-node-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;background:#182236;border:1px solid #334155;color:#cbd5e1;font-size:11px;max-width:100%}
+.image-panel .canvas-node-chip:hover:not(:disabled){border-color:#818cf8;color:#fff}
+.image-panel .canvas-node-chip.active{background:rgba(99,102,241,0.22);border-color:#818cf8;color:#fff}
+.image-panel .canvas-node-chip.pending{opacity:0.65;border-style:dashed}
+.canvas-node-chip img{width:22px;height:22px;border-radius:4px;object-fit:cover;flex-shrink:0}
+.canvas-node-chip .chip-badge{font-size:11px;line-height:1}
+.canvas-node-chip .chip-title{max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.canvas-node-chip .chip-check{font-size:10px;color:#a5b4fc;font-weight:700}
+.prompt-label-right{display:inline-flex;align-items:center;gap:10px}
+.image-panel .inline-fill-btn{padding:0;font-size:11px;color:#a5b4fc;text-decoration:underline}
 </style>

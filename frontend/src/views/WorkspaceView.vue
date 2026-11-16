@@ -40,7 +40,6 @@
       <div class="nav-left">
         <router-link to="/" class="brand-link" title="点击返回品牌首页">
           <div class="brand">
-            <div class="brand-avatar">H</div>
             <span class="brand-name">Hello World</span>
             <span class="sub-badge desktop-only">国际传播特化 AI 视频工作台</span>
           </div>
@@ -100,46 +99,39 @@
         <main v-if="!currentConvId" key="view-a" class="board-container">
           <div class="board-header">
             <h2 class="board-title">创作项目空间</h2>
-            <p class="board-sub">选择历史对话继续创作，或点击中央加号开启新视听方案</p>
+            <p class="board-sub">每个文件夹是一个创作项目 · 翻开后点任意一页进入工作台</p>
           </div>
 
-          <div class="cards-grid">
-            <div class="square-card add-card" role="button" tabindex="0"
-              :aria-disabled="!initialized || isCreatingConv || loading" @keydown.enter="handleCreateNewConversation"
-              @click="handleCreateNewConversation">
-              <div class="plus-icon">+</div>
-              <span class="add-text">{{ isCreatingConv ? '正在初始化...' : '开启新创作对话' }}</span>
-              <div class="add-glow"></div>
-            </div>
+          <div class="folders-grid">
+            <GlassFolder
+              label="新建创作项目"
+              :meta="isCreatingConv ? '正在初始化…' : '空白项目'"
+              seed="new-project"
+              action="add"
+              :files="[{ name: '开启新对话', meta: '空白项目', art: true }]"
+              :appear="false"
+              :disabled="!initialized || isCreatingConv || loading"
+              @add="handleCreateNewConversation"
+              @select="handleCreateNewConversation"
+            />
 
-            <div v-for="conv in conversations" :key="conv.id" class="square-card project-card"
-              :style="getCardColorStyle(conv.id)" @click="switchConversation(conv.id)">
-              <div class="card-top-bar">
-                <span class="card-time">{{ formatFullTime(conv.created_at) }}</span>
-                <button class="del-card-btn" title="删除对话" @click.stop="handleDeleteConversation(conv.id)">
-                  ×
-                </button>
-              </div>
-
-              <div class="card-content">
-                <input v-if="renamingConvId === conv.id" v-model="renamingConvTitle" class="card-rename-input"
-                  v-autofocus maxlength="120" aria-label="修改项目名称" @click.stop @mousedown.stop
-                  @blur="finishRenameConv(conv)" @keydown.enter.prevent="finishRenameConv(conv)"
-                  @keydown.esc.stop="cancelRenameConv" />
-                <h3 v-else class="card-project-title" :title="getConvDisplayTitle(conv)">
-                  {{ getConvDisplayTitle(conv) }}
-                </h3>
-                <span class="version-tag">版本 v{{ conv.version || 0 }}</span>
-              </div>
-
-              <!-- 左下角改名按钮 + 右下角进入提示 -->
-              <div class="card-bottom">
-                <button type="button" class="rename-card-btn" title="修改项目名称" @click.stop="startRenameConv(conv)">
-                  ✎ 改名
-                </button>
-                <span class="enter-text">点击进入工作台 →</span>
-              </div>
-            </div>
+            <GlassFolder
+              v-for="conv in conversations"
+              :key="conv.id"
+              :label="getConvDisplayTitle(conv)"
+              :meta="folderMeta(conv)"
+              :seed="conv.id"
+              action="menu"
+              :appear="false"
+              :renaming="renamingConvId === conv.id"
+              :renaming-value="renamingConvTitle"
+              :files="projectFolderFiles(conv)"
+              @select="() => enterFolderProject(conv)"
+              @rename="startRenameConv(conv)"
+              @delete="handleDeleteConversation(conv.id)"
+              @rename-submit="(value: string) => submitFolderRename(conv, value)"
+              @rename-cancel="cancelRenameConv"
+            />
           </div>
         </main>
 
@@ -804,6 +796,7 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } 
 import { useWorkspace, newId } from '@/composables/useWorkspace';
 import PortraitMaterialNotice from '@/components/PortraitMaterialNotice.vue';
 import ImageGenerationPanel from '@/components/ImageGenerationPanel.vue';
+import GlassFolder from '@/components/project/GlassFolder.vue';
 import { collaborationReferenceIds, portraitFailureMessage } from '@/services/workspaceFeedback';
 import { createImageNode } from '@/services/imageGeneration';
 import type { ImageJob } from '@/types/imageGeneration';
@@ -873,6 +866,110 @@ function getConvDisplayTitle(conv: { id: string; title?: string | null }) {
 function startRenameConv(conv: { id: string; title?: string | null }) {
   renamingConvId.value = conv.id;
   renamingConvTitle.value = getConvDisplayTitle(conv);
+}
+
+// ==================== 项目空间：玻璃文件夹 ====================
+type FolderSheet = {
+  name: string;
+  meta?: string;
+  art?: boolean;
+  danger?: boolean;
+  disabled?: boolean;
+  kind?: 'text' | 'image' | 'video' | 'perspective';
+  body?: string;
+  image?: string;
+};
+type FolderPreview = { sheets: FolderSheet[]; nodeCount: number; loaded: boolean };
+
+const folderPreviews = reactive<Record<string, FolderPreview>>({});
+const previewQueue = new Set<string>();
+const folderMeta = (conv: { id: string; version?: number; created_at?: string | null }) => {
+  const preview = folderPreviews[conv.id];
+  if (preview?.loaded && preview.nodeCount > 0) return `${preview.nodeCount} 个画布节点`;
+  const time = formatFullTime(conv.created_at || '');
+  return time ? `v${conv.version || 0} · ${time}` : `v${conv.version || 0}`;
+};
+
+const NODE_TYPE_LABEL: Record<string, string> = {
+  text: '文本',
+  image: '图片',
+  video: '视频',
+  perspective: '3D 视角',
+};
+
+function sheetsFromCanvas(data: any): { sheets: FolderSheet[]; nodeCount: number } {
+  const nodes: any[] = Array.isArray(data?.nodes) ? data.nodes : [];
+  if (!nodes.length) return { sheets: [{ name: '空白画布', meta: '还没有内容' }], nodeCount: 0 };
+  // 真正带图的纸优先（纸页栈顶就是 index 0）；图片节点但没有 url 的退到后面
+  // 次级排序：真正带图的已由 primary key 提到最前，这里没图的图片节点排最后
+  const TYPE_RANK: Record<string, number> = { video: 1, perspective: 2, text: 3, image: 4 };
+  const hasImage = (node: any) =>
+    node?.type === 'image' && typeof node?.url === 'string' && node.url.trim().length > 0;
+  const ordered = [...nodes].sort((a, b) => {
+    const byImage = Number(!hasImage(a)) - Number(!hasImage(b));
+    if (byImage !== 0) return byImage;
+    return (TYPE_RANK[a?.type] ?? 9) - (TYPE_RANK[b?.type] ?? 9);
+  });
+
+  const sheets = ordered.slice(0, 6).map(node => {
+    const kind = (node?.type || 'text') as FolderSheet['kind'];
+    const type = NODE_TYPE_LABEL[node?.type] || '节点';
+    const title = (node?.title || type).toString().trim() || type;
+    const rawBody = (node?.content || '').toString().replace(/\r/g, '').trim();
+    const image = kind === 'image' && typeof node?.url === 'string' ? node.url : undefined;
+    return {
+      name: title.length > 18 ? title.slice(0, 18) + '…' : title,
+      meta: type,
+      kind,
+      image,
+      body: kind === 'text' && rawBody ? rawBody : undefined,
+    } as FolderSheet;
+  });
+  return { sheets, nodeCount: nodes.length };
+}
+
+async function prefetchFolderPreview(convId: string) {
+  if (previewQueue.has(convId) || folderPreviews[convId]?.loaded) return;
+  previewQueue.add(convId);
+  folderPreviews[convId] = { sheets: [{ name: '正在读取项目…', meta: '稍等', disabled: true }], nodeCount: 0, loaded: false };
+  try {
+    const data = await request.get<any, any>(`/conversations/${encodeURIComponent(convId)}/project`, { timeout: 12000 });
+    const { sheets, nodeCount } = sheetsFromCanvas(data?.canvas_data);
+    folderPreviews[convId] = { sheets, nodeCount, loaded: true };
+  } catch {
+    folderPreviews[convId] = { sheets: [{ name: '进入工作台', meta: '读取失败，点开重试' }], nodeCount: 0, loaded: true };
+  } finally {
+    previewQueue.delete(convId);
+  }
+}
+
+async function prefetchAllFolders() {
+  const ids = conversations.value
+    .slice(0, 12)
+    .map(conv => conv.id)
+    .filter(id => !folderPreviews[id]?.loaded);
+  const workers = Array.from({ length: 3 }, async () => {
+    for (;;) {
+      const next = ids.shift();
+      if (!next) return;
+      await prefetchFolderPreview(next);
+    }
+  });
+  await Promise.all(workers);
+}
+
+// 纯读取：预取由 watch(conversations) 负责，避免在渲染期间写响应式状态
+function projectFolderFiles(conv: { id: string }): FolderSheet[] {
+  return folderPreviews[conv.id]?.sheets ?? [{ name: '正在读取项目…', meta: '稍等', disabled: true }];
+}
+
+function enterFolderProject(conv: { id: string }) {
+  void switchConversation(conv.id);
+}
+
+function submitFolderRename(conv: { id: string; title?: string | null }, value: string) {
+  renamingConvTitle.value = value;
+  void finishRenameConv(conv);
 }
 
 function cancelRenameConv() {
@@ -1490,6 +1587,15 @@ function resetCanvasView() { pan.value.x = 100; pan.value.y = 100; zoom.value = 
 async function handleDeleteConversation(id: string) {
   if (confirm('确定删除这个创作项目吗？')) await workspace.deleteConversation(id);
 }
+
+watch(
+  () => conversations.value.map(conv => conv.id).join(','),
+  ids => {
+    if (!ids) return;
+    void prefetchAllFolders();
+  },
+  { immediate: true },
+);
 
 const pressedArrowKeys = new Set<string>();
 let keyPanRafId: number | null = null;
@@ -2997,14 +3103,18 @@ button:disabled {
 }
 
 .top-nav {
-  height: clamp(60px, 7.5vh, 76px);
+  height: clamp(60px, 7.2vh, 72px);
   min-height: 60px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 clamp(16px, 2.5vw, 40px);
-  background-color: #0d121f;
+  gap: 20px;
+  padding: 0 clamp(20px, 3.2vw, 48px);
+  background: rgba(9, 11, 17, 0.78);
+  backdrop-filter: blur(16px);
+  position: sticky;
+  top: 0;
   box-sizing: border-box;
   z-index: 100;
 }
@@ -3037,19 +3147,22 @@ button:disabled {
 }
 
 .brand-name {
-  font-weight: 700;
+  font-family: 'Space Grotesk', 'PingFang SC', 'HarmonyOS Sans SC', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 600;
+  font-style: normal;
+  letter-spacing: -0.015em;
   color: #ffffff;
-  font-size: 18px;
-  letter-spacing: 0.5px;
+  font-size: 22px;
 }
 
 .sub-badge {
   font-size: 12px;
-  background-color: #172033;
-  color: #94a3b8;
-  padding: 3px 8px;
-  border-radius: 6px;
-  border: 1px solid #28354d;
+  background-color: rgba(255, 255, 255, 0.06);
+  color: #9aa5b8;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  white-space: nowrap;
 }
 
 .nav-actions {
@@ -3153,13 +3266,14 @@ button:disabled {
   color: #94a3b8;
 }
 
-.cards-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 240px));
-  gap: 24px;
+.folders-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 34px 18px;
   width: 100%;
-  max-width: 1280px;
+  max-width: 1180px;
   justify-content: center;
+  padding: 18px 0 8px;
 }
 
 .square-card {

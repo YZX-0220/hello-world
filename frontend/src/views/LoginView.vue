@@ -4,7 +4,6 @@
     <header class="top-nav">
      <router-link to="/" class="brand-link">
   <div class="brand">
-    <div class="brand-avatar">H</div>
     <span class="brand-name">Hello World</span>
     <span class="sub-badge">国际传播特化 AI 视频生成平台</span>
   </div>
@@ -289,12 +288,19 @@ onUnmounted(() => {
 
 /* 顶部导航 */
 .top-nav {
-  height: 64px;
-  border-bottom: 1px solid #1e2638;
+  height: clamp(60px, 7.2vh, 72px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   align-items: center;
-  padding: 0 36px;
-  background-color: #0f1422;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 clamp(20px, 3.2vw, 48px);
+  background: rgba(9, 11, 17, 0.78);
+  backdrop-filter: blur(16px);
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  box-sizing: border-box;
 }
 .brand {
   display: flex;
@@ -314,17 +320,21 @@ onUnmounted(() => {
   font-size: 16px;
 }
 .brand-name {
+  font-family: 'Space Grotesk', 'PingFang SC', 'HarmonyOS Sans SC', ui-sans-serif, system-ui, sans-serif;
   font-weight: 600;
+  font-style: normal;
+  letter-spacing: -0.015em;
   color: #fff;
-  font-size: 18px;
+  font-size: 22px;
 }
 .sub-badge {
-  font-size: 13px;
-  background-color: #1e293b;
-  color: #94a3b8;
+  font-size: 12px;
+  background-color: rgba(255, 255, 255, 0.06);
+  color: #9aa5b8;
   padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid #334155;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  white-space: nowrap;
 }
 
 /* 居中内容区域 */

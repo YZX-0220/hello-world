@@ -4,8 +4,7 @@
     <header class="top-nav">
       <router-link to="/" class="brand-link" title="返回首页">
         <div class="brand">
-          <div class="brand-avatar">H</div>
-          <span class="brand-name">Hello World</span>
+                <span class="brand-name">Hello World</span>
           <span class="sub-badge desktop-only">API 接口配置中心</span>
         </div>
       </router-link>
@@ -628,16 +627,19 @@ async function handleSave() {
 
 /* 顶部导航 */
 .top-nav {
-  height: clamp(56px, 7vh, 68px);
-  border-bottom: 1px solid #1e2638;
+  height: clamp(60px, 7.2vh, 72px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 clamp(16px, 3vw, 36px);
-  background-color: #0f1422;
+  gap: 20px;
+  padding: 0 clamp(20px, 3.2vw, 48px);
+  background: rgba(9, 11, 17, 0.78);
+  backdrop-filter: blur(16px);
   position: sticky;
   top: 0;
-  z-index: 40;
+  z-index: 60;
+  box-sizing: border-box;
 }
 
 .brand-link {
@@ -664,18 +666,22 @@ async function handleSave() {
 }
 
 .brand-name {
+  font-family: 'Space Grotesk', 'PingFang SC', 'HarmonyOS Sans SC', ui-sans-serif, system-ui, sans-serif;
   font-weight: 600;
+  font-style: normal;
+  letter-spacing: -0.015em;
   color: #fff;
-  font-size: 17px;
+  font-size: 22px;
 }
 
 .sub-badge {
   font-size: 12px;
-  background-color: #1e293b;
-  color: #94a3b8;
-  padding: 3px 8px;
-  border-radius: 6px;
-  border: 1px solid #334155;
+  background-color: rgba(255, 255, 255, 0.06);
+  color: #9aa5b8;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  white-space: nowrap;
 }
 
 .link-btn {

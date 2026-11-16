@@ -18,7 +18,7 @@
             <span>返回品牌首页</span>
           </router-link>
 
-          <router-link to="/tv" class="mobile-btn tv-btn">
+          <router-link :to="{ path: '/tv', query: { from: 'workspace' } }" class="mobile-btn tv-btn">
             <span class="mobile-tv-icon-wrap">
               <svg class="mobile-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path d="M7 3L11.5 7.5" stroke-width="1.8" stroke-linecap="round" />
@@ -45,7 +45,7 @@
           </div>
         </router-link>
 
-        <router-link to="/tv" class="nav-tv-btn" title="浏览 TV 频道">
+        <router-link :to="{ path: '/tv', query: { from: 'workspace' } }" class="nav-tv-btn" title="浏览 TV 频道">
           <span class="tv-icon-wrapper">
             <svg class="tv-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M7 3L11.5 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />

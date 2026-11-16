@@ -22,7 +22,7 @@
         <span class="brand-name">Hello World</span>
     </div>
 
-    <router-link to="/tv" class="nav-tv-btn" title="浏览 TV 频道">
+    <router-link :to="{ path: '/tv', query: { from: 'landing' } }" class="nav-tv-btn" title="浏览 TV 频道">
       <span class="tv-icon-wrapper">
         <svg class="tv-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M7 3L11.5 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />

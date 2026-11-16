@@ -3,7 +3,7 @@
     <div class="admin-ambient" aria-hidden="true" />
 
     <header class="admin-top">
-      <button class="pill-btn" @click="router.push('/tv')" title="返回 TV 频道">
+      <button class="pill-btn" @click="goBackToTv()" title="返回 TV 频道">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
         </svg>
@@ -93,9 +93,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 const router = useRouter();
+const route = useRoute();
 const loading = ref(false);
 const submitting = ref(false);
 const adminItems = ref<any[]>([]);
@@ -108,6 +109,11 @@ const form = ref({
   description: ''
 });
 
+function goBackToTv() {
+  const from = typeof route.query.from === 'string' ? route.query.from : '';
+  router.push({ path: '/tv', query: from ? { from } : {} });
+}
+
 // 获取所有作品（草稿 + 已发布）
 async function loadAdminList() {
   loading.value = true;
@@ -117,7 +123,7 @@ async function loadAdminList() {
     });
     if (res.status === 403 || res.status === 401) {
       alert('非管理员禁止访问该页面');
-      router.push('/tv');
+      goBackToTv();
       return;
     }
     const data = await res.json();

@@ -4,7 +4,7 @@
 
     <header class="tv-top">
       <div class="top-side">
-        <button class="pill-btn" @click="handleGoBack" title="返回创作项目空间">
+        <button class="pill-btn" @click="handleGoBack" :title="backLabel">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
           </svg>
@@ -189,10 +189,11 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import WarpRing from '@/components/tv/WarpRing.vue';
 
 const router = useRouter();
+const route = useRoute();
 
 interface LibraryFile {
   asset_id: string;
@@ -336,13 +337,29 @@ function durationLabel(item: MaterialItem) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
+// 从哪个页面进入 TV，就用 ?from= 记在链接上；返回时按白名单还原，
+// 不走 router.back()，避免退到编辑器之类的「死胡同」
+const BACK_TARGETS: Record<string, { path: string; label: string }> = {
+  landing: { path: '/', label: '返回首页' },
+  workspace: { path: '/workspace', label: '返回创作项目空间' },
+  api: { path: '/settings/api', label: '返回 API 配置中心' },
+  editor: { path: '/workspace', label: '返回创作项目空间' },
+};
+
+const backTarget = computed(() => {
+  const from = typeof route.query.from === 'string' ? route.query.from : '';
+  return BACK_TARGETS[from] ?? BACK_TARGETS.workspace;
+});
+
+const backLabel = computed(() => backTarget.value.label);
+
 function handleGoBack() {
-  // TV 频道固定回到创作项目空间，不走浏览器历史（避免从编辑器/管理端进来后回退到别处）
-  router.push('/workspace');
+  router.push(backTarget.value.path);
 }
 
 function goToAdminPanel() {
-  router.push('/tv/admin');
+  const from = typeof route.query.from === 'string' ? route.query.from : '';
+  router.push({ path: '/tv/admin', query: from ? { from } : {} });
 }
 
 async function checkAdminPermission() {

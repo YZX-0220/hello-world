@@ -348,18 +348,33 @@ const BACK_TARGETS: Record<string, { path: string; label: string }> = {
 
 const backTarget = computed(() => {
   const from = typeof route.query.from === 'string' ? route.query.from : '';
+  const conv = typeof route.query.conv === 'string' ? route.query.conv : '';
+  if (from === 'workspace' && conv) {
+    return {
+      path: '/workspace',
+      query: { conversation: conv },
+      label: '返回该项目',
+    };
+  }
   return BACK_TARGETS[from] ?? BACK_TARGETS.workspace;
 });
 
 const backLabel = computed(() => backTarget.value.label);
 
 function handleGoBack() {
-  router.push(backTarget.value.path);
+  const target = backTarget.value;
+  router.push(
+    'query' in target && target.query
+      ? { path: target.path, query: target.query }
+      : target.path,
+  );
 }
 
 function goToAdminPanel() {
-  const from = typeof route.query.from === 'string' ? route.query.from : '';
-  router.push({ path: '/tv/admin', query: from ? { from } : {} });
+  const query: Record<string, string> = {};
+  if (typeof route.query.from === 'string' && route.query.from) query.from = route.query.from;
+  if (typeof route.query.conv === 'string' && route.query.conv) query.conv = route.query.conv;
+  router.push({ path: '/tv/admin', query });
 }
 
 async function checkAdminPermission() {

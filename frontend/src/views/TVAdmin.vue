@@ -110,8 +110,10 @@ const form = ref({
 });
 
 function goBackToTv() {
-  const from = typeof route.query.from === 'string' ? route.query.from : '';
-  router.push({ path: '/tv', query: from ? { from } : {} });
+  const query: Record<string, string> = {};
+  if (typeof route.query.from === 'string' && route.query.from) query.from = route.query.from;
+  if (typeof route.query.conv === 'string' && route.query.conv) query.conv = route.query.conv;
+  router.push({ path: '/tv', query });
 }
 
 // 获取所有作品（草稿 + 已发布）

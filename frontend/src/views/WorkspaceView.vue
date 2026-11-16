@@ -18,7 +18,7 @@
             <span>返回品牌首页</span>
           </router-link>
 
-          <router-link :to="{ path: '/tv', query: { from: 'workspace' } }" class="mobile-btn tv-btn">
+          <router-link :to="tvLink" class="mobile-btn tv-btn">
             <span class="mobile-tv-icon-wrap">
               <svg class="mobile-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path d="M7 3L11.5 7.5" stroke-width="1.8" stroke-linecap="round" />
@@ -45,7 +45,7 @@
           </div>
         </router-link>
 
-        <router-link :to="{ path: '/tv', query: { from: 'workspace' } }" class="nav-tv-btn" title="浏览 TV 频道">
+        <router-link :to="tvLink" class="nav-tv-btn" title="浏览 TV 频道">
           <span class="tv-icon-wrapper">
             <svg class="tv-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M7 3L11.5 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
@@ -815,6 +815,15 @@ import { useRouter, useRoute } from 'vue-router';
 import request from '@/utils/request';
 const router = useRouter();
 const route = useRoute();
+
+// 从项目画布进 TV 时带上 conv，TV 的返回才能落回这个项目
+const tvLink = computed(() => ({
+  path: '/tv',
+  query: {
+    from: 'workspace',
+    ...(currentConvId.value ? { conv: currentConvId.value } : {}),
+  },
+}));
 
 function goToEditor() {
   router.push('/editor');
@@ -1752,11 +1761,14 @@ onMounted(async () => {
 
   void fetchCountryNegativePrompts();
 
-  const queryConvId = route.query.conv_id as string;
-  if (queryConvId) {
-    await switchConversation(queryConvId);
-    normalizeInitialNodeTitles();
-  } else if (!currentConvId.value) {
+  // 深链兼容：?conv_id= 统一改写成规范键 ?conversation=，
+  // 由 useWorkspace 在初始化完成后按 query 加载（这里直接调 switchConversation 会早于 store 就绪）
+  const deepLinkConvId =
+    (route.query.conv_id as string) || (route.query.conversation as string);
+  if (route.query.conv_id && deepLinkConvId) {
+    await router.replace({ path: '/workspace', query: { conversation: deepLinkConvId } });
+  }
+  if (!deepLinkConvId && !currentConvId.value) {
     if (conversations.value.length > 0) {
       await switchConversation(conversations.value[0].id);
       normalizeInitialNodeTitles();

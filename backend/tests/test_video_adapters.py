@@ -22,7 +22,7 @@ from app.providers.video.fal_queue_v1 import FalQueueV1Provider
 from app.providers.video.generic_async_json_v1 import GenericAsyncJsonV1Provider
 from app.services.video_job_service import VideoJobService, _build_custom_template
 from app.video_registry.models import EndpointSpec, ProtocolTemplate
-from app.video_registry.registry import get_preset, list_profiles
+from app.video_registry.registry import get_preset, get_profile, list_profiles
 from httpx import Response
 from pytest import MonkeyPatch, mark, raises
 from pytest import fixture as pytest_fixture
@@ -326,7 +326,15 @@ def test_ark_preset_and_profiles_registered() -> None:
         "doubao-seedance-1-0-pro",
         "doubao-seedance-1-0-lite-t2v",
         "doubao-seedance-1-0-lite-i2v",
+        "doubao-seedance-2-5-flash",
     }
+
+    flash = get_profile("ark_seedance_v1", "doubao-seedance-2-5-flash")
+    assert flash is not None and flash.enabled is True
+    assert flash.remote_model_id == "doubao-seedance-2-5-flash-261115"
+    assert flash.resolutions == ("480p", "720p")
+    assert flash.durations_seconds == tuple(range(4, 31))
+    assert flash.max_reference_images == 10
 
 
 # ---------------------------------------------------------------- generic 自定义模板

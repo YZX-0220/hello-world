@@ -364,6 +364,53 @@ ARK_PROFILES: tuple[ModelProfile, ...] = (
         ),
         enabled=True,
     ),
+    # ---- Seedance 2.5 Flash ----
+    # 与 2.5 旗舰同一协议与调用方式；差异仅在清晰度上限（480p/720p）与参考图上限（10 张）。
+    ModelProfile(
+        code="doubao-seedance-2-5-flash",
+        display_name="Doubao Seedance 2.5 Flash",
+        protocol_code="ark_seedance_v1",
+        template_code=None,
+        remote_model_id="doubao-seedance-2-5-flash-261115",
+        capability_profile_code="text_reference_media",
+        modes=(
+            VideoMode.TEXT_TO_VIDEO.value,
+            VideoMode.FIRST_FRAME_TO_VIDEO.value,
+            VideoMode.FIRST_LAST_FRAME_TO_VIDEO.value,
+            VideoMode.REFERENCE_IMAGE_TO_VIDEO.value,
+        ),
+        durations_seconds=tuple(range(4, 31)),
+        aspect_ratios=("16:9", "9:16", "4:3", "3:4", "1:1", "21:9", "adaptive"),
+        resolutions=("480p", "720p"),
+        generation_options={"generate_audio": True},
+        max_reference_images=10,
+        max_source_videos=0,
+        allows_provider_direct_url=True,
+        provider_direct_url_ttl=86400,
+        image_constraints=ImageConstraints(),
+        allows_identical_frames=True,
+        task_timeout_seconds=172800,
+        input_url_ttl_seconds=176400,
+        version=1,
+        verified_on="2026-11-16",
+        source_urls=(
+            "https://docs.volcengine.com/docs/ark/seedance-2-5?lang=zh",
+            "https://docs.volcengine.com/docs/ark/create-video-generation-task-api?lang=zh",
+        ),
+        mode_constraints=(
+            ModeConstraint(
+                mode=VideoMode.FIRST_FRAME_TO_VIDEO.value,
+                ratio="adaptive_only",
+                note="该模式画幅由首帧图自动决定，不能指定具体比例。",
+            ),
+            ModeConstraint(
+                mode=VideoMode.FIRST_LAST_FRAME_TO_VIDEO.value,
+                ratio="adaptive_only",
+                note="画幅跟随首帧；尾帧比例不同时由厂商自动适配，可能改变尾帧构图。",
+            ),
+        ),
+        enabled=True,
+    ),
 )
 
 # ---- 阿里云百炼 DashScope / 通义 Wan 官方原生协议（无模板，Adapter 原生调用） ----

@@ -68,6 +68,9 @@
         <span v-if="currentConvId" class="save-indicator" :class="saveState.status" role="status">{{ saveLabel }}</span>
         <button v-if="currentConvId" class="glass-pill-btn" @click="retrySave"
           :disabled="saveState.status === 'saving'">保存</button>
+        <button v-if="currentConvId" class="glass-pill-btn" title="重新播放新手操作引导" @click="startTourManually">
+          ❓ 新手引导
+        </button>
         <router-link to="/settings/api" class="nav-link" title="点击进入 API 配置中心">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -103,46 +106,26 @@
           </div>
 
           <div class="folders-grid">
-            <GlassFolder
-              label="新建创作项目"
-              :meta="isCreatingConv ? '正在初始化…' : '空白项目'"
-              seed="new-project"
-              action="add"
-              :files="[{ name: '开启新对话', meta: '空白项目', art: true }]"
-              :appear="false"
-              :disabled="!initialized || isCreatingConv || loading"
-              @add="handleCreateNewConversation"
-              @select="handleCreateNewConversation"
-            />
+            <GlassFolder label="新建创作项目" :meta="isCreatingConv ? '正在初始化…' : '空白项目'" seed="new-project" action="add"
+              :files="[{ name: '开启新对话', meta: '空白项目', art: true }]" :appear="false"
+              :disabled="!initialized || isCreatingConv || loading" @add="handleCreateNewConversation"
+              @select="handleCreateNewConversation" />
 
-            <GlassFolder
-              v-for="conv in conversations"
-              :key="conv.id"
-              :label="getConvDisplayTitle(conv)"
-              :meta="folderMeta(conv)"
-              :seed="conv.id"
-              action="menu"
-              :appear="false"
-              :renaming="renamingConvId === conv.id"
-              :renaming-value="renamingConvTitle"
-              :files="projectFolderFiles(conv)"
-              @select="() => enterFolderProject(conv)"
-              @rename="startRenameConv(conv)"
+            <GlassFolder v-for="conv in conversations" :key="conv.id" :label="getConvDisplayTitle(conv)"
+              :meta="folderMeta(conv)" :seed="conv.id" action="menu" :appear="false"
+              :renaming="renamingConvId === conv.id" :renaming-value="renamingConvTitle"
+              :files="projectFolderFiles(conv)" @select="() => enterFolderProject(conv)" @rename="startRenameConv(conv)"
               @delete="handleDeleteConversation(conv.id)"
-              @rename-submit="(value: string) => submitFolderRename(conv, value)"
-              @rename-cancel="cancelRenameConv"
-            />
+              @rename-submit="(value: string) => submitFolderRename(conv, value)" @rename-cancel="cancelRenameConv" />
           </div>
         </main>
 
         <!-- ================= 视图 B：网格节点 AI 视频工作台 ================= -->
-        <div v-else key="view-b" class="canvas-viewport"
-          :class="{
-            'pan-mode': canvasInteractionMode === 'pan',
-            'is-panning': isPanning
-          }"
-          ref="viewportRef" @mousedown="handleCanvasMouseDown"
-          @contextmenu="openContextMenu" @wheel="handleCanvasZoom">
+        <div v-else key="view-b" class="canvas-viewport" :class="{
+          'pan-mode': canvasInteractionMode === 'pan',
+          'is-panning': isPanning
+        }" ref="viewportRef" @mousedown="handleCanvasMouseDown" @contextmenu="openContextMenu"
+          @wheel="handleCanvasZoom">
           <!-- 左上角悬浮：返回创作项目空间、视角控制与模式切换 -->
           <div class="floating-top-left">
             <button class="glass-pill-btn" @click="backToProjectSpace" title="返回项目空间看板">
@@ -160,31 +143,23 @@
 
             <!-- 方案 B：左键交互模式切换（移画布 vs 拉框多选） -->
             <div class="mode-switch-group" role="group" aria-label="画布左键模式">
-              <button
-                type="button"
-                class="mode-switch-btn"
-                :class="{ active: canvasInteractionMode === 'pan' }"
-                title="左键拖动空白处直接移动画布（按住 Shift 可临时拉框多选）"
-                @click.stop="canvasInteractionMode = 'pan'"
-              >
+              <button type="button" class="mode-switch-btn" :class="{ active: canvasInteractionMode === 'pan' }"
+                title="左键拖动空白处直接移动画布（按住 Shift 可临时拉框多选）" @click.stop="canvasInteractionMode = 'pan'">
                 ✋ 移画布
               </button>
-              <button
-                type="button"
-                class="mode-switch-btn"
-                :class="{ active: canvasInteractionMode === 'select' }"
-                title="左键在空白处拖动拉出选框，多选节点"
-                @click.stop="canvasInteractionMode = 'select'"
-              >
+              <button type="button" class="mode-switch-btn" :class="{ active: canvasInteractionMode === 'select' }"
+                title="左键在空白处拖动拉出选框，多选节点" @click.stop="canvasInteractionMode = 'select'">
                 🖱 框选
               </button>
             </div>
 
-   <button class="glass-pill-btn" @click.stop="addNode('text')">添加文本</button>
+            <button class="glass-pill-btn" @click.stop="addNode('text')">添加文本</button>
             <button class="glass-pill-btn" @click.stop="addNode('image')">添加图片</button>
             <button class="glass-pill-btn" @click.stop="addNode('perspective')">🎥 添加视角</button>
             <button class="glass-pill-btn image-generate-entry" @click.stop="openImageGeneration()">✧ AI 生图</button>
-            <button class="glass-pill-btn director-entry-btn" @click.stop="openDirectorModal">🎬 全片 AI 统筹</button>
+            <button data-tour="director-btn" class="glass-pill-btn director-entry-btn" @click.stop="openDirectorModal">
+              🎬 全片 AI 统筹
+            </button>
             <span class="canvas-project-title">{{ activeConversation ? getConvDisplayTitle(activeConversation) :
               '新创作工作流' }}</span>
           </div>
@@ -207,7 +182,7 @@
               <span class="tool-tip">提示词模板库</span>
             </button>
 
-            <button class="side-tool-btn highlight" @click="openGuideModal" title="国际传播指导">
+            <button data-tour="cultural-btn" class="side-tool-btn highlight" @click="openGuideModal" title="国际传播指导">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -253,17 +228,14 @@
             </svg>
 
             <!-- 节点列表（单击关联连线节点 / 双击单选该节点 / Shift点击精准增减） -->
-            <div v-for="node in nodes" :key="node.id" class="canvas-node"
-              :class="[
-                node.type,
-                {
-                  selected: activeNodeId === node.id || selectedNodeIds.includes(node.id),
-                  'linked-selected': connectedSelectionIds.includes(node.id) && activeNodeId !== node.id && !selectedNodeIds.includes(node.id)
-                }
-              ]"
-              :style="{ transform: `translate(${node.x}px,${node.y}px)` }"
-              @mousedown.stop="startDragNode($event, node)"
-              @click.stop="selectNode(node, $event)"
+            <div v-for="node in nodes" :key="node.id" class="canvas-node" :class="[
+              node.type,
+              {
+                selected: activeNodeId === node.id || selectedNodeIds.includes(node.id),
+                'linked-selected': connectedSelectionIds.includes(node.id) && activeNodeId !== node.id && !selectedNodeIds.includes(node.id)
+              }
+            ]" :style="{ transform: `translate(${node.x}px,${node.y}px)` }"
+              @mousedown.stop="startDragNode($event, node)" @click.stop="selectNode(node, $event)"
               @dblclick.stop="isolateSelectNode(node)">
               <!-- 节点左侧连接点 (In) -->
               <div class="node-port in-port"
@@ -308,11 +280,11 @@
                   :aria-label="node.title + '内容'" :disabled="loading"
                   @focus="editingNodeId = node.id; activeNodeId = node.id" @mousedown.stop @click.stop
                   @keydown.ctrl.enter.prevent="finishNodeEditing" @keydown.escape.stop="finishNodeEditing"></textarea>
-              <div v-else class="node-text-preview msg-content" tabindex="0" :aria-label="node.title + '正文'"
-  title="单击选中关联组，双击单独选中此框，点击右上角“编辑”修改文字" @mousedown.stop @click.stop="selectNode(node, $event)"
-  @dblclick.stop="isolateSelectNode(node)" @keydown.enter.prevent="beginNodeEditing(node)"
-  @wheel="!$event.ctrlKey && !$event.metaKey && $event.stopPropagation()"
-  v-html="renderMd(node.content || '')"></div>
+                <div v-else class="node-text-preview msg-content" tabindex="0" :aria-label="node.title + '正文'"
+                  title="单击选中关联组，双击单独选中此框，点击右上角“编辑”修改文字" @mousedown.stop @click.stop="selectNode(node, $event)"
+                  @dblclick.stop="isolateSelectNode(node)" @keydown.enter.prevent="beginNodeEditing(node)"
+                  @wheel="!$event.ctrlKey && !$event.metaKey && $event.stopPropagation()"
+                  v-html="renderMd(node.content || '')"></div>
                 <div v-if="node.ai_running || (isAgentResponding && aiTargetNodeId === node.id)" class="node-ai-status"
                   role="status">AI 正在协作，回复后需点击“确定并写入小框”…</div>
                 <div v-else-if="node.pending_ai" class="node-ai-status">AI 正文尚未写入，当前文字已保留</div>
@@ -352,9 +324,9 @@
                   </div>
                 </div>
               </div>
-<!-- 专属视角节点 (Perspective Node)：不可直接上传替换，仅可进入3D界面调整 -->
-             
-          <!-- 专属视角节点 (Perspective Node)：不可直接上传替换，仅可进入3D界面调整 -->
+              <!-- 专属视角节点 (Perspective Node)：不可直接上传替换，仅可进入3D界面调整 -->
+
+              <!-- 专属视角节点 (Perspective Node)：不可直接上传替换，仅可进入3D界面调整 -->
               <div v-else-if="node.type === 'perspective'" class="node-body perspective-node-body">
                 <div class="perspective-preview-area" @mousedown.stop @dblclick.stop="openPerspectiveEditor(node)">
                   <template v-if="node.url">
@@ -381,13 +353,8 @@
                     <button type="button" class="p-action-pill" @click.stop="openPerspectiveEditor(node)">
                       🎥 调整 3D 视角
                     </button>
-                    <button
-                      v-if="node.url"
-                      type="button"
-                      class="p-action-pill highlight"
-                      title="将该3D视角构图与连线的参考图结合，生成真实首帧图"
-                      @click.stop="openImageGenFromPerspective(node)"
-                    >
+                    <button v-if="node.url" type="button" class="p-action-pill highlight"
+                      title="将该3D视角构图与连线的参考图结合，生成真实首帧图" @click.stop="openImageGenFromPerspective(node)">
                       ✧ 结合参考图生图
                     </button>
                   </div>
@@ -396,12 +363,8 @@
                 <!-- 下半部分：自动解算的空间与运镜描述（允许直接手改微调） -->
                 <div class="perspective-desc-box" @mousedown.stop @click.stop>
                   <div class="p-desc-label">空间站位与运镜描述（连线自动注入 AI）：</div>
-                  <textarea
-                    v-model="node.content"
-                    class="p-desc-textarea"
-                    rows="5"
-                    placeholder="进入 3D 视角界面定格后自动生成空间构图描述..."
-                  ></textarea>
+                  <textarea v-model="node.content" class="p-desc-textarea" rows="5"
+                    placeholder="进入 3D 视角界面定格后自动生成空间构图描述..."></textarea>
                 </div>
               </div>
               <!-- 视频节点 -->
@@ -450,9 +413,9 @@
 
           <!-- 右下角悬浮：Agent 唤出按钮 -->
           <div class="floating-bottom-right">
-            <button class="agent-orb-btn"
+            <button data-tour="agent-orb" class="agent-orb-btn"
               :class="{ active: isAgentDrawerOpen, generating: isSubmittingJob || isAgentResponding }"
-              @click="toggleAgentDrawer" title="打开 AI 协作" aria-label="打开 AI 协作">
+              @click="handleOrbClickInTour" title="打开 AI 协作">
               <div class="orb-inner">
                 <div class="orb-logo"></div>
               </div>
@@ -479,10 +442,10 @@
               <button role="tab" :aria-selected="agentTab === 'video'" @click="agentTab = 'video'">生成视频</button>
             </div>
 
-        <ImageGenerationPanel embedded :open="imageGenerationOpen" :account-id="accountId"
-  :conversation-id="currentConvId" :nodes="nodes" :connections="connections" :canvas-busy="loading" :source-node-id="imageSourceNodeId"
-  @close="isAgentDrawerOpen = false" @insert="insertGeneratedImage"
-  @portrait-notice="portraitNoticeOpen = true" />
+            <ImageGenerationPanel embedded :open="imageGenerationOpen" :account-id="accountId"
+              :conversation-id="currentConvId" :nodes="nodes" :connections="connections" :canvas-busy="loading"
+              :source-node-id="imageSourceNodeId" @close="isAgentDrawerOpen = false" @insert="insertGeneratedImage"
+              @portrait-notice="portraitNoticeOpen = true" />
 
             <div v-show="agentTab === 'chat'" class="drawer-conversation">
               <div class="ai-target-picker">
@@ -632,9 +595,11 @@
                 </div>
                 <p v-if="videoSettingsReason" class="generation-help" role="status">{{ videoSettingsReason }}</p>
                 <p class="generation-help">AI 会按当前模型与设置审理，说明必要的参数调整和图片处理。点击生成即采用审理结果，画布原图保留。修改内容、通道、模式或参数后需重新审理。</p>
-                <button class="prepare-video-btn"
+                <button data-tour="prepare-video-btn" class="prepare-video-btn"
                   :disabled="!videoSourceNodes.length || !!videoSettingsReason || targetLoading || isPreparingVideo || isAgentResponding || isSubmittingJob || isConfirming"
-                  @click="prepareVideo">{{ isPreparingVideo ? 'AI 正在审理…' : '1. AI审理方案' }}</button>
+                  @click="prepareVideo">
+                  {{ isPreparingVideo ? 'AI 正在审理…' : '1. AI审理方案' }}
+                </button>
                 <div v-if="videoReview" class="video-review-feedback" :class="videoReview.kind" role="status"
                   aria-live="polite">
                   <div class="review-heading">{{ videoReview.kind === 'loading' ? 'AI审理中' :
@@ -656,7 +621,8 @@
                   @click="submitVideoJob">{{ isSubmittingJob ? '正在提交生成…' : isJobRunning ? '视频生成中…' : '2. 确认并生成视频'
                   }}</button>
                 <p v-if="videoGenerationDisabledReason" id="video-generation-reason" class="generation-help"
-                  role="status">{{ videoGenerationDisabledReason }}</p>
+                  role="status">{{
+                  videoGenerationDisabledReason }}</p>
                 <p v-if="videoSubmissionError" class="video-failure-detail" role="status">{{ videoSubmissionError }}</p>
                 <div v-if="activeJob" class="active-job-strip">
                   <div class="progress-bar-bg">
@@ -702,20 +668,31 @@
     <!-- 全片 AI 统筹向导弹窗 -->
     <GlobalAiDirectorModal :open="showDirectorModal" :conversation-id="currentConvId" :countries="countryList"
       @close="showDirectorModal = false" @apply-plan="handleApplyGlobalPlan" />
-<!-- 只有真正打开时才挂载 3D 引擎，关闭时彻底销毁释放 GPU 和全局事件！ -->
-   <Perspective3DModal
-  v-if="perspectiveModal.open"
-  :open="perspectiveModal.open"
-  :initial-data="editingPerspectiveNode?.perspective_data || null"
-  :initial-url="editingPerspectiveNode?.url || ''"
-  :initial-description="editingPerspectiveNode?.content || ''"
-  :is-saving="perspectiveModal.saving"
-  @close="perspectiveModal.open = false"
-  @confirm="handleConfirmPerspective"
-/>
+ <OnboardingOverlay
+      :open="isTourOpen && !!currentConvId && !showGuideModal"
+      :step="currentStep"
+      :step-index="currentStepIndex"
+      :total-steps="totalSteps"
+      @next="handleTourNext"
+      @prev="prevStep"
+      @skip="finishTour(accountId)"
+      @load-sample="handleLoadSampleProject"
+    />
+    <!-- 只有真正打开时才挂载 3D 引擎，关闭时彻底销毁释放 GPU 和全局事件！ -->
+    <Perspective3DModal v-if="perspectiveModal.open" :open="perspectiveModal.open"
+      :initial-data="editingPerspectiveNode?.perspective_data || null" :initial-url="editingPerspectiveNode?.url || ''"
+      :initial-description="editingPerspectiveNode?.content || ''" :is-saving="perspectiveModal.saving"
+      @close="perspectiveModal.open = false" @confirm="handleConfirmPerspective" />
     <!-- ================= 国际传播指引弹窗（多选 & 后端负面提示词合并） ================= -->
+  <!-- ================= 国际传播指引弹窗（多选 & 后端负面提示词合并） ================= -->
     <div v-if="showGuideModal" class="guide-modal-mask" @click.self="closeGuideModal">
       <div class="guide-modal-box">
+        <!-- 新增：融合式引导提示条（未完成过新手教程时显示） -->
+        <div v-if="isFirstTimeOnboarding" class="guide-onboarding-banner">
+          <span>👋 欢迎来到「你好世界」！先选择目标传播国家生成负面提示词，完成或关闭后将带您快速熟悉画布操作 →</span>
+          <button type="button" class="skip-all-tour-btn" @click="skipAllOnboardingFromGuide">跳过全部引导</button>
+        </div>
+
         <div class="guide-modal-header">
           <div class="modal-title-group">
             <span class="modal-badge">CULTURAL GUIDANCE</span>
@@ -811,10 +788,24 @@ import {
   videoSettingsBlockReason,
 } from '@/services/generationState';
 import { useRouter, useRoute } from 'vue-router';
-// 在文件顶部导入 request（若尚未导入）
 import request from '@/utils/request';
+import OnboardingOverlay from '@/onboarding/OnboardingOverlay.vue';
+import { useOnboarding } from '@/onboarding/useOnboarding';
+import { buildSampleProjectGraph } from '@/onboarding/tourConfig';
+
 const router = useRouter();
 const route = useRoute();
+
+const workspace = useWorkspace();
+const {
+  canvas, nodes, connections, pan, zoom, conversations, currentConvId, accountId, messages, inputContent,
+  project, apiConfigs, selectedApiConfigId, isSubmittingJob, isConfirming, isAgentResponding,
+  selectedGenerationTarget, targetLoading, targetError,
+  isCreatingConv, isAgentDrawerOpen, referencedNodeIds, aiTargetNodeId, activeJob, portraitFailure, videoSubmissionError,
+  generationReady, isPreparingVideo, videoReview, initialized, loading, notice, saveState, saveLabel, uploading,
+  switchConversation, createNewConversation, backToProjectSpace, retrySave, resolveConflict,
+  restoreBeforeAi, handleLogout,
+} = workspace;
 
 // 从项目画布进 TV 时带上 conv，TV 的返回才能落回这个项目
 const tvLink = computed(() => ({
@@ -828,17 +819,6 @@ const tvLink = computed(() => ({
 function goToEditor() {
   router.push('/editor');
 }
-
-const workspace = useWorkspace();
-const {
-  canvas, nodes, connections, pan, zoom, conversations, currentConvId, accountId, messages, inputContent,
-  project, apiConfigs, selectedApiConfigId, isSubmittingJob, isConfirming, isAgentResponding,
-  selectedGenerationTarget, targetLoading, targetError,
-  isCreatingConv, isAgentDrawerOpen, referencedNodeIds, aiTargetNodeId, activeJob, portraitFailure, videoSubmissionError,
-  generationReady, isPreparingVideo, videoReview, initialized, loading, notice, saveState, saveLabel, uploading,
-  switchConversation, createNewConversation, backToProjectSpace, retrySave, resolveConflict,
-  restoreBeforeAi, handleLogout,
-} = workspace;
 
 const viewportRef = ref<HTMLElement | null>(null);
 const messagesContainerRef = ref<HTMLElement | null>(null);
@@ -909,8 +889,6 @@ const NODE_TYPE_LABEL: Record<string, string> = {
 function sheetsFromCanvas(data: any): { sheets: FolderSheet[]; nodeCount: number } {
   const nodes: any[] = Array.isArray(data?.nodes) ? data.nodes : [];
   if (!nodes.length) return { sheets: [{ name: '空白画布', meta: '还没有内容' }], nodeCount: 0 };
-  // 真正带图的纸优先（纸页栈顶就是 index 0）；图片节点但没有 url 的退到后面
-  // 次级排序：真正带图的已由 primary key 提到最前，这里没图的图片节点排最后
   const TYPE_RANK: Record<string, number> = { video: 1, perspective: 2, text: 3, image: 4 };
   const hasImage = (node: any) =>
     node?.type === 'image' && typeof node?.url === 'string' && node.url.trim().length > 0;
@@ -958,7 +936,7 @@ async function prefetchAllFolders() {
     .map(conv => conv.id)
     .filter(id => !folderPreviews[id]?.loaded);
   const workers = Array.from({ length: 3 }, async () => {
-    for (;;) {
+    for (; ;) {
       const next = ids.shift();
       if (!next) return;
       await prefetchFolderPreview(next);
@@ -967,7 +945,6 @@ async function prefetchAllFolders() {
   await Promise.all(workers);
 }
 
-// 纯读取：预取由 watch(conversations) 负责，避免在渲染期间写响应式状态
 function projectFolderFiles(conv: { id: string }): FolderSheet[] {
   return folderPreviews[conv.id]?.sheets ?? [{ name: '正在读取项目…', meta: '稍等', disabled: true }];
 }
@@ -1005,7 +982,7 @@ async function finishRenameConv(conv: { id: string; title?: string | null }) {
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ title: trimmed })
-      }).catch(() => {});
+      }).catch(() => { });
     }
   } catch {
     // 本地已保存
@@ -1139,6 +1116,51 @@ const selectedNodeIds = ref<string[]>([]);
 const aiTargetNode = computed(() => nodes.value.find(n => n.id === aiTargetNodeId.value));
 const canApplyAiContent = computed(() => !!aiTargetNode.value?.pending_ai && aiTargetNode.value.pending_ai.source_model !== 'local-preview');
 
+// ==================== 新手引导（Onboarding）状态与联动 ====================
+const {
+  isTourOpen,
+  currentStepIndex,
+  totalSteps,
+  currentStep,
+  checkAndStartWorkspaceTour,
+  startTourManually,
+  nextStep,
+  prevStep,
+  finishTour,
+} = useOnboarding();
+
+function handleTourNext() {
+  nextStep((nextStepId) => {
+    if (nextStepId === 'step-video-review') {
+      isAgentDrawerOpen.value = true;
+      agentTab.value = 'video';
+    }
+  });
+}
+
+function handleOrbClickInTour() {
+  toggleAgentDrawer();
+  if (isTourOpen.value && currentStep.value?.id === 'step-agent-orb') {
+    isAgentDrawerOpen.value = true;
+    agentTab.value = 'video';
+    nextStep();
+  }
+}
+
+function handleLoadSampleProject() {
+  const sample = buildSampleProjectGraph(newId);
+  nodes.value = sample.nodes;
+  connections.value = sample.connections;
+  pan.value.x = 80;
+  pan.value.y = 60;
+  zoom.value = 0.95;
+  activeNodeId.value = sample.nodes[2].id;
+  selectedNodeIds.value = [sample.nodes[2].id];
+  canvas.value.video_duration_seconds = 15;
+  canvas.value.video_resolution = '720p';
+  notice.value = '已为您加载「非遗竹编出海」示例节点与连线，可直接体验 AI 协作与视频审理！';
+}
+
 // ==================== 三级节点选择机制（单击关联连线节点 / 双击单选 / Shift精准加选） ====================
 const isManualPreciseSelect = ref(false);
 
@@ -1158,7 +1180,7 @@ function expandConnectedNodeIds(seedIds: string[]): string[] {
   return Array.from(result);
 }
 
-// ==================== 3D 视角节点状态与逻辑（放在 workspace 与 expandConnectedNodeIds 之后） ====================
+// ==================== 3D 视角节点状态与逻辑 ====================
 const perspectiveModal = reactive({
   open: false,
   nodeId: '',
@@ -1174,8 +1196,6 @@ function openPerspectiveEditor(node: FlowNode) {
   perspectiveModal.open = true;
 }
 
-
-
 async function uploadPerspectiveDataUrl(
   convId: string,
   dataUrl: string,
@@ -1189,7 +1209,6 @@ async function uploadPerspectiveDataUrl(
       img.src = dataUrl;
     });
 
-    // 确保长边为 1280px，符合平台最小与最大尺寸区间
     const minLongEdge = 1280;
     const srcW = img.naturalWidth || 1280;
     const srcH = img.naturalHeight || 720;
@@ -1200,7 +1219,6 @@ async function uploadPerspectiveDataUrl(
     const offscreen = document.createElement('canvas');
     offscreen.width = targetW;
     offscreen.height = targetH;
-    // 关闭 alpha 通道，强制生成纯 RGB 图像
     const ctx = offscreen.getContext('2d', { alpha: false });
     if (ctx) {
       ctx.fillStyle = '#f8fafc';
@@ -1208,7 +1226,6 @@ async function uploadPerspectiveDataUrl(
       ctx.drawImage(img, 0, 0, targetW, targetH);
     }
 
-    // 导出为标准 RGB JPEG（质量 0.95），彻底消除 PNG Alpha 通道兼容性问题
     const blob = await new Promise<Blob | null>(resolve =>
       offscreen.toBlob(b => resolve(b), 'image/jpeg', 0.95)
     );
@@ -1245,19 +1262,16 @@ async function handleConfirmPerspective(payload: {
   description: string;
   sceneData: PerspectiveSceneData;
 }) {
-  // 兼容：优先取当前正在编辑的视角节点，若无则取画布上最后一个视角节点
   const targetNode =
     editingPerspectiveNode.value ||
     [...nodes.value].reverse().find((n) => n.type === 'perspective') ||
     null;
 
-  // 1. 无论如何，点击确认后第一时间关闭 3D 弹窗界面！
   perspectiveModal.open = false;
   perspectiveModal.saving = false;
 
   if (!targetNode) return;
 
-  // 2. 立即将截图 DataURL 和生成的空间描述写入节点（画面瞬间更新）
   targetNode.url = payload.startDataUrl;
   targetNode.content = payload.description;
   targetNode.perspective_data = {
@@ -1269,7 +1283,6 @@ async function handleConfirmPerspective(payload: {
   selectedNodeIds.value = [targetNode.id];
   notice.value = '已更新 3D 视角构图与 6 维空间运镜描述';
 
-  // 3. 后台异步静默上传图片资源（不阻塞弹窗关闭）
   const convId = currentConvId.value;
   if (convId) {
     uploadPerspectiveDataUrl(convId, payload.startDataUrl, `perspective_start_${Date.now()}.png`)
@@ -1279,7 +1292,7 @@ async function handleConfirmPerspective(payload: {
           if (uploadedStart.id) targetNode.asset_id = uploadedStart.id;
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     if (payload.endDataUrl) {
       uploadPerspectiveDataUrl(convId, payload.endDataUrl, `perspective_end_${Date.now()}.png`)
@@ -1288,7 +1301,7 @@ async function handleConfirmPerspective(payload: {
             targetNode.perspective_data.endFrameUrl = uploadedEnd.url;
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }
 }
@@ -1300,7 +1313,6 @@ function openImageGenFromPerspective(node: FlowNode) {
   selectedNodeIds.value = linkedIds;
   referencedNodeIds.value = linkedIds;
 
-  // 若 3D 截图尚未拿到云端 asset_id，立即补发一次上传，面板监听到 asset_id 到位后会自动挂载参考图
   if (!node.asset_id && node.url?.startsWith('data:') && currentConvId.value) {
     void uploadPerspectiveDataUrl(
       currentConvId.value,
@@ -1494,6 +1506,30 @@ watch(agentTab, tab => { if (tab === 'chat') scrollToBottom(); });
 
 // ==================== 3. 国际传播文化配置（已对齐 /api/v1/cultural-guidances） ====================
 const showGuideModal = ref(false);
+
+const isFirstTimeOnboarding = computed(() => {
+  void isTourOpen.value;
+  try {
+    return !localStorage.getItem(`hw_onboarding_v1_${accountId.value || 'guest'}`);
+  } catch {
+    return false;
+  }
+});
+
+function skipAllOnboardingFromGuide() {
+  finishTour(accountId.value);
+  closeGuideModal();
+}
+
+watch(
+  () => [currentConvId.value, loading.value, showGuideModal.value] as const,
+  ([convId, isLoading, guideOpen]) => {
+    if (convId && !isLoading && !guideOpen) {
+      setTimeout(() => checkAndStartWorkspaceTour(accountId.value), 350);
+    }
+  }
+);
+
 const countryList = ref<CulturalGuidanceItem[]>([]);
 const selectedCountryCodes = ref<string[]>([]);
 const isLoadingCountries = ref(false);
@@ -1544,8 +1580,7 @@ const selectedCountries = computed(() =>
   countryList.value.filter((c) => selectedCountryCodes.value.includes(c.code))
 );
 
-
-// 全局基础负向词常量（只改前端时维护这一份即可）
+// 全局基础负向词常量
 const GLOBAL_BASE_NEGATIVE_PROMPTS = [
   '伪造新闻台标',
   '虚假新闻水印',
@@ -1556,7 +1591,6 @@ const GLOBAL_BASE_NEGATIVE_PROMPTS = [
   '主体裁切',
 ];
 
-// 通用去重合并工具：把任意多段提示词与全局基础词去重合并
 function mergeWithGlobalNegativePrompts(rawPrompts: string[]): string {
   const countryTerms = rawPrompts
     .flatMap((raw) => (raw || '').replace(/^负面提示词[：:]\s*/, '').split(/[,，、]/))
@@ -1574,6 +1608,7 @@ const combinedNegativePrompt = computed(() => {
     selectedCountries.value.map((c) => c.negative_prompt || '')
   );
 });
+
 function applyGuidanceToNode() {
   const rawPrompt = combinedNegativePrompt.value;
   if (!rawPrompt) return;
@@ -1784,8 +1819,6 @@ onMounted(async () => {
 
   void fetchCountryNegativePrompts();
 
-  // 深链兼容：?conv_id= 统一改写成规范键 ?conversation=，
-  // 由 useWorkspace 在初始化完成后按 query 加载（这里直接调 switchConversation 会早于 store 就绪）
   const deepLinkConvId =
     (route.query.conv_id as string) || (route.query.conversation as string);
   if (route.query.conv_id && deepLinkConvId) {
@@ -1876,8 +1909,8 @@ function handleCanvasMouseMove(e: MouseEvent) {
     isManualPreciseSelect.value = true;
     selectedNodeIds.value = nodes.value
       .filter(node => {
-        const nodeW = node.type === 'perspective' ? 310 : 248;
-        const nodeH = node.type === 'image' ? 280 : node.type === 'text' || node.type === 'perspective' ? 300 : 240;
+        const nodeW = node.type === 'perspective' ? 380 : 248;
+        const nodeH = node.type === 'perspective' ? 400 : node.type === 'image' ? 280 : node.type === 'text' ? 300 : 240;
         return (
           boxX < node.x + nodeW &&
           boxX + boxW > node.x &&
@@ -1952,7 +1985,6 @@ function handleCanvasZoom(e: WheelEvent) {
   e.preventDefault();
   e.stopPropagation();
 
-  // 兼容鼠标垂直滚轮 (deltaY) 与部分鼠标/触控板把滚轮映射为 deltaX 的情况
   const rawDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
   if (rawDelta === 0) return;
 
@@ -2004,7 +2036,6 @@ function createNodeFromContext(type: 'text' | 'image' | 'perspective') {
   nodes.value.push(newNode);
   activeNodeId.value = id;
   contextMenu.visible = false;
-  // 移除自动 openPerspectiveEditor(newNode)，让节点先干净地出现在画布上，点击节点内按钮再打开 3D 弹窗
 }
 
 function deleteNode(id: string) {
@@ -2147,10 +2178,10 @@ function startDragNode(e: MouseEvent, node: FlowNode) {
 }
 
 function getNodePortPos(node: FlowNode, type: 'in' | 'out') {
-  const cardWidth = node.type === 'perspective' ? 360 : 248;
+  const cardWidth = node.type === 'perspective' ? 380 : 248;
   const cardHeight =
     node.type === 'perspective'
-      ? 380
+      ? 400
       : node.type === 'image'
         ? 280
         : node.type === 'text'
@@ -2288,10 +2319,10 @@ function handleApplyGlobalPlan(plan: DirectorBreakdownResponse) {
   const culturalNodeId = newId();
   const assetPromptNodeId = newId();
 
-  const rawCultural = (plan.cultural_node_content || '').trim();
-  const formattedCulturalContent = rawCultural.startsWith('负面提示词：')
-    ? rawCultural
-    : `负面提示词：${rawCultural}`;
+  const rawCultural = mergeWithGlobalNegativePrompts([plan.cultural_node_content || '']);
+  const formattedCulturalContent = rawCultural
+    ? `负面提示词：${rawCultural}`
+    : '';
 
   const newNodes: FlowNode[] = [
     {
@@ -2456,6 +2487,7 @@ function handleApplyGlobalPlan(plan: DirectorBreakdownResponse) {
   display: flex;
   gap: 6px;
 }
+
 .p-action-pill {
   background: rgba(15, 23, 42, 0.92);
   /* 删掉 backdrop-filter: blur(6px); 避免画布拖拽合成卡顿 */
@@ -2513,6 +2545,7 @@ function handleApplyGlobalPlan(plan: DirectorBreakdownResponse) {
 .p-desc-textarea:focus {
   border-color: #38bdf8;
 }
+
 .video-review-feedback.blocked {
   border-color: rgba(234, 179, 8, .35);
   background: rgba(234, 179, 8, .06);
@@ -5082,5 +5115,34 @@ button:disabled {
   outline: 2px solid #a5b4fc;
   outline-offset: 2px;
   border-radius: 2px;
+}
+.guide-onboarding-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.24), rgba(56, 189, 248, 0.18));
+  border: 1px solid rgba(129, 140, 248, 0.45);
+  color: #e0e7ff;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.skip-all-tour-btn {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #cbd5e1;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.skip-all-tour-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
 }
 </style>

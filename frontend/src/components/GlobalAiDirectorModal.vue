@@ -315,6 +315,28 @@ const customStyleDesc = ref<string>('4K高清电影质感，柔和自然光影�
 // Step 3 状态
 const planResult = ref<DirectorBreakdownResponse | null>(null);
 
+// 全局基础负向词常量（不加 export，供组件内部合并去重使用）
+const GLOBAL_BASE_NEGATIVE_PROMPTS = [
+  '伪造新闻台标',
+  '虚假新闻水印',
+  '虚假采访拼接',
+  '乱码文字',
+  '字幕遮挡',
+  '不可读小字',
+  '主体裁切',
+];
+
+function mergeNegativePrompts(rawList: string[]): string {
+  const terms = rawList
+    .flatMap((item) => (item || '').replace(/^负面提示词[：:]\s*/, '').split(/[,，、]/))
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (!terms.length) return '';
+
+  return Array.from(new Set([...terms, ...GLOBAL_BASE_NEGATIVE_PROMPTS])).join(', ');
+}
+
 const recommendedSegments = computed(() => {
   const dur = Number(totalDuration.value) || 15;
   return Math.max(1, Math.min(20, Math.ceil(dur / 15)));
@@ -355,7 +377,7 @@ const selectedTemplatesList = computed(() =>
   styleTemplates.value.filter((t) => selectedStyleIds.value.includes(t.id))
 );
 
-// 合并选中国家的负面提示词 + 选中模板中的负面提示词
+// 合并选中国家的负面提示词 + 选中模板中的负面提示词 + 全局基础负面词（自动去重）
 const mergedNegativePreview = computed(() => {
   const parts: string[] = [];
 
@@ -367,14 +389,14 @@ const mergedNegativePreview = computed(() => {
 
   for (const tpl of selectedTemplatesList.value) {
     if (tpl.category === 'negative' && tpl.content?.trim()) {
-      parts.push(tpl.content.trim().replace(/^负面提示词[：:]\s*/, ''));
+      parts.push(tpl.content.trim());
     }
     if (tpl.negative_prompt?.trim()) {
-      parts.push(tpl.negative_prompt.trim().replace(/^负面提示词[：:]\s*/, ''));
+      parts.push(tpl.negative_prompt.trim());
     }
   }
 
-  return [...new Set(parts.filter(Boolean))].join('、');
+  return mergeNegativePrompts(parts);
 });
 
 function toggleCountryCode(code: string) {
@@ -383,9 +405,6 @@ function toggleCountryCode(code: string) {
   else selectedCountryCodes.value.push(code);
 }
 
-/**
- * 切换模板多选状态，并将选中的多个模板内容实时同步到下方输入框
- */
 function toggleStyleTemplate(tpl: StyleTemplateOption) {
   const idx = selectedStyleIds.value.indexOf(tpl.id);
   if (idx > -1) {
@@ -394,9 +413,8 @@ function toggleStyleTemplate(tpl: StyleTemplateOption) {
     selectedStyleIds.value.push(tpl.id);
   }
 
-  // 将所有已选中的模板内容合并到下方文本框供用户预览与二次编辑
   const combinedTexts = styleTemplates.value
-    .filter((item) => selectedStyleIds.value.includes(item.id))
+    .filter((item) => selectedStyleIds.value.includes(item.id) && item.category !== 'negative')
     .map((item) => item.content?.trim())
     .filter(Boolean);
 
@@ -466,7 +484,6 @@ async function handleBreakdownScript() {
       }
     );
 
-    // 确保负面提示词节点内容严格以“负面提示词：”开头
     if (res.cultural_node_content && !res.cultural_node_content.trim().startsWith('负面提示词：')) {
       res.cultural_node_content = `负面提示词：${res.cultural_node_content.trim()}`;
     }
@@ -479,17 +496,7 @@ async function handleBreakdownScript() {
     loading.value = false;
   }
 }
-export const GLOBAL_BASE_NEGATIVE_PROMPTS =
-  '伪造新闻台标, 虚假新闻水印, 虚假采访拼接, 乱码文字, 字幕遮挡, 不可读小字, 主体裁切';
 
-export function mergeNegativePrompts(countryPrompts: string[]): string {
-  const allTerms = [...countryPrompts, GLOBAL_BASE_NEGATIVE_PROMPTS]
-    .flatMap((item) => (item || '').split(/[,，]/))
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  return Array.from(new Set(allTerms)).join(', ');
-}
 function handleFinishAndCreateNodes() {
   if (!planResult.value) return;
   emit('apply-plan', planResult.value);

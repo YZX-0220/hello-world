@@ -36,10 +36,45 @@ export interface DirectorBreakdownResponse {
   segments: DirectorSegment[];
 }
 
+/**
+ * 全局基础负向词常量（全平台共用这一份定义）
+ */
+export const GLOBAL_BASE_NEGATIVE_PROMPTS = [
+  '伪造新闻台标',
+  '虚假新闻水印',
+  '虚假采访拼接',
+  '乱码文字',
+  '字幕遮挡',
+  '不可读小字',
+  '主体裁切',
+];
+
+/**
+ * 通用负面提示词去重合并工具：
+ * 将所选国家/模板的负面词与全局基础负面词合并去重，统一用英文逗号分隔
+ */
+export function mergeWithGlobalNegativePrompts(rawPrompts: string[]): string {
+  const customTerms = rawPrompts
+    .flatMap((raw) => (raw || '').replace(/^负面提示词[：:]\s*/, '').split(/[,，、\n]/))
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (!customTerms.length) {
+    return GLOBAL_BASE_NEGATIVE_PROMPTS.join(', ');
+  }
+
+  return Array.from(new Set([...customTerms, ...GLOBAL_BASE_NEGATIVE_PROMPTS])).join(', ');
+}
+
 const CN_NUMS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+
+/**
+ * 将片段序号 (1~20) 转换为标准中文命名：“片段一” ~ “片段二十”
+ */
 export function toChineseSegmentTitle(index: number): string {
-  if (index <= 10) return `片段${CN_NUMS[index]}`;
-  if (index < 20) return `片段十${index === 10 ? '' : CN_NUMS[index % 10]}`;
+  if (index >= 1 && index <= 10) return `片段${CN_NUMS[index]}`;
+  if (index > 10 && index < 20) return `片段十${CN_NUMS[index % 10]}`;
+  if (index === 20) return '片段二十';
   return `片段${index}`;
 }
 
@@ -93,14 +128,24 @@ export async function generateDirectorBreakdown(
       index: idx + 1,
       title: toChineseSegmentTitle(idx + 1),
     }));
+    // 确保返回的负面提示词节点严格以“负面提示词：”开头并合并全局基础词
+    const mergedNeg = mergeWithGlobalNegativePrompts([
+      res.cultural_node_content || '',
+      fallbackContext?.negativePrompts || '',
+    ]);
+    res.cultural_node_content = `负面提示词：${mergedNeg}`;
     return res;
   } catch (err: any) {
     // 若后端接口尚未就绪，提供结构化拆解兜底
     if (err?.response?.status === 404 || err?.status === 404 || !err?.response) {
       const count = Math.max(1, payload.segment_count);
-      const styleText = fallbackContext?.styleContent || payload.custom_style_desc || '4K电影级写实画质，自然柔和光效，浅景深，平稳运镜';
-      const countryNames = fallbackContext?.countryNames || '全球通用受众';
-      const negText = fallbackContext?.negativePrompts || '低画质、画面闪烁、肢体畸变、文字水印';
+      const styleText =
+        fallbackContext?.styleContent ||
+        payload.custom_style_desc ||
+        '4K电影级写实画质，自然柔和光效，浅景深，平稳运镜';
+      const negText = mergeWithGlobalNegativePrompts([
+        fallbackContext?.negativePrompts || '低画质, 画面闪烁, 肢体畸变, 文字水印',
+      ]);
 
       const segments: DirectorSegment[] = Array.from({ length: count }, (_, i) => {
         const idx = i + 1;
@@ -117,7 +162,7 @@ export async function generateDirectorBreakdown(
 
       return {
         style_node_content: `【整体视觉风格】${styleText}\n【全片视听基调】色彩统一协调，镜头运动保持平稳呼吸感，主体外貌与服装在各片段间保持一致。`,
-        cultural_node_content: `【目标传播地区】${countryNames}\n【负面规避提示词 (Negative Prompt)】${negText}`,
+        cultural_node_content: `负面提示词：${negText}`,
         image_asset_prompts: `【首帧/参考图素材 1（核心主体）】基于剧本“${payload.script_draft.slice(0, 40)}...”，生成核心人物与主场景高清首帧参考图，${styleText}，光影层次丰富，正面近景，无多余杂物。\n【首帧/参考图素材 2（关键场景）】故事转折与收尾阶段的核心环境参考图，色调与素材1保持严格一致。`,
         segments,
       };

@@ -215,7 +215,11 @@
           <!-- 中间：Three.js 3D 交互视口 + 画幅安全框 -->
           <main class="p3d-viewport-wrap" ref="viewportWrapRef">
             <div ref="canvasMountRef" class="p3d-canvas-mount"></div>
-
+<!-- 首次打开 3D 搭建器的操作微指引 -->
+<div v-if="showP3dTip" class="p3d-coachmark-pill">
+  <span>💡 新手提示：左键旋转机位 · 右键平移 · 滚轮推拉景别 · 点击色块拖拽位置，调好后直接点右下角确认即可</span>
+  <button type="button" @click="closeP3dTip">知道了</button>
+</div>
             <!-- 画幅比例取景安全框遮罩 -->
             <div class="viewfinder-overlay">
               <div class="viewfinder-frame" :style="viewfinderStyle">
@@ -337,7 +341,13 @@ import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Perspective3DObject, PerspectiveSceneData } from '@/types/canvas';
-
+import { useOnboarding } from '@/onboarding/useOnboarding';
+const { shouldShowCoachmark, dismissCoachmark } = useOnboarding();
+const showP3dTip = ref(shouldShowCoachmark('p3d'));
+function closeP3dTip() {
+  showP3dTip.value = false;
+  dismissCoachmark('p3d');
+}
 type Extended3DObject = Omit<Perspective3DObject, 'alias'> & {
   alias: string;
   rotationY: number;
@@ -1325,6 +1335,34 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.p3d-coachmark-pill {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(14, 165, 233, 0.18);
+  border: 1px solid rgba(56, 189, 248, 0.55);
+  backdrop-filter: blur(8px);
+  color: #e0f2fe;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.p3d-coachmark-pill button {
+  background: #0284c7;
+  border: none;
+  color: #fff;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  cursor: pointer;
+}
 .p3d-modal-mask {
   position: fixed;
   inset: 0;

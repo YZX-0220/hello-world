@@ -31,7 +31,10 @@
         </button>
       </div>
     </header>
-
+<div v-if="showEditorTip" class="editor-coachmark-bar">
+  <span>🎬 剪辑台快速上手：① 从左上「AI 生成 / 我的素材」将视频或字幕拖入下方对应轨道 ➔ ② 按 C 键分割、在右上属性面板打关键帧【◆】 ➔ ③ 点击右上角「导出视频」浏览器本地零流量合成 MP4。</span>
+  <button type="button" @click="closeEditorTip">不再提示 ✕</button>
+</div>
     <!-- 主工作区：上下两层 -->
     <div class="editor-body">
       <!-- 上半部分：三栏协作区 -->
@@ -132,7 +135,13 @@ import PropertyInspector from '../components/editor/PropertyInspector.vue';
 import TimelineToolbar from '../components/editor/TimelineToolbar.vue';
 import MultiTrackTimeline from '../components/editor/MultiTrackTimeline.vue';
 import ExportDialog from '../components/editor/ExportDialog.vue';
-
+import { useOnboarding } from '@/onboarding/useOnboarding';
+const { shouldShowCoachmark, dismissCoachmark } = useOnboarding();
+const showEditorTip = ref(shouldShowCoachmark('editor'));
+function closeEditorTip() {
+  showEditorTip.value = false;
+  dismissCoachmark('editor');
+}
 const router = useRouter();
 const route = useRoute();
 
@@ -298,6 +307,27 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.editor-coachmark-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 18px;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.22), rgba(14, 165, 233, 0.18));
+  border-bottom: 1px solid rgba(129, 140, 248, 0.35);
+  color: #e0e7ff;
+  font-size: 12px;
+}
+.editor-coachmark-bar button {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
 .editor-workbench-layout {
   width: 100vw;
   height: 100vh;

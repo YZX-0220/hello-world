@@ -1544,13 +1544,36 @@ const selectedCountries = computed(() =>
   countryList.value.filter((c) => selectedCountryCodes.value.includes(c.code))
 );
 
-const combinedNegativePrompt = computed(() =>
-  selectedCountries.value
-    .map((c) => c.negative_prompt.trim())
-    .filter(Boolean)
-    .join('、')
-);
 
+// 全局基础负向词常量（只改前端时维护这一份即可）
+const GLOBAL_BASE_NEGATIVE_PROMPTS = [
+  '伪造新闻台标',
+  '虚假新闻水印',
+  '虚假采访拼接',
+  '乱码文字',
+  '字幕遮挡',
+  '不可读小字',
+  '主体裁切',
+];
+
+// 通用去重合并工具：把任意多段提示词与全局基础词去重合并
+function mergeWithGlobalNegativePrompts(rawPrompts: string[]): string {
+  const countryTerms = rawPrompts
+    .flatMap((raw) => (raw || '').replace(/^负面提示词[：:]\s*/, '').split(/[,，、]/))
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (!countryTerms.length) return '';
+
+  return Array.from(new Set([...countryTerms, ...GLOBAL_BASE_NEGATIVE_PROMPTS])).join(', ');
+}
+
+const combinedNegativePrompt = computed(() => {
+  if (!selectedCountries.value.length) return '';
+  return mergeWithGlobalNegativePrompts(
+    selectedCountries.value.map((c) => c.negative_prompt || '')
+  );
+});
 function applyGuidanceToNode() {
   const rawPrompt = combinedNegativePrompt.value;
   if (!rawPrompt) return;

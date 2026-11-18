@@ -479,7 +479,17 @@ async function handleBreakdownScript() {
     loading.value = false;
   }
 }
+export const GLOBAL_BASE_NEGATIVE_PROMPTS =
+  '伪造新闻台标, 虚假新闻水印, 虚假采访拼接, 乱码文字, 字幕遮挡, 不可读小字, 主体裁切';
 
+export function mergeNegativePrompts(countryPrompts: string[]): string {
+  const allTerms = [...countryPrompts, GLOBAL_BASE_NEGATIVE_PROMPTS]
+    .flatMap((item) => (item || '').split(/[,，]/))
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(allTerms)).join(', ');
+}
 function handleFinishAndCreateNodes() {
   if (!planResult.value) return;
   emit('apply-plan', planResult.value);

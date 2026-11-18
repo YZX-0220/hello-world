@@ -1211,7 +1211,7 @@ function recalculateDescription(useLiveCamera: unknown = true) {
 }
 
 function handleConfirmSave() {
-  // 点击确认时，同步定格当前最新 3D 视口画面（若尚未手动定格或相机已移动）
+  // 点击确认时，自动将当前 3D 视口画面定格为起始视角（若用户已手动定格过则覆盖为最新视角）
   captureFrame('start');
   recalculateDescription(false);
 

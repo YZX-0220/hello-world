@@ -69,17 +69,24 @@ export function videoGenerationBlockReason(document: CanvasDocument, version: nu
 }
 
 export function videoSettingsBlockReason(document: CanvasDocument, target?: GenerationTarget | null) {
+  const { min, max } = videoDurationBounds(target);
   if (!Number.isInteger(document.video_duration_seconds) || !document.video_duration_seconds
-    || document.video_duration_seconds < 1 || document.video_duration_seconds > 15) return '请填写视频时长（1–15 秒的整数）。';
+    || document.video_duration_seconds < min || document.video_duration_seconds > max)
+    return `请填写视频时长（${min}–${max} 秒的整数）。`;
   if (!['480p', '720p', '1080p'].includes(document.video_resolution)) return '请选择视频清晰度。';
-  if (target?.profile?.image_constraints) {
-    const durations = videoDurationChoices(target);
-    if (!durations.includes(document.video_duration_seconds)) return '请手动选择当前模型支持的视频时长（4–15 秒的整数）。';
-    if (!target.profile.resolutions.includes(document.video_resolution)) return '请选择当前模型支持的视频清晰度。';
-  }
+  if (target?.profile?.image_constraints
+    && !target.profile.resolutions.includes(document.video_resolution)) return '请选择当前模型支持的视频清晰度。';
   return '';
 }
 
 export function videoDurationChoices(target?: GenerationTarget | null): number[] {
-  return (target?.profile?.duration?.allowed_values || []).filter(value => value >= 1 && value <= 15);
+  return (target?.profile?.duration?.allowed_values || []).filter(value => value >= 1);
+}
+
+/** Registered models expose their own duration values; unknown models keep the 1–15 platform range. */
+export function videoDurationBounds(target?: GenerationTarget | null): { min: number; max: number } {
+  const choices = videoDurationChoices(target);
+  return choices.length
+    ? { min: Math.min(...choices), max: Math.max(...choices) }
+    : { min: 1, max: 15 };
 }

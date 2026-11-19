@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { copy, createCanvas, mergeCanvas } from '../src/services/canvasState.ts';
-import { generationMatches, generationSources, savedVideoReview, videoDurationChoices, videoGenerationBlockReason, videoSettingsBlockReason } from '../src/services/generationState.ts';
+import { generationMatches, generationSources, savedVideoReview, videoDurationBounds, videoDurationChoices, videoGenerationBlockReason, videoSettingsBlockReason } from '../src/services/generationState.ts';
 
 function prepared() {
   const document = createCanvas('one', '手动脚本');
@@ -18,7 +18,7 @@ function prepared() {
   return document;
 }
 
-test('audited model duration choices intersect the platform limit and require a manual valid choice', () => {
+test('registered models widen the duration input to their own range', () => {
   const document = prepared();
   const target = {
     ...document.generation_target!,
@@ -28,16 +28,23 @@ test('audited model duration choices intersect the platform limit and require a 
       image_constraints: { min_width: 300 },
     },
   };
-  assert.deepEqual(videoDurationChoices(target), Array.from({ length: 12 }, (_, index) => index + 4));
-  for (const duration of [1, 2, 3]) {
-    document.video_duration_seconds = duration;
-    assert.match(videoSettingsBlockReason(document, target), /手动选择/);
-  }
-  for (const duration of [4, 7, 15]) {
+  assert.deepEqual(videoDurationChoices(target), Array.from({ length: 27 }, (_, index) => index + 4));
+  assert.deepEqual(videoDurationBounds(target), { min: 4, max: 30 });
+  for (const duration of [4, 7, 15, 30]) {
     document.video_duration_seconds = duration;
     assert.equal(videoSettingsBlockReason(document, target), '');
-    assert.equal(document.video_duration_seconds, duration);
   }
+  for (const duration of [3, 31]) {
+    document.video_duration_seconds = duration;
+    assert.match(videoSettingsBlockReason(document, target), /4–30/);
+  }
+});
+
+test('unknown models keep the 1–15 platform range', () => {
+  const document = prepared();
+  assert.deepEqual(videoDurationBounds(undefined), { min: 1, max: 15 });
+  document.video_duration_seconds = 16;
+  assert.match(videoSettingsBlockReason(document, undefined), /1–15/);
 });
 
 test('a prepared multi-box plan matches regardless of click order, but rejects changed selection and content', () => {

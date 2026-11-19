@@ -314,9 +314,6 @@ class VideoJobService:
             job.provider_context_id = result.provider_context_id
             job.status = VideoJobStatus.QUEUED.value
             job.submitted_at = now()
-            # 提交成功（job 变 queued）才占用每日额度；提交失败/未知（failed/submitting）不占。
-            if is_platform:
-                await self._incr_platform_quota(user_id)
         except VideoProviderError as exc:
             if exc.retryable:
                 job.status = VideoJobStatus.SUBMITTING.value
@@ -534,6 +531,13 @@ class VideoJobService:
                 )
             )
         await self._repo.save(job)
+        if (
+            mapped == VideoJobStatus.SUCCEEDED.value
+            and old != VideoJobStatus.SUCCEEDED.value
+            and job.api_config_id is None
+        ):
+            # 平台体验通道只在真正产出视频时计次；失败、取消、超时都不消耗额度。
+            await self._incr_platform_quota(job.user_id)
         if mapped == VideoJobStatus.SUCCEEDED.value and (
             status.input_tokens is not None or status.output_tokens is not None
         ):
@@ -587,14 +591,39 @@ class VideoJobService:
         )
 
     async def _check_platform_quota(self, user_id: str) -> None:
-        """平台每日配额：plat_quota:{user_id}:{YYYY-MM-DD} 存在且值 >=1 即视为已用完（拒单）。"""
+        """平台每日配额：当日已成功产出一次，或仍有未结束的平台任务时拒单。
+
+        额度在视频成功生成后才计数，因此必须挡住"同时排队多个任务"的情况，
+        否则一次额度可以跑出多条免费视频。
+        """
         key = f"{_PLATFORM_QUOTA_PREFIX}{user_id}:{now().strftime('%Y-%m-%d')}"
         used = await self._redis.get(key)
         if used is not None and int(used) >= 1:
             raise AppError(PLATFORM_DAILY_QUOTA_EXCEEDED)
+        active = (
+            await self._session.exec(
+                select(VideoJob.id).where(
+                    VideoJob.user_id == user_id,
+                    VideoJob.api_config_id.is_(None),
+                    VideoJob.status.in_(
+                        (
+                            VideoJobStatus.SUBMITTING.value,
+                            VideoJobStatus.QUEUED.value,
+                            VideoJobStatus.RUNNING.value,
+                        )
+                    ),
+                )
+            )
+        ).first()
+        if active is not None:
+            raise AppError(
+                PLATFORM_DAILY_QUOTA_EXCEEDED, "平台通道已有进行中的任务，请等待完成后再提交。"
+            )
 
     async def _incr_platform_quota(self, user_id: str) -> None:
-        """提交厂商成功（job 变 queued）后占用当日 1 次额度：自增并设置 24h 过期。"""
+        """视频成功生成后占用当日 1 次额度：自增并设置 24h 过期。"""
+        if self._redis is None:
+            return
         key = f"{_PLATFORM_QUOTA_PREFIX}{user_id}:{now().strftime('%Y-%m-%d')}"
         await self._redis.incr(key)
         await self._redis.expire(key, _PLATFORM_QUOTA_TTL_SECONDS)
@@ -671,9 +700,9 @@ class VideoJobService:
     def _validate_mode(self, command: CreateVideoCommand, spec: VideoBrief) -> None:
         if spec.mode is not None and spec.mode.value != command.mode:
             raise AppError(VIDEO_MODE_UNSUPPORTED, "生成模式与方案版本不一致")
-        if spec.duration_seconds is not None and not (1 <= spec.duration_seconds <= 15):
+        if spec.duration_seconds is not None and not (1 <= spec.duration_seconds <= 120):
             raise AppError(
-                VIDEO_OPTION_UNSUPPORTED, "每次生成的视频时长必须为 1–15 秒，请调整方案时长"
+                VIDEO_OPTION_UNSUPPORTED, "每次生成的视频时长必须为 1–120 秒，请调整方案时长"
             )
 
     async def _require_assets(self, user_id: str, spec: VideoBrief) -> list[tuple[str, str, int]]:

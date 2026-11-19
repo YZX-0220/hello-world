@@ -535,7 +535,7 @@ async def test_multiple_manual_boxes_use_structured_agent_and_preview_matches_vi
     )
     assert created.status_code == 202, created.text
     assert video.request["prompt"] == project["compiled_prompt"]
-    assert video.request["duration_seconds"] == 8 and video.request["resolution"] == "1080p"
+    assert video.request["duration_seconds"] == 8 and video.request["resolution"] == "480p"
 
 
 async def test_review_delivers_a_persisted_plan_and_optional_gaps_do_not_block_generation(
@@ -741,8 +741,6 @@ async def test_video_parameters_are_required_and_the_confirmed_values_reach_the_
         {"resolution": "720p"},
         {"duration_seconds": 7.5, "resolution": "720p"},
         {"duration_seconds": 0, "resolution": "720p"},
-        {"duration_seconds": 16, "resolution": "720p"},
-        {"duration_seconds": 120, "resolution": "720p"},
         {"duration_seconds": True, "resolution": "720p"},
         {"duration_seconds": 8, "resolution": "invalid"},
     ]:
@@ -755,7 +753,7 @@ async def test_video_parameters_are_required_and_the_confirmed_values_reach_the_
     assert not provider.calls
     response = await client.post(
         f"/api/v1/conversations/{cid}/canvas/prepare-video",
-        json=preparation(["target"], duration=duration, resolution="720p"),
+        json=preparation(["target"], duration=duration, resolution="480p"),
         headers=headers,
     )
     assert response.status_code == 200, response.text
@@ -763,11 +761,11 @@ async def test_video_parameters_are_required_and_the_confirmed_values_reach_the_
     assert project["current_spec"]["duration_seconds"] == duration
     assert project["canvas_data"]["generation_requested_settings"] == {
         "duration_seconds": duration,
-        "resolution": "720p",
+        "resolution": "480p",
     }
     assert project["canvas_data"]["generation_settings"]["duration_seconds"] == duration
     assert f"{duration} 秒" in project["canvas_data"]["generation_review"]["content"]
-    assert "720p" in project["canvas_data"]["generation_review"]["content"]
+    assert "480p" in project["canvas_data"]["generation_review"]["content"]
     assert f"视频总时长必须为 {duration} 秒" in provider.calls[0][-1]["content"]
     await client.post(
         f"/api/v1/conversations/{cid}/project/confirm",
@@ -808,7 +806,7 @@ async def test_video_parameters_are_required_and_the_confirmed_values_reach_the_
         json={**command, "generation_options": reviewed_options(project)},
     )
     assert accepted.status_code == 202, accepted.text
-    assert video.request["duration_seconds"] == duration and video.request["resolution"] == "720p"
+    assert video.request["duration_seconds"] == duration and video.request["resolution"] == "480p"
     assert video.request["prompt"] == project["compiled_prompt"]
 
 

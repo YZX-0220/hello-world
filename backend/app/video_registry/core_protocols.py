@@ -316,6 +316,34 @@ ARK_PROFILES: tuple[ModelProfile, ...] = (
         provider_direct_url_ttl=86400,
         enabled=True,
     ),
+    # ---- Seedance 2.0 mini（平台体验通道当前使用）----
+    ModelProfile(
+        code="doubao-seedance-2-0-mini",
+        display_name="Doubao Seedance 2.0 Mini",
+        protocol_code="ark_seedance_v1",
+        template_code=None,
+        remote_model_id="doubao-seedance-2-0-mini-260615",
+        capability_profile_code="text_reference_media",
+        modes=(
+            VideoMode.TEXT_TO_VIDEO.value,
+            VideoMode.FIRST_FRAME_TO_VIDEO.value,
+            VideoMode.FIRST_LAST_FRAME_TO_VIDEO.value,
+            VideoMode.REFERENCE_IMAGE_TO_VIDEO.value,
+        ),
+        durations_seconds=tuple(range(4, 16)),
+        aspect_ratios=("16:9", "9:16", "4:3", "3:4", "1:1", "21:9"),
+        resolutions=("480p", "720p"),
+        generation_options={"generate_audio": True},
+        max_reference_images=9,
+        max_source_videos=0,
+        allows_provider_direct_url=True,
+        provider_direct_url_ttl=86400,
+        enabled=True,
+        verified_on="2026-11-18",
+        source_urls=(
+            "https://console.volcengine.com/ark/region:cn-beijing/model/detail?Id=doubao-seedance-2-0-mini",
+        ),
+    ),
     # ---- Seedance 2.5 ----
     ModelProfile(
         code="doubao-seedance-2-5",

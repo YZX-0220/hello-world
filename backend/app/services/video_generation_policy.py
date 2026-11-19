@@ -4,7 +4,7 @@ Rules are code/data, never an LLM verdict. Preparation may propose a candidate;
 submission only validates the already reviewed candidate and never repairs it.
 """
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from hashlib import sha256
 from itertools import product
 from json import dumps as json_dumps
@@ -138,6 +138,9 @@ async def resolve_target(session, user_id: str, config_id: str) -> GenerationTar
     ):
         # Opaque deployment endpoint IDs require an explicit profile binding.
         error = "模型编号与绑定的能力规则不一致，请修正 API 配置后重新审理。"
+    if config_id == "platform" and profile is not None:
+        # 平台体验通道固定 480p：成本与排队时间都更可控，前端也只展示这一档。
+        profile = replace(profile, resolutions=("480p",))
     identity.update(
         profile_code=profile.code if profile else profile_code,
         profile_version=profile.version if profile else None,
@@ -252,11 +255,14 @@ def propose_settings(target: GenerationTarget, spec: VideoBrief, requested: dict
         issues.append("此模式的参数规则尚未实现，请管理员补全规则或选择其他模式。")
     if rule.duration == "fixed:-1":
         issues.append(
-            "此模式由输入素材决定时长，无法保证用户确认的 1–15 秒。请选择支持指定时长的模式。"
+            "此模式由输入素材决定时长，无法保证用户确认的时长。请选择支持指定时长的模式。"
         )
-    durations = [v for v in profile.durations_seconds if 1 <= v <= 15]
+    durations = [v for v in profile.durations_seconds if v > 0]
     if profile.image_constraints and requested["duration_seconds"] not in durations:
-        issues.append(f"请手动选择当前模型支持的时长：{'、'.join(map(str, durations))} 秒。")
+        issues.append(
+            f"当前模型支持的时长为 {'、'.join(map(str, durations))} 秒，"
+            f"本次选择 {requested['duration_seconds']} 秒不支持，请调整后重新审理。"
+        )
     if rule.duration == "omit":
         durations = [requested["duration_seconds"]]
     ratios = (

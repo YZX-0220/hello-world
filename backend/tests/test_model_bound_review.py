@@ -148,7 +148,7 @@ async def test_image_review_persists_adaptive_plan_and_real_ark_body_has_no_rati
     assert requests[0]["prompt"] == project["compiled_prompt"]
     body = _build_body(requests[0])
     assert "ratio" not in body
-    assert body["duration"] == 7 and body["resolution"] == "1080p"
+    assert body["duration"] == 7 and body["resolution"] == "480p"
     assert len(body["content"]) == count + 1
 
 
@@ -341,7 +341,7 @@ async def test_conflicting_ai_technical_text_cannot_leak_into_the_compiled_promp
     prompt = project["compiled_prompt"]
     assert "9:16" not in prompt and "1080p" not in prompt and "20秒" not in prompt
     assert "（秒）：20" not in prompt
-    assert "16:9" in prompt and "720p" in prompt
+    assert "16:9" in prompt and "480p" in prompt
     assert "自由提示词" not in prompt
     assert "？" not in project["canvas_data"]["generation_review"]["content"]
 

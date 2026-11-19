@@ -327,6 +327,7 @@ def test_ark_preset_and_profiles_registered() -> None:
         "doubao-seedance-1-0-lite-t2v",
         "doubao-seedance-1-0-lite-i2v",
         "doubao-seedance-2-5-flash",
+        "doubao-seedance-2-0-mini",
     }
 
     flash = get_profile("ark_seedance_v1", "doubao-seedance-2-5-flash")

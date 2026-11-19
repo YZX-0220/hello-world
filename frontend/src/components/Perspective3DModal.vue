@@ -215,11 +215,11 @@
           <!-- 中间：Three.js 3D 交互视口 + 画幅安全框 -->
           <main class="p3d-viewport-wrap" ref="viewportWrapRef">
             <div ref="canvasMountRef" class="p3d-canvas-mount"></div>
-<!-- 首次打开 3D 搭建器的操作微指引 -->
-<div v-if="showP3dTip" class="p3d-coachmark-pill">
-  <span>💡 新手提示：左键旋转机位 · 右键平移 · 滚轮推拉景别 · 点击色块拖拽位置，调好后直接点右下角确认即可</span>
-  <button type="button" @click="closeP3dTip">知道了</button>
-</div>
+            <!-- 首次打开 3D 搭建器的操作微指引 -->
+            <div v-if="showP3dTip" class="p3d-coachmark-pill">
+              <span>💡 新手提示：左键旋转机位 · 右键平移 · 滚轮推拉景别 · 点击色块拖拽位置，调好后直接点右下角确认即可</span>
+              <button type="button" @click="closeP3dTip">知道了</button>
+            </div>
             <!-- 画幅比例取景安全框遮罩 -->
             <div class="viewfinder-overlay">
               <div class="viewfinder-frame" :style="viewfinderStyle">
@@ -342,12 +342,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Perspective3DObject, PerspectiveSceneData } from '@/types/canvas';
 import { useOnboarding } from '@/onboarding/useOnboarding';
+
 const { shouldShowCoachmark, dismissCoachmark } = useOnboarding();
 const showP3dTip = ref(shouldShowCoachmark('p3d'));
 function closeP3dTip() {
   showP3dTip.value = false;
   dismissCoachmark('p3d');
 }
+
 type Extended3DObject = Omit<Perspective3DObject, 'alias'> & {
   alias: string;
   rotationY: number;
@@ -413,6 +415,9 @@ const sceneState = reactive<ExtendedSceneData>({
   startCamera: { position: [0, 4.5, 10], target: [0, 1, 0] },
   endCamera: null,
   endFrameUrl: null,
+  endFrameAssetId: null,
+  startDescription: null,
+  endDescription: null,
 });
 
 const selectedObjectId = ref<string>('');
@@ -941,6 +946,9 @@ function captureFrame(slot: 'start' | 'end') {
 function clearEndFrame() {
   endFrameDataUrl.value = null;
   sceneState.endCamera = null;
+  sceneState.endFrameUrl = null;
+  sceneState.endFrameAssetId = null;
+  sceneState.endDescription = null;
   recalculateDescription(true);
 }
 
@@ -949,30 +957,23 @@ function getObjectFullLabel(obj: Extended3DObject): string {
   return obj.alias?.trim() ? `${obj.alias.trim()}（${base}色块）` : `[${base}]`;
 }
 
-// ==================== 摄影级 6 维空间与运镜自动解算器 ====================
-function recalculateDescription(useLiveCamera: unknown = true) {
-  if (!camera || !controls) return;
-  const isLive = useLiveCamera !== false;
+// ==================== 纯静态单帧空间解算器（专供首帧/尾帧生图使用，不含任何运镜动词） ====================
+function buildStaticFrameDescription(
+  camPos: THREE.Vector3,
+  targetPos: THREE.Vector3,
+  frameRole: 'start' | 'end'
+): string {
+  if (!camera) return '';
 
   const tempCam = camera.clone();
-  if (isLive) {
-    tempCam.position.copy(camera.position);
-    tempCam.lookAt(controls.target);
-    tempCam.updateMatrixWorld();
-  } else if (sceneState.startCamera) {
-    tempCam.position.set(...sceneState.startCamera.position);
-    tempCam.lookAt(...sceneState.startCamera.target);
-    tempCam.updateMatrixWorld();
-  }
+  tempCam.position.copy(camPos);
+  tempCam.lookAt(targetPos);
+  tempCam.updateMatrixWorld(true);
+  tempCam.updateProjectionMatrix();
 
-  const camPos = tempCam.position.clone();
-  const targetPos = isLive
-    ? controls.target.clone()
-    : new THREE.Vector3(...(sceneState.startCamera?.target || [0, 1, 0]));
   const toCam = camPos.clone().sub(targetPos);
   const dist = toCam.length();
 
-  // 维度 1 & 4：精确俯仰角 (Pitch) 与视距透视畸变判定
   const pitchRad = Math.asin(Math.max(-1, Math.min(1, toCam.y / (dist || 1))));
   const pitchDeg = Math.round((pitchRad * 180) / Math.PI);
 
@@ -982,10 +983,10 @@ function recalculateDescription(useLiveCamera: unknown = true) {
   else if (pitchDeg > -10) angleDesc = `${pitchDeg}° 平视机位（自然人眼高度）`;
   else angleDesc = `仰角 ${Math.abs(pitchDeg)}° 低角度仰拍（强化主体崇高感与视觉张力）`;
 
-  let shotScaleDesc = '标准中景';
-  if (dist < 5.5) shotScaleDesc = '近景特写（广角近大远小透视感强烈，前景极具视觉冲击力）';
+  let shotScaleDesc = '中景构图（空间透视自然均衡）';
+  if (dist < 4.0) shotScaleDesc = '极近距离特写定格（镜头紧贴前景主体，强烈浅景深与光学虚焦）';
+  else if (dist < 5.5) shotScaleDesc = '近景特写（广角近大远小透视感强烈，前景极具视觉冲击力）';
   else if (dist > 13.5) shotScaleDesc = '大远景/全景（展现宏大空间环境纵深）';
-  else shotScaleDesc = '中景构图（空间透视自然均衡）';
 
   interface ProjectedItem {
     obj: Extended3DObject;
@@ -1008,12 +1009,28 @@ function recalculateDescription(useLiveCamera: unknown = true) {
   const vf = viewfinderRect.value;
   const projectedList: ProjectedItem[] = [];
 
+  // 构建当前相机视锥体，精确剔除完全在镜头外/镜头下方的物体
+  const frustum = new THREE.Frustum();
+  const projScreenMatrix = new THREE.Matrix4().multiplyMatrices(
+    tempCam.projectionMatrix,
+    tempCam.matrixWorldInverse
+  );
+  frustum.setFromProjectionMatrix(projScreenMatrix);
+
+  // 立方体包围盒的 12 条边索引
+  const boxEdges: [number, number][] = [
+    [0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3],
+    [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7],
+  ];
+
   for (const obj of sceneState.objects) {
     const mesh = meshMap.get(obj.id);
     if (!mesh) continue;
     mesh.updateMatrixWorld();
 
     const box3 = new THREE.Box3().setFromObject(mesh);
+    if (!frustum.intersectsBox(box3)) continue;
+
     const corners = [
       new THREE.Vector3(box3.min.x, box3.min.y, box3.min.z),
       new THREE.Vector3(box3.min.x, box3.min.y, box3.max.z),
@@ -1025,15 +1042,32 @@ function recalculateDescription(useLiveCamera: unknown = true) {
       new THREE.Vector3(box3.max.x, box3.max.y, box3.max.z),
     ];
 
-    let minX = Infinity,
-      maxX = -Infinity,
-      minY = Infinity,
-      maxY = -Infinity;
+    // 转到相机局部坐标系，对穿过近平面的边求精准交点
+    const nearZ = -0.12;
+    const viewCorners = corners.map((c) => c.clone().applyMatrix4(tempCam.matrixWorldInverse));
+    const clippedViewPoints: THREE.Vector3[] = [];
 
-    for (const c of corners) {
-      c.project(tempCam);
-      const px = ((c.x + 1) / 2) * viewportSize.w;
-      const py = ((1 - c.y) / 2) * viewportSize.h;
+    for (const vp of viewCorners) {
+      if (vp.z <= nearZ) clippedViewPoints.push(vp);
+    }
+    for (const [a, b] of boxEdges) {
+      const p1 = viewCorners[a];
+      const p2 = viewCorners[b];
+      const in1 = p1.z <= nearZ;
+      const in2 = p2.z <= nearZ;
+      if (in1 !== in2) {
+        const t = (nearZ - p1.z) / (p2.z - p1.z);
+        clippedViewPoints.push(new THREE.Vector3().lerpVectors(p1, p2, t));
+      }
+    }
+
+    if (clippedViewPoints.length === 0) continue;
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const vp of clippedViewPoints) {
+      const ndc = vp.clone().applyMatrix4(tempCam.projectionMatrix);
+      const px = ((ndc.x + 1) / 2) * viewportSize.w;
+      const py = ((1 - ndc.y) / 2) * viewportSize.h;
       const u = (px - vf.left) / vf.w;
       const v = (py - vf.top) / vf.h;
       minX = Math.min(minX, u);
@@ -1041,6 +1075,8 @@ function recalculateDescription(useLiveCamera: unknown = true) {
       minY = Math.min(minY, v);
       maxY = Math.max(maxY, v);
     }
+
+    if (maxX <= 0 || minX >= 1 || maxY <= 0 || minY >= 1) continue;
 
     const center3D = new THREE.Vector3(...obj.position);
     const depth = center3D.distanceTo(camPos);
@@ -1053,8 +1089,8 @@ function recalculateDescription(useLiveCamera: unknown = true) {
       Math.max(0, clampedMaxX - clampedMinX) * Math.max(0, clampedMaxY - clampedMinY) * 100
     );
 
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
+    const cx = (clampedMinX + clampedMaxX) / 2;
+    const cy = (clampedMinY + clampedMaxY) / 2;
     const cxPct = Math.round(Math.max(0, Math.min(100, cx * 100)));
     const cyPct = Math.round(Math.max(0, Math.min(100, cy * 100)));
 
@@ -1086,20 +1122,31 @@ function recalculateDescription(useLiveCamera: unknown = true) {
 
   projectedList.sort((a, b) => a.depth - b.depth);
 
+  let hasExtremeCloseOcclusion = false;
   const itemLines: string[] = [];
+
   projectedList.forEach((item, idx) => {
-    const layerTag =
-      projectedList.length === 1
-        ? '核心主体'
-        : idx === 0
-        ? '近景前景'
-        : idx === projectedList.length - 1
-        ? '深远背景'
-        : '中景层次';
+    const isExtremeClose = item.areaPct >= 60 || item.depth < 3.6;
+    if (isExtremeClose) hasExtremeCloseOcclusion = true;
+
+    const layerTag = isExtremeClose
+      ? '极近前景遮挡'
+      : projectedList.length === 1
+      ? '核心主体'
+      : idx === 0
+      ? '近景前景'
+      : idx === projectedList.length - 1
+      ? '深远背景'
+      : '中景层次';
 
     let sizeDesc = `约占画面 ${Math.max(1, item.areaPct)}% 面积`;
-    if (item.areaPct >= 35) sizeDesc = `占据画面主导地位（约 ${item.areaPct}% 面积，贴近镜头大体量）`;
-    else if (item.areaPct <= 6) sizeDesc = `占画面约 ${Math.max(1, item.areaPct)}% 面积（远景深处点缀）`;
+    if (isExtremeClose) {
+      sizeDesc = `紧贴镜头并大面积覆盖画面（约 ${Math.max(60, item.areaPct)}% 面积，呈现强烈近景虚焦与浅景深遮挡效果）`;
+    } else if (item.areaPct >= 35) {
+      sizeDesc = `占据画面主导地位（约 ${item.areaPct}% 面积，贴近镜头大体量）`;
+    } else if (item.areaPct <= 6) {
+      sizeDesc = `占画面约 ${Math.max(1, item.areaPct)}% 面积（远景深处点缀）`;
+    }
 
     const heightNote =
       item.obj.position[1] > 2.2
@@ -1116,7 +1163,7 @@ function recalculateDescription(useLiveCamera: unknown = true) {
     if (item.isCutTop) cutEdges.push('顶部延伸出画外');
     if (item.isCutBottom) cutEdges.push('底部延伸出画外');
     const edgeNote = cutEdges.length
-      ? `，呈【边缘半入画构图】（${cutEdges.join('、')}，作为前景引导框架）`
+      ? `，呈【边缘半入画构图】（${cutEdges.join('、')}）`
       : '';
 
     itemLines.push(
@@ -1141,7 +1188,7 @@ function recalculateDescription(useLiveCamera: unknown = true) {
         const overlapRatio = Math.round((interArea / backArea) * 100);
         if (overlapRatio >= 8) {
           relationNotes.push(
-            `近处的 ${front.label} 局部遮挡了后方 ${back.label} 约 ${Math.min(95, overlapRatio)}% 的画面区域，形成强烈的前后景深叠加层次`
+            `近处的 ${front.label} 遮挡了后方 ${back.label} 约 ${Math.min(98, overlapRatio)}% 的画面区域，形成强烈的前后景深层次`
           );
         }
       }
@@ -1154,15 +1201,55 @@ function recalculateDescription(useLiveCamera: unknown = true) {
     }
   }
 
-  let cameraMotionLine = '固定机位拍摄（保持上述透视构图稳定呈现，画面内部主体自然运动）。';
-  if (sceneState.endCamera && endFrameDataUrl.value) {
-    const startP = new THREE.Vector3(...sceneState.startCamera.position);
-    const startT = new THREE.Vector3(...sceneState.startCamera.target);
-    const endP = new THREE.Vector3(...sceneState.endCamera.position);
-    const endT = new THREE.Vector3(...sceneState.endCamera.target);
+  const headerTag = frameRole === 'end' ? '【静态尾帧定格构图】' : '【静态首帧定格构图】';
+  const lines = [
+    `${headerTag}${sceneState.aspectRatio} 画幅，${angleDesc}，${shotScaleDesc}。`,
+    `【光影与主光源】主光源位于${lightDirectionLabel.value}（方位角 ${sceneState.lightAzimuth}°，照射仰角 ${sceneState.lightElevation}°），投射自然空间明暗与投影。`,
+    `【当前帧主体空间排布（共 ${projectedList.length} 个可见体块）】`,
+    ...(itemLines.length ? itemLines : ['画面中央为空旷场景平面。']),
+  ];
 
-    const startVec = startP.clone().sub(startT);
-    const endVec = endP.clone().sub(endT);
+  if (relationNotes.length > 0) {
+    lines.push(`【当前帧前后遮挡关系】${relationNotes.slice(0, 3).join('；')}。`);
+  }
+
+  if (hasExtremeCloseOcclusion) {
+    lines.push(
+      '【近景光学渲染约束】贴近镜头的前景主体必须大面积真实覆盖画幅，呈现自然的光学虚焦（out of focus / shallow depth of field）与透光层次，严禁为了全景美观而将镜头拉远。'
+    );
+  }
+
+  return lines.join('\n');
+}
+
+// ==================== 摄影级 6 维空间与运镜自动解算器 ====================
+function recalculateDescription(useLiveCamera: unknown = true) {
+  if (!camera || !controls) return;
+  const isLive = useLiveCamera !== false;
+
+  const startPos = isLive
+    ? camera.position.clone()
+    : new THREE.Vector3(...(sceneState.startCamera?.position || [0, 4.5, 10]));
+  const startTarget = isLive
+    ? controls.target.clone()
+    : new THREE.Vector3(...(sceneState.startCamera?.target || [0, 1, 0]));
+
+  // 1. 编译纯静态首帧描述
+  const startStaticDesc = buildStaticFrameDescription(startPos, startTarget, 'start');
+  sceneState.startDescription = startStaticDesc;
+
+  // 2. 若存在结束视角，独立编译纯静态尾帧描述 + 计算首尾帧运镜轨迹
+  let endStaticDesc: string | null = null;
+  let cameraMotionLine = '固定机位拍摄（保持上述透视构图稳定呈现，画面内部主体自然运动）。';
+
+  if (sceneState.endCamera && endFrameDataUrl.value) {
+    const endPos = new THREE.Vector3(...sceneState.endCamera.position);
+    const endTarget = new THREE.Vector3(...sceneState.endCamera.target);
+    endStaticDesc = buildStaticFrameDescription(endPos, endTarget, 'end');
+    sceneState.endDescription = endStaticDesc;
+
+    const startVec = startPos.clone().sub(startTarget);
+    const endVec = endPos.clone().sub(endTarget);
 
     const d0 = startVec.length();
     const d1 = endVec.length();
@@ -1185,7 +1272,7 @@ function recalculateDescription(useLiveCamera: unknown = true) {
       moves.push(`镜头向后平稳拉远（视距拉开 ${distDiffPct}%，逐步展露全局环境）`);
     }
 
-    if (Math.abs(azDiffDeg) >= 10) {
+    if (Math.abs(azDiffDeg) >= 8) {
       const dir = azDiffDeg > 0 ? '向右顺时针环绕' : '向左逆时针环绕';
       moves.push(`相机${dir} ${Math.abs(azDiffDeg)}°（展现空间三维立体感）`);
     }
@@ -1202,32 +1289,20 @@ function recalculateDescription(useLiveCamera: unknown = true) {
       moves.length > 0
         ? `一镜到底复合运镜：${moves.join('，同时')}。`
         : '镜头作轻微呼吸感平移推进，平稳过渡至结束视角。';
+  } else {
+    sceneState.endDescription = null;
   }
 
-  const lines = [
-    `【机位与透视】${sceneState.aspectRatio} 画幅，${angleDesc}，${shotScaleDesc}。`,
-    `【光影与主光源】主光源位于${lightDirectionLabel.value}（方位角 ${sceneState.lightAzimuth}°，照射仰角 ${sceneState.lightElevation}°），投射自然空间明暗与地面投影。`,
-    `【主体空间排布（共 ${projectedList.length} 个空间体块）】`,
-    ...(itemLines.length ? itemLines : ['画面中央为空旷场景平面。']),
-  ];
-
-  if (relationNotes.length > 0) {
-    lines.push(`【前后遮挡与相对空间】${relationNotes.slice(0, 3).join('；')}。`);
-  }
-
-  lines.push(`【首尾帧运镜轨迹】${cameraMotionLine}`);
-
-  spatialDescription.value = lines.join('\n');
+  // 3. 合成给视频模型用的完整描述（展示在右侧文本框与视角节点内）
+  const videoLines = [startStaticDesc, `【首尾帧运镜轨迹】${cameraMotionLine}`];
+  spatialDescription.value = videoLines.join('\n');
 }
 
 function handleConfirmSave() {
-  // 只有当用户尚未定格过“起始视角”时，才自动把当前画面定格为起始视角；
-  // 如果已经定格过起始视角（例如接着又去移动镜头定格了终点视角），绝不覆盖已有的起始视角！
   if (!startFrameDataUrl.value) {
     captureFrame('start');
   }
 
-  // 使用已保存的 startCamera + endCamera 重新解算空间与运镜描述（不按当前实时终点镜头重算首帧）
   recalculateDescription(false);
 
   const finalStartUrl = startFrameDataUrl.value || capturePureViewfinderDataUrl();

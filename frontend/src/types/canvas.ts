@@ -32,12 +32,16 @@ export interface Perspective3DObject {
 export interface PerspectiveSceneData {
   aspectRatio: '16:9' | '9:16' | '1:1';
   groundColor: string;
+  lightAzimuth?: number;
+  lightElevation?: number;
   objects: Perspective3DObject[];
   startCamera: { position: [number, number, number]; target: [number, number, number] };
   endCamera?: { position: [number, number, number]; target: [number, number, number] } | null;
   endFrameUrl?: string | null;
+  endFrameAssetId?: string | null;
+  startDescription?: string | null;
+  endDescription?: string | null;
 }
-
 
 export interface FlowConnection { id: string; from: string; to: string }
 

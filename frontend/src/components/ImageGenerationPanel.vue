@@ -1,140 +1,196 @@
 <template>
   <Teleport to="body" :disabled="embedded">
     <div v-if="open" :class="['image-panel-backdrop', { embedded }]" @click.self="$emit('close')">
-      <section ref="panel" class="image-panel" :role="embedded ? 'region' : 'dialog'" :aria-modal="embedded ? undefined : true" aria-labelledby="image-panel-title" tabindex="-1" @keydown.esc="!embedded && $emit('close')" @keydown.tab="!embedded && trapFocus($event)">
-        <header class="panel-heading"><div><span class="eyebrow">图片创作</span><h2 id="image-panel-title">把画面想法变成素材</h2></div><button v-if="!embedded" class="close" aria-label="关闭生图面板" @click="$emit('close')">×</button></header>
+      <section ref="panel" class="image-panel" :role="embedded ? 'region' : 'dialog'"
+        :aria-modal="embedded ? undefined : true" aria-labelledby="image-panel-title" tabindex="-1"
+        @keydown.esc="!embedded && $emit('close')" @keydown.tab="!embedded && trapFocus($event)">
+        <header class="panel-heading">
+          <div><span class="eyebrow">图片创作</span>
+            <h2 id="image-panel-title">把画面想法变成素材</h2>
+          </div><button v-if="!embedded" class="close" aria-label="关闭生图面板" @click="$emit('close')">×</button>
+        </header>
         <div class="panel-scroll">
           <p v-if="options?.simulation" class="simulation">当前通道提供示例图片，不会调用生图服务</p>
           <p v-else class="intro">描述画面或上传参考图，按需请 AI 看图完善描述。每个结果都可继续修改，也可插入画布用于视频创作。</p>
-          <div class="portrait-notice-entry"><button type="button" @click="$emit('portrait-notice')">人像素材须知 ↗</button></div>
+          <div class="portrait-notice-entry"><button type="button" @click="$emit('portrait-notice')">人像素材须知 ↗</button>
+          </div>
           <p v-if="options?.notice" class="muted">{{ options.notice }}</p>
           <p v-if="error" class="error" role="alert">{{ error }}</p>
           <p v-if="storageError" class="error" role="status">浏览器草稿保存不可用；请保留此页面，任务记录仍可从服务器恢复。</p>
           <div class="two-col">
             <label>生图通道<select v-model="draft.api_config_id" :disabled="inputsLocked">
-              <option value="platform" :disabled="!options?.platform.available">{{ options?.platform.display_name || '平台默认' }}{{ options?.platform.available ? '' : '（未启用）' }}</option>
-              <option v-for="cfg in configs" :key="cfg.id" :value="cfg.id">{{ cfg.display_name }} · 自备 API</option>
-            </select></label>
-            <label>画面比例<select v-model="draft.aspect_ratio" :disabled="inputsLocked"><option v-for="ratio in options?.aspect_ratios || ['1:1']" :key="ratio">{{ ratio }}</option></select></label>
+                <option value="platform" :disabled="!options?.platform.available">{{ options?.platform.display_name ||
+                  '平台默认' }}{{ options?.platform.available ? '' : '（未启用）' }}</option>
+                <option v-for="cfg in configs" :key="cfg.id" :value="cfg.id">{{ cfg.display_name }} · 自备 API</option>
+              </select></label>
+            <label>画面比例<select v-model="draft.aspect_ratio" :disabled="inputsLocked">
+                <option v-for="ratio in options?.aspect_ratios || ['1:1']" :key="ratio">{{ ratio }}</option>
+              </select></label>
           </div>
-          <div class="channel-meta"><span>{{ displayModel(selectedModel || '', draft.api_config_id) || '请选择可用通道' }}</span><RouterLink to="/settings/api?tab=image" @click="$emit('close')">管理图片 API ↗</RouterLink></div>
-          <p v-if="draft.api_config_id === 'platform' && !options?.platform.available" class="muted">{{ options?.platform.reason || '平台默认通道暂不可用，请添加自己的图片 API。' }}</p>
-          <p v-if="draft.source_node_id" class="source-tag">从图片节点发起 · 生成结果将作为新素材插入</p>
-          <button v-if="sourceNode?.asset_id" class="quiet source-reset" :disabled="inputsLocked" @click="applySourceNode(true)">重新使用此节点图片</button>
-       <section class="reference-section" aria-label="图片参考">
+          <div class="channel-meta"><span>{{ displayModel(selectedModel || '', draft.api_config_id) || '请选择可用通道'
+              }}</span>
+            <RouterLink to="/settings/api?tab=image" @click="$emit('close')">管理图片 API ↗</RouterLink>
+          </div>
+          <p v-if="draft.api_config_id === 'platform' && !options?.platform.available" class="muted">{{
+            options?.platform.reason || '平台默认通道暂不可用，请添加自己的图片 API。' }}</p>
+          <p v-if="draft.source_node_id" class="source-tag">
+  {{ sourceNode?.type === 'perspective'
+    ? (props.sourceSlot === 'end' ? '从 3D 视角 · 终点构图发起 · 已载入尾帧纯静态描述' : '从 3D 视角 · 首帧构图发起 · 已载入首帧纯静态描述')
+    : '从图片节点发起 · 生成结果将作为新素材插入' }}
+</p>
+          <button v-if="sourceNode?.asset_id" class="quiet source-reset" :disabled="inputsLocked"
+            @click="applySourceNode(true)">重新使用此节点图片</button>
+          <section class="reference-section" aria-label="图片参考">
             <div class="reference-heading">
-              <span>{{ draft.parent_job_id ? '继续修改 · 上一版作为参考' : draft.reference_images.length ? '参考图创作' : '选择画布节点或上传参考图' }}</span>
+              <span>{{ draft.parent_job_id ? '继续修改 · 上一版作为参考' : draft.reference_images.length ? '参考图创作' : '选择画布节点或上传参考图'
+                }}</span>
               <div class="reference-heading-actions">
-                <button
-                  v-if="linkedCanvasVisualNodes.length"
-                  type="button"
-                  class="quiet"
-                  :disabled="inputsLocked"
-                  @click="importLinkedCanvasNodes"
-                >
+                <button v-if="linkedCanvasVisualNodes.length" type="button" class="quiet" :disabled="inputsLocked"
+                  @click="importLinkedCanvasNodes">
                   带入选中/连线节点 ({{ linkedCanvasVisualNodes.length }})
                 </button>
-                <button v-if="draft.reference_images.length || draft.parent_job_id" class="quiet" :disabled="inputsLocked" @click="clearReferences">清空参考图</button>
+                <button v-if="draft.reference_images.length || draft.parent_job_id" class="quiet"
+                  :disabled="inputsLocked" @click="clearReferences">清空参考图</button>
               </div>
             </div>
 
             <!-- 新增：画布节点直接参考列表（对齐生成视频的节点参考体验） -->
-           <div v-if="visualRefCandidates.length" class="canvas-node-picker">
-  <div class="canvas-picker-label">
-    <span>画布视觉节点（点击勾选作为参考图）：</span>
-    <span v-if="visualRefCandidates.some(i => !i.assetId)" class="uploading-tip">
-      有视角图正在同步云端…
-    </span>
-  </div>
-  <div class="canvas-node-chips">
-    <button
-      v-for="item in visualRefCandidates"
-      :key="item.key"
-      type="button"
-      :class="['canvas-node-chip', { active: isCandidateReferenced(item), pending: !item.assetId }]"
-      :disabled="inputsLocked || !item.assetId || (!isCandidateReferenced(item) && draft.reference_images.length >= maxReferences)"
-      :title="!item.assetId ? '正在同步到云端资源库，请稍候…' : `点击${isCandidateReferenced(item) ? '取消参考' : '添加为参考图'}：${item.title}`"
-      @click="toggleCandidateReference(item)"
-    >
-      <img :src="item.url" :alt="item.title" />
-      <span class="chip-badge">{{ item.badge }}</span>
-      <span class="chip-title">{{ item.title }}</span>
-      <span class="chip-check">{{ !item.assetId ? '同步中' : isCandidateReferenced(item) ? '✓' : '+' }}</span>
-    </button>
-  </div>
-</div>
+            <div v-if="visualRefCandidates.length" class="canvas-node-picker">
+              <div class="canvas-picker-label">
+                <span>画布视觉节点（点击勾选作为参考图）：</span>
+                <span v-if="visualRefCandidates.some(i => !i.assetId)" class="uploading-tip">
+                  有视角图正在同步云端…
+                </span>
+              </div>
+              <div class="canvas-node-chips">
+                <button v-for="item in visualRefCandidates" :key="item.key" type="button"
+                  :class="['canvas-node-chip', { active: isCandidateReferenced(item), pending: !item.assetId }]"
+                  :disabled="inputsLocked || !item.assetId || (!isCandidateReferenced(item) && draft.reference_images.length >= maxReferences)"
+                  :title="!item.assetId ? '正在同步到云端资源库，请稍候…' : `点击${isCandidateReferenced(item) ? '取消参考' : '添加为参考图'}：${item.title}`"
+                  @click="toggleCandidateReference(item)">
+                  <img :src="item.url" :alt="item.title" />
+                  <span class="chip-badge">{{ item.badge }}</span>
+                  <span class="chip-title">{{ item.title }}</span>
+                  <span class="chip-check">{{ !item.assetId ? '同步中' : isCandidateReferenced(item) ? '✓' : '+' }}</span>
+                </button>
+              </div>
+            </div>
 
             <div v-if="draft.reference_images.length" class="reference-grid">
               <div v-for="(image, index) in draft.reference_images" :key="image.asset_id" class="reference-card">
-                <button class="reference-image" @click="preview = { content_url: image.content_url, prompt: image.original_name }" :aria-label="'查看参考图：' + image.original_name">
+                <button class="reference-image"
+                  @click="preview = { content_url: image.content_url, prompt: image.original_name }"
+                  :aria-label="'查看参考图：' + image.original_name">
                   <img :src="image.content_url" :alt="image.original_name" />
                 </button>
                 <span>{{ draft.parent_job_id && index === 0 ? '上一版本' : `参考图 ${index + 1}` }}</span>
-                <button class="remove-reference" :disabled="inputsLocked" @click="removeReference(index)" :aria-label="'移除参考图 ' + (index + 1)">×</button>
+                <button class="remove-reference" :disabled="inputsLocked" @click="removeReference(index)"
+                  :aria-label="'移除参考图 ' + (index + 1)">×</button>
               </div>
             </div>
-            <input ref="uploadInput" class="reference-file-input" type="file" accept="image/png,image/jpeg" multiple :disabled="inputsLocked || draft.reference_images.length >= maxReferences" @change="uploadReferences" />
-            <button class="upload-reference" :disabled="inputsLocked || draft.reference_images.length >= maxReferences" @click="uploadInput?.click()">{{ uploading ? '正在上传参考图…' : '+ 上传本地参考图' }} <span>{{ draft.reference_images.length }}/{{ maxReferences }}</span></button>
+            <input ref="uploadInput" class="reference-file-input" type="file" accept="image/png,image/jpeg" multiple
+              :disabled="inputsLocked || draft.reference_images.length >= maxReferences" @change="uploadReferences" />
+            <button class="upload-reference" :disabled="inputsLocked || draft.reference_images.length >= maxReferences"
+              @click="uploadInput?.click()">{{ uploading ? '正在上传参考图…' : '+ 上传本地参考图' }} <span>{{
+                draft.reference_images.length }}/{{ maxReferences }}</span></button>
             <small>支持直接点选画布中的「图片节点 / 视角节点」，或上传本地 PNG / JPEG（每张 ≤ 10 MB）；最多 {{ maxReferences }} 张。</small>
           </section>
-         <label class="prompt-label" for="image-prompt">
+          <label class="prompt-label" for="image-prompt">
             <span>{{ draft.parent_job_id ? '希望如何修改' : '画面描述' }}</span>
             <span class="prompt-label-right">
-              <button
-                v-if="canvasTextNodes.length"
-                type="button"
-                class="quiet inline-fill-btn"
-                :disabled="inputsLocked"
-                @click="fillPromptFromCanvasText"
-              >
+              <button v-if="canvasTextNodes.length" type="button" class="quiet inline-fill-btn" :disabled="inputsLocked"
+                @click="fillPromptFromCanvasText">
                 填入画布文本节点
               </button>
               <span>{{ draft.prompt.length }} / 4000</span>
             </span>
           </label>
-          <textarea id="image-prompt" v-model="draft.prompt" maxlength="4000" rows="5" :placeholder="draft.parent_job_id ? '例如：保留人物与构图，把背景改成黄昏海边，色调更温暖。' : '描述主体、场景、构图与风格；使用参考图时，请说明保留什么、改变什么。'" :disabled="inputsLocked"></textarea>
-          <p class="muted model-hint">AI 会为 {{ displayModel(selectedModel || '', draft.api_config_id) || '所选模型' }} 优化画面描述{{ (draft.reference_images.length || draft.parent_job_id) && options?.vision?.available ? '，并结合参考图内容' : '' }}。</p>
-          <p v-if="(draft.reference_images.length || draft.parent_job_id) && !options?.vision?.available" class="vision-unavailable" role="status">{{ options?.vision?.reason || '看图建议暂不可用，您仍可填写描述并使用参考图生成。' }}</p>
-          <button class="suggest-btn" :disabled="!canSuggest" @click="suggest">{{ suggesting ? 'AI 正在整理建议…' : (draft.reference_images.length || draft.parent_job_id) ? '✧ 请 AI 看图提供建议' : '✧ 请 AI 优化画面描述' }}</button>
-          <div v-if="suggestion" class="suggestion"><div class="suggestion-title">AI 建议 · 尚未采用</div><p>{{ suggestion.suggested_prompt }}</p><small>{{ suggestion.explanation }}</small><div class="actions"><button :disabled="!!draft.pending || submitting" @click="adoptSuggestion">采用到输入框</button><button class="quiet" @click="suggestion = null">保留原文</button></div></div>
+          <textarea id="image-prompt" v-model="draft.prompt" maxlength="4000" rows="5"
+            :placeholder="draft.parent_job_id ? '例如：保留人物与构图，把背景改成黄昏海边，色调更温暖。' : '描述主体、场景、构图与风格；使用参考图时，请说明保留什么、改变什么。'"
+            :disabled="inputsLocked"></textarea>
+          <p class="muted model-hint">AI 会为 {{ displayModel(selectedModel || '', draft.api_config_id) || '所选模型' }}
+            优化画面描述{{ (draft.reference_images.length || draft.parent_job_id) && options?.vision?.available ? '，并结合参考图内容'
+            : '' }}。</p>
+          <p v-if="(draft.reference_images.length || draft.parent_job_id) && !options?.vision?.available"
+            class="vision-unavailable" role="status">{{ options?.vision?.reason || '看图建议暂不可用，您仍可填写描述并使用参考图生成。' }}</p>
+          <button class="suggest-btn" :disabled="!canSuggest" @click="suggest">{{ suggesting ? 'AI 正在整理建议…' :
+            (draft.reference_images.length || draft.parent_job_id) ? '✧ 请 AI 看图提供建议' : '✧ 请 AI 优化画面描述' }}</button>
+          <div v-if="suggestion" class="suggestion">
+            <div class="suggestion-title">AI 建议 · 尚未采用</div>
+            <p>{{ suggestion.suggested_prompt }}</p><small>{{ suggestion.explanation }}</small>
+            <div class="actions"><button :disabled="!!draft.pending || submitting"
+                @click="adoptSuggestion">采用到输入框</button><button class="quiet" @click="suggestion = null">保留原文</button>
+            </div>
+          </div>
           <p class="muted suggestion-help">AI 建议仅供参考，采用后仍需点击生成图片。</p>
           <div class="generation-action">
-          <button v-if="draft.pending" class="primary" :disabled="submitting" @click="submitPending">{{ submitting ? '正在确认请求…' : '查询上次生成状态' }}</button>
-          <button v-else class="primary" :disabled="!canGenerate" @click="generate">{{ submitting ? '提交中…' : options?.simulation ? '生成示例图片' : '生成图片' }}</button>
-          <p class="muted generation-cost">点击生成将使用所选通道的额度。</p>
+            <button v-if="draft.pending" class="primary" :disabled="submitting" @click="submitPending">{{ submitting ?
+              '正在确认请求…' : '查询上次生成状态' }}</button>
+            <button v-else class="primary" :disabled="!canGenerate" @click="generate">{{ submitting ? '提交中…' :
+              options?.simulation ? '生成示例图片' : '生成图片' }}</button>
+            <p class="muted generation-cost">点击生成将使用所选通道的额度。</p>
           </div>
           <p v-if="jobs.some(imageJobActive) && !draft.pending" class="muted">当前图片任务仍在处理，完成后可提交下一张。</p>
-          <p v-if="jobs.some(job => job.status === 'unknown') && !draft.pending" class="muted">有任务的结果尚未确认，请先核对方舟控制台，再在对应记录中结束等待。</p>
+          <p v-if="jobs.some(job => job.status === 'unknown') && !draft.pending" class="muted">
+            有任务的结果尚未确认，请先核对方舟控制台，再在对应记录中结束等待。</p>
           <p v-if="draft.pending && !submitting" class="muted">上次提交尚未确认，已保留原请求。请先确认状态，避免重复消耗额度。</p>
-          <div class="history-heading"><h3>本对话的生成记录 <span>{{ jobs.length }}</span></h3><button class="quiet" :disabled="refreshing" @click="refresh">{{ refreshing ? '更新中…' : '刷新' }}</button></div>
+          <div class="history-heading">
+            <h3>本对话的生成记录 <span>{{ jobs.length }}</span></h3><button class="quiet" :disabled="refreshing"
+              @click="refresh">{{ refreshing ? '更新中…' : '刷新' }}</button>
+          </div>
           <p v-if="!jobs.length" class="empty">{{ refreshing ? '正在恢复任务记录…' : '第一张灵感，从这里开始。关闭面板后也能找回任务。' }}</p>
           <article v-for="job in jobs" :key="job.id" class="job-card">
-            <div class="job-heading"><span :class="['job-status', { running: imageJobActive(job), failed: ['failed', 'storage_failed'].includes(job.status) }]">{{ imageJobLabels[job.status] || job.status }}</span><span v-if="job.simulation" class="simulation-tag">示例图片</span><time>{{ formatTime(job.created_at) }}</time></div>
-            <button v-if="job.status === 'succeeded' && job.content_url" class="preview" @click="preview = job" aria-label="放大查看生成图片"><img :src="job.content_url" :alt="job.prompt" loading="lazy" /></button>
+            <div class="job-heading"><span
+                :class="['job-status', { running: imageJobActive(job), failed: ['failed', 'storage_failed'].includes(job.status) }]">{{
+                  imageJobLabels[job.status] || job.status }}</span><span v-if="job.simulation"
+                class="simulation-tag">示例图片</span><time>{{ formatTime(job.created_at) }}</time></div>
+            <button v-if="job.status === 'succeeded' && job.content_url" class="preview" @click="preview = job"
+              aria-label="放大查看生成图片"><img :src="job.content_url" :alt="job.prompt" loading="lazy" /></button>
             <div v-else-if="imageJobActive(job)" class="progress"><span class="spinner"></span>画面正在成形，您可以关闭面板继续创作</div>
             <p v-if="job.status === 'unknown'" class="muted">请到方舟控制台核对，平台不会自动重复提交。</p>
             <p v-if="job.status === 'unknown_acknowledged'" class="muted">您已结束等待；原任务结果仍待确认，平台未重新提交。</p>
             <p class="job-prompt">{{ job.prompt }}</p>
-            <p class="job-meta">{{ job.api_config_id === 'platform' ? '平台默认' : job.channel_label }} · {{ displayModel(job.model, job.api_config_id) }} · {{ job.aspect_ratio }}</p>
+            <p class="job-meta">{{ job.api_config_id === 'platform' ? '平台默认' : job.channel_label }} · {{
+              displayModel(job.model, job.api_config_id) }} · {{ job.aspect_ratio }}</p>
             <p class="job-meta" v-if="job.parent_job_id">此版本基于历史结果继续修改</p>
-            <div v-if="job.reference_images?.length" class="history-references"><span>参考</span><button v-for="image in job.reference_images" :key="image.asset_id" @click="preview = { content_url: image.content_url, prompt: image.original_name }" :aria-label="'查看原参考图：' + image.original_name"><img :src="image.content_url" :alt="image.original_name" loading="lazy" /></button></div>
+            <div v-if="job.reference_images?.length" class="history-references"><span>参考</span><button
+                v-for="image in job.reference_images" :key="image.asset_id"
+                @click="preview = { content_url: image.content_url, prompt: image.original_name }"
+                :aria-label="'查看原参考图：' + image.original_name"><img :src="image.content_url" :alt="image.original_name"
+                  loading="lazy" /></button></div>
             <p v-if="job.error_message" class="error">{{ job.error_message }}</p>
             <div class="actions">
-              <button v-if="job.status === 'succeeded'" :disabled="!job.asset_id || inputsLocked" @click="continueEditing(job)">继续修改</button>
-              <button v-if="job.status === 'succeeded'" :disabled="!job.asset_id || alreadyInserted(job) || canvasBusy" @click="$emit('insert', job)">{{ alreadyInserted(job) ? '已在画布中' : '插入画布' }}</button>
+              <button v-if="job.status === 'succeeded'" :disabled="!job.asset_id || inputsLocked"
+                @click="continueEditing(job)">继续修改</button>
+              <button v-if="job.status === 'succeeded'" :disabled="!job.asset_id || alreadyInserted(job) || canvasBusy"
+                @click="$emit('insert', job)">{{ alreadyInserted(job) ? '已在画布中' : '插入画布' }}</button>
               <a v-if="job.status === 'succeeded' && job.download_url" :href="job.download_url" download>下载图片 ↓</a>
-              <button v-if="job.status === 'storage_failed'" :disabled="actionJob === job.id" @click="jobAction(job, 'retry-storage')">重新保存图片</button>
-              <button v-if="job.status === 'queued'" class="quiet" :disabled="actionJob === job.id" @click="jobAction(job, 'cancel')">取消排队</button>
-              <button v-if="job.status === 'unknown' && confirmUnknown !== job.id" class="quiet" :disabled="actionJob === job.id" @click="confirmUnknown = job.id">我已核对，结束等待</button>
-              <button v-if="['succeeded', 'failed', 'cancelled', 'unknown_acknowledged'].includes(job.status)" class="quiet" :disabled="inputsLocked" @click="reuse(job)">复用描述</button>
+              <button v-if="job.status === 'storage_failed'" :disabled="actionJob === job.id"
+                @click="jobAction(job, 'retry-storage')">重新保存图片</button>
+              <button v-if="job.status === 'queued'" class="quiet" :disabled="actionJob === job.id"
+                @click="jobAction(job, 'cancel')">取消排队</button>
+              <button v-if="job.status === 'unknown' && confirmUnknown !== job.id" class="quiet"
+                :disabled="actionJob === job.id" @click="confirmUnknown = job.id">我已核对，结束等待</button>
+              <button v-if="['succeeded', 'failed', 'cancelled', 'unknown_acknowledged'].includes(job.status)"
+                class="quiet" :disabled="inputsLocked" @click="reuse(job)">复用描述</button>
             </div>
-            <div v-if="job.status === 'unknown' && confirmUnknown === job.id" class="unknown-confirm"><p>原任务可能已经消耗额度。此操作只结束等待，并允许您之后手动发起新生成；不会取消方舟任务，也不会自动重试。</p><div class="actions"><button :disabled="actionJob === job.id" @click="jobAction(job, 'acknowledge-unknown')">{{ actionJob === job.id ? '确认中…' : '确认结束等待' }}</button><button class="quiet" :disabled="actionJob === job.id" @click="confirmUnknown = ''">继续等待</button></div></div>
+            <div v-if="job.status === 'unknown' && confirmUnknown === job.id" class="unknown-confirm">
+              <p>原任务可能已经消耗额度。此操作只结束等待，并允许您之后手动发起新生成；不会取消方舟任务，也不会自动重试。</p>
+              <div class="actions"><button :disabled="actionJob === job.id"
+                  @click="jobAction(job, 'acknowledge-unknown')">{{ actionJob === job.id ? '确认中…' : '确认结束等待'
+                  }}</button><button class="quiet" :disabled="actionJob === job.id"
+                  @click="confirmUnknown = ''">继续等待</button></div>
+            </div>
           </article>
         </div>
       </section>
     </div>
     <Teleport to="body">
-    <div v-if="preview && open" ref="lightbox" class="image-lightbox" role="dialog" aria-modal="true" aria-label="生成图片预览" tabindex="0" @click="preview = null" @keydown.esc.stop="preview = null" @keydown.tab.prevent="lightbox?.querySelector('button')?.focus()"><button aria-label="关闭图片预览" @click="preview = null">×</button><img :src="preview.content_url || ''" :alt="preview.prompt" /><span>点击任意位置关闭</span></div>
+      <div v-if="preview && open" ref="lightbox" class="image-lightbox" role="dialog" aria-modal="true"
+        aria-label="生成图片预览" tabindex="0" @click="preview = null" @keydown.esc.stop="preview = null"
+        @keydown.tab.prevent="lightbox?.querySelector('button')?.focus()"><button aria-label="关闭图片预览"
+          @click="preview = null">×</button><img :src="preview.content_url || ''"
+          :alt="preview.prompt" /><span>点击任意位置关闭</span></div>
     </Teleport>
   </Teleport>
 </template>
@@ -310,6 +366,7 @@ const props = defineProps<{
   connections?: FlowConnection[];
   canvasBusy: boolean;
   sourceNodeId?: string;
+  sourceSlot?: 'start' | 'end';
 }>();
 defineEmits<{ close: []; insert: [job: ImageJob]; 'portrait-notice': [] }>();
 const panel = ref<HTMLElement | null>(null);
@@ -379,12 +436,20 @@ watch(() => props.open, async open => {
   if (open) { if (!props.embedded) previousFocus = document.activeElement as HTMLElement; applySourceNode(); void refresh(); void loadOptions(); await nextTick(); if (!props.embedded) panel.value?.focus(); }
   else { preview.value = null; if (!props.embedded) previousFocus?.focus(); }
 });
-watch(() => props.sourceNodeId, () => { if (props.open) applySourceNode(); });
-watch(() => sourceNode.value?.asset_id, (newAssetId, oldAssetId) => {
-  if (props.open && newAssetId && newAssetId !== oldAssetId) {
-    applySourceNode(true);
-  }
+watch(() => [props.sourceNodeId, props.sourceSlot], () => {
+  if (props.open) applySourceNode(true);
 });
+watch(
+  () => [sourceNode.value?.asset_id, sourceNode.value?.perspective_data?.endFrameAssetId],
+  ([newStartId, newEndId], [oldStartId, oldEndId]) => {
+    if (!props.open) return;
+    if (props.sourceSlot === 'end' && newEndId && newEndId !== oldEndId) {
+      applySourceNode(true);
+    } else if (props.sourceSlot !== 'end' && newStartId && newStartId !== oldStartId) {
+      applySourceNode(true);
+    }
+  }
+);
 function applySourceNode(force = false) {
   if (inputsLocked.value || !props.sourceNodeId) return;
   const next = imageSourceDraft(
@@ -394,11 +459,18 @@ function applySourceNode(force = false) {
     force,
     props.nodes,
     props.connections || [],
-    options.value?.aspect_ratios || []
+    options.value?.aspect_ratios || [],
+    props.sourceSlot || 'start'
   );
   if (next !== draft.value) { draft.value = next; suggestion.value = null; }
   linkSourceParent();
 }
+watch(() => sourceNode.value?.asset_id, (newAssetId, oldAssetId) => {
+  if (props.open && newAssetId && newAssetId !== oldAssetId) {
+    applySourceNode(true);
+  }
+});
+
 function linkSourceParent() {
   if (inputsLocked.value || !draft.value.source_node_id || draft.value.parent_job_id) return;
   const node = props.nodes.find(node => node.id === draft.value.source_node_id);
@@ -433,8 +505,10 @@ async function suggest() {
   if (!body) return;
   const context = JSON.stringify(imageSubmission(draft.value, props.conversationId)), version = epoch; suggesting.value = true; error.value = ''; suggestion.value = null;
   try {
-    const response = await request.post<unknown, { suggested_prompt: string; explanation: string }>('/image-prompt-suggestions', { prompt: body.prompt, aspect_ratio: body.aspect_ratio, conversation_id: body.conversation_id,
-      api_config_id: body.api_config_id, reference_asset_ids: body.reference_asset_ids, parent_job_id: body.parent_job_id, watermark: body.watermark });
+    const response = await request.post<unknown, { suggested_prompt: string; explanation: string }>('/image-prompt-suggestions', {
+      prompt: body.prompt, aspect_ratio: body.aspect_ratio, conversation_id: body.conversation_id,
+      api_config_id: body.api_config_id, reference_asset_ids: body.reference_asset_ids, parent_job_id: body.parent_job_id, watermark: body.watermark
+    });
     if (version === epoch) {
       if (context === JSON.stringify(imageSubmission(draft.value, props.conversationId))) suggestion.value = response;
       else error.value = '描述、参考图或通道已变化，请按当前内容重新获取建议。';
@@ -484,43 +558,767 @@ onBeforeUnmount(() => { disposed = true; ++epoch; clearTimeout(timer); });
 </script>
 
 <style scoped>
-.image-panel-backdrop{position:fixed;inset:0;z-index:1000;background:#02061799;display:flex;justify-content:flex-end;backdrop-filter:blur(4px)}
-.image-panel{width:min(540px,100vw);height:100dvh;background:#0f1422;border-left:1px solid #2b3550;color:#e2e8f0;display:flex;flex-direction:column;box-shadow:-24px 0 90px #0005;outline:none;font-size:13px}
-.panel-heading{display:flex;align-items:center;justify-content:space-between;padding:25px 26px 20px;border-bottom:1px solid #253049}.eyebrow{font-size:10px;color:#a5b4fc;letter-spacing:2px}.panel-heading h2{font-size:21px;margin:8px 0 0;font-weight:600}.close{font-size:25px!important;border:0!important;background:none!important;color:#94a3b8!important}.panel-scroll{overflow-y:auto;flex:1;padding:20px 26px 30px}.intro{color:#b1bed2;line-height:1.8;margin:0 0 18px}.muted{font-size:12px;line-height:1.7;color:#8899b2}.simulation{padding:12px;background:#49381966;color:#fcd989;border:1px solid #75602d;border-radius:9px;line-height:1.7}.two-col{display:grid;grid-template-columns:1.6fr 1fr;gap:12px;margin-top:18px}label{display:flex;flex-direction:column;gap:8px;font-size:12px;color:#b9c6d9}.image-panel select,.image-panel textarea{background:#182033;border:1px solid #34415a;border-radius:8px;color:#eef2ff;padding:11px;width:100%;box-sizing:border-box;font:inherit;outline:none}.image-panel select:focus,.image-panel textarea:focus{border-color:#818cf8;box-shadow:0 0 0 3px #6366f11a}.image-panel textarea{resize:vertical;min-height:136px;line-height:1.8}.channel-meta{display:flex;justify-content:space-between;gap:10px;margin:10px 0 20px;font-size:11px;color:#8594ad;overflow-wrap:anywhere}.channel-meta a{color:#a5b4fc;white-space:nowrap}.source-tag{font-size:11px;color:#93c5fd}.prompt-label{flex-direction:row;justify-content:space-between;margin-bottom:8px}.prompt-label span{color:#66768f}.image-panel button,.image-panel .actions a{border:1px solid #3a4560;border-radius:7px;padding:9px 12px;background:#222d46;color:#dce5f5;cursor:pointer;font:inherit;text-decoration:none;text-align:center}.image-panel button:disabled{opacity:.45;cursor:not-allowed}.image-panel .primary{width:100%;background:#6366f1;color:white;border-color:#818cf8;padding:13px;font-weight:600;margin-top:8px}.image-panel .suggest-btn{margin-top:10px;background:#1c2340;color:#b8bcff;border-color:#3a4166;font-size:12px}.image-panel .quiet{background:transparent;border-color:transparent;color:#9caec8}.suggestion{margin-top:14px;border:1px solid #454b7e;border-radius:10px;background:#20223e;padding:15px;line-height:1.8}.suggestion-title{font-size:11px;color:#bbbdfb}.suggestion p{white-space:pre-wrap;margin:8px 0}.suggestion small{color:#9caec8}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}.actions button,.actions a{font-size:12px!important}.history-heading{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #29334b;margin-top:25px;padding-top:17px}.history-heading h3{font-size:14px;font-weight:500;margin:0}.history-heading h3 span{font-size:11px;color:#8293b0;margin-left:6px}.empty{padding:30px 18px;text-align:center;color:#74849f;border:1px dashed #35405a;border-radius:10px;line-height:1.8}.job-card{margin-top:14px;background:#151d2e;border:1px solid #2b3650;border-radius:12px;padding:14px}.job-heading{display:flex;gap:8px;align-items:center;margin-bottom:12px;font-size:11px}.job-status{color:#7addba}.job-status.running{color:#b4b5fd}.job-status.failed{color:#fdb391}.job-heading time{margin-left:auto;color:#71819b}.simulation-tag{background:#62502655;color:#e9c36e;padding:2px 5px;border-radius:4px}.image-panel .preview{padding:0;display:block;border:0;background:#080e19;width:100%;border-radius:8px;overflow:hidden}.preview img{width:100%;max-height:300px;object-fit:contain;display:block}.job-prompt{font-size:12px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 6px}.job-meta{font-size:10px;color:#8494ae;line-height:1.6;overflow-wrap:anywhere}.error{color:#fda4af;font-size:12px;line-height:1.7;overflow-wrap:anywhere}.progress{padding:24px 8px;display:flex;align-items:center;gap:10px;font-size:12px;color:#94a3b8}.spinner{width:13px;height:13px;border:2px solid #454b76;border-top-color:#a5b4fc;border-radius:50%;animation:spin 1s linear infinite;flex-shrink:0}@keyframes spin{to{transform:rotate(360deg)}}.image-lightbox{position:fixed;inset:0;z-index:1100;background:#020617ed;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:15px;color:#94a3b8;font-size:12px}.image-lightbox img{max-width:100%;max-height:85vh;object-fit:contain}.image-lightbox button{position:absolute;right:24px;top:20px;font-size:28px;background:none;border:0;color:white;cursor:pointer}@media(max-width:600px){.panel-heading{padding:20px}.panel-scroll{padding:18px 20px}.panel-heading h2{font-size:19px}.two-col{grid-template-columns:1.5fr 1fr}}
-.unknown-confirm{margin-top:13px;padding:12px;border:1px solid #75602d;border-radius:8px;background:#49381933;color:#e8cc96;font-size:12px;line-height:1.8}.unknown-confirm p{margin:0}.unknown-confirm .actions{margin-top:10px}
-.reference-section{margin:16px 0 20px;padding:14px;border:1px solid #33405b;background:#141d2f;border-radius:10px}.reference-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:#c4d0e7}.reference-heading .quiet{padding:3px 0;font-size:11px}.reference-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:13px}.reference-card{position:relative;min-width:0}.image-panel .reference-image{padding:0;width:100%;height:82px;overflow:hidden;background:#080e19;border:1px solid #3e4a63}.reference-image img{width:100%;height:100%;object-fit:contain;display:block}.reference-card>span{display:block;color:#9caec8;font-size:10px;margin-top:5px;text-align:center}.image-panel .remove-reference{position:absolute;right:-5px;top:-6px;background:#303c55;border-radius:50%;padding:0;width:20px;height:20px;line-height:16px;font-size:15px}.reference-file-input{display:none}.image-panel .upload-reference{width:100%;padding:9px;margin-top:12px;background:#1b2941;border-style:dashed;font-size:12px}.upload-reference span{color:#8299bc;margin-left:8px}.reference-section>small{display:block;margin-top:9px;color:#7589a8;font-size:10px;line-height:1.7}.vision-unavailable{font-size:11px;color:#ebc57e;padding:10px;border-left:2px solid #9f7d40;line-height:1.8;background:#49381933}.model-hint{font-size:11px;margin:7px 0}.history-references{display:flex;align-items:center;gap:6px;margin-top:10px}.history-references>span{font-size:10px;color:#7e94b5;margin-right:2px}.image-panel .history-references button{width:42px;height:42px;padding:0;overflow:hidden;background:#080e19;border-color:#34415c}.history-references img{width:100%;height:100%;object-fit:contain}
+.image-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #02061799;
+  display: flex;
+  justify-content: flex-end;
+  backdrop-filter: blur(4px)
+}
+
+.image-panel {
+  width: min(540px, 100vw);
+  height: 100dvh;
+  background: #0f1422;
+  border-left: 1px solid #2b3550;
+  color: #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -24px 0 90px #0005;
+  outline: none;
+  font-size: 13px
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 25px 26px 20px;
+  border-bottom: 1px solid #253049
+}
+
+.eyebrow {
+  font-size: 10px;
+  color: #a5b4fc;
+  letter-spacing: 2px
+}
+
+.panel-heading h2 {
+  font-size: 21px;
+  margin: 8px 0 0;
+  font-weight: 600
+}
+
+.close {
+  font-size: 25px !important;
+  border: 0 !important;
+  background: none !important;
+  color: #94a3b8 !important
+}
+
+.panel-scroll {
+  overflow-y: auto;
+  flex: 1;
+  padding: 20px 26px 30px
+}
+
+.intro {
+  color: #b1bed2;
+  line-height: 1.8;
+  margin: 0 0 18px
+}
+
+.muted {
+  font-size: 12px;
+  line-height: 1.7;
+  color: #8899b2
+}
+
+.simulation {
+  padding: 12px;
+  background: #49381966;
+  color: #fcd989;
+  border: 1px solid #75602d;
+  border-radius: 9px;
+  line-height: 1.7
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 12px;
+  margin-top: 18px
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: #b9c6d9
+}
+
+.image-panel select,
+.image-panel textarea {
+  background: #182033;
+  border: 1px solid #34415a;
+  border-radius: 8px;
+  color: #eef2ff;
+  padding: 11px;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  outline: none
+}
+
+.image-panel select:focus,
+.image-panel textarea:focus {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 3px #6366f11a
+}
+
+.image-panel textarea {
+  resize: vertical;
+  min-height: 136px;
+  line-height: 1.8
+}
+
+.channel-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 10px 0 20px;
+  font-size: 11px;
+  color: #8594ad;
+  overflow-wrap: anywhere
+}
+
+.channel-meta a {
+  color: #a5b4fc;
+  white-space: nowrap
+}
+
+.source-tag {
+  font-size: 11px;
+  color: #93c5fd
+}
+
+.prompt-label {
+  flex-direction: row;
+  justify-content: space-between;
+  margin-bottom: 8px
+}
+
+.prompt-label span {
+  color: #66768f
+}
+
+.image-panel button,
+.image-panel .actions a {
+  border: 1px solid #3a4560;
+  border-radius: 7px;
+  padding: 9px 12px;
+  background: #222d46;
+  color: #dce5f5;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: none;
+  text-align: center
+}
+
+.image-panel button:disabled {
+  opacity: .45;
+  cursor: not-allowed
+}
+
+.image-panel .primary {
+  width: 100%;
+  background: #6366f1;
+  color: white;
+  border-color: #818cf8;
+  padding: 13px;
+  font-weight: 600;
+  margin-top: 8px
+}
+
+.image-panel .suggest-btn {
+  margin-top: 10px;
+  background: #1c2340;
+  color: #b8bcff;
+  border-color: #3a4166;
+  font-size: 12px
+}
+
+.image-panel .quiet {
+  background: transparent;
+  border-color: transparent;
+  color: #9caec8
+}
+
+.suggestion {
+  margin-top: 14px;
+  border: 1px solid #454b7e;
+  border-radius: 10px;
+  background: #20223e;
+  padding: 15px;
+  line-height: 1.8
+}
+
+.suggestion-title {
+  font-size: 11px;
+  color: #bbbdfb
+}
+
+.suggestion p {
+  white-space: pre-wrap;
+  margin: 8px 0
+}
+
+.suggestion small {
+  color: #9caec8
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 13px
+}
+
+.actions button,
+.actions a {
+  font-size: 12px !important
+}
+
+.history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #29334b;
+  margin-top: 25px;
+  padding-top: 17px
+}
+
+.history-heading h3 {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0
+}
+
+.history-heading h3 span {
+  font-size: 11px;
+  color: #8293b0;
+  margin-left: 6px
+}
+
+.empty {
+  padding: 30px 18px;
+  text-align: center;
+  color: #74849f;
+  border: 1px dashed #35405a;
+  border-radius: 10px;
+  line-height: 1.8
+}
+
+.job-card {
+  margin-top: 14px;
+  background: #151d2e;
+  border: 1px solid #2b3650;
+  border-radius: 12px;
+  padding: 14px
+}
+
+.job-heading {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 11px
+}
+
+.job-status {
+  color: #7addba
+}
+
+.job-status.running {
+  color: #b4b5fd
+}
+
+.job-status.failed {
+  color: #fdb391
+}
+
+.job-heading time {
+  margin-left: auto;
+  color: #71819b
+}
+
+.simulation-tag {
+  background: #62502655;
+  color: #e9c36e;
+  padding: 2px 5px;
+  border-radius: 4px
+}
+
+.image-panel .preview {
+  padding: 0;
+  display: block;
+  border: 0;
+  background: #080e19;
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden
+}
+
+.preview img {
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  display: block
+}
+
+.job-prompt {
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 12px 0 6px
+}
+
+.job-meta {
+  font-size: 10px;
+  color: #8494ae;
+  line-height: 1.6;
+  overflow-wrap: anywhere
+}
+
+.error {
+  color: #fda4af;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere
+}
+
+.progress {
+  padding: 24px 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #94a3b8
+}
+
+.spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid #454b76;
+  border-top-color: #a5b4fc;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  flex-shrink: 0
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg)
+  }
+}
+
+.image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: #020617ed;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  gap: 15px;
+  color: #94a3b8;
+  font-size: 12px
+}
+
+.image-lightbox img {
+  max-width: 100%;
+  max-height: 85vh;
+  object-fit: contain
+}
+
+.image-lightbox button {
+  position: absolute;
+  right: 24px;
+  top: 20px;
+  font-size: 28px;
+  background: none;
+  border: 0;
+  color: white;
+  cursor: pointer
+}
+
+@media(max-width:600px) {
+  .panel-heading {
+    padding: 20px
+  }
+
+  .panel-scroll {
+    padding: 18px 20px
+  }
+
+  .panel-heading h2 {
+    font-size: 19px
+  }
+
+  .two-col {
+    grid-template-columns: 1.5fr 1fr
+  }
+}
+
+.unknown-confirm {
+  margin-top: 13px;
+  padding: 12px;
+  border: 1px solid #75602d;
+  border-radius: 8px;
+  background: #49381933;
+  color: #e8cc96;
+  font-size: 12px;
+  line-height: 1.8
+}
+
+.unknown-confirm p {
+  margin: 0
+}
+
+.unknown-confirm .actions {
+  margin-top: 10px
+}
+
+.reference-section {
+  margin: 16px 0 20px;
+  padding: 14px;
+  border: 1px solid #33405b;
+  background: #141d2f;
+  border-radius: 10px
+}
+
+.reference-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #c4d0e7
+}
+
+.reference-heading .quiet {
+  padding: 3px 0;
+  font-size: 11px
+}
+
+.reference-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 13px
+}
+
+.reference-card {
+  position: relative;
+  min-width: 0
+}
+
+.image-panel .reference-image {
+  padding: 0;
+  width: 100%;
+  height: 82px;
+  overflow: hidden;
+  background: #080e19;
+  border: 1px solid #3e4a63
+}
+
+.reference-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block
+}
+
+.reference-card>span {
+  display: block;
+  color: #9caec8;
+  font-size: 10px;
+  margin-top: 5px;
+  text-align: center
+}
+
+.image-panel .remove-reference {
+  position: absolute;
+  right: -5px;
+  top: -6px;
+  background: #303c55;
+  border-radius: 50%;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  line-height: 16px;
+  font-size: 15px
+}
+
+.reference-file-input {
+  display: none
+}
+
+.image-panel .upload-reference {
+  width: 100%;
+  padding: 9px;
+  margin-top: 12px;
+  background: #1b2941;
+  border-style: dashed;
+  font-size: 12px
+}
+
+.upload-reference span {
+  color: #8299bc;
+  margin-left: 8px
+}
+
+.reference-section>small {
+  display: block;
+  margin-top: 9px;
+  color: #7589a8;
+  font-size: 10px;
+  line-height: 1.7
+}
+
+.vision-unavailable {
+  font-size: 11px;
+  color: #ebc57e;
+  padding: 10px;
+  border-left: 2px solid #9f7d40;
+  line-height: 1.8;
+  background: #49381933
+}
+
+.model-hint {
+  font-size: 11px;
+  margin: 7px 0
+}
+
+.history-references {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px
+}
+
+.history-references>span {
+  font-size: 10px;
+  color: #7e94b5;
+  margin-right: 2px
+}
+
+.image-panel .history-references button {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  overflow: hidden;
+  background: #080e19;
+  border-color: #34415c
+}
+
+.history-references img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain
+}
 </style>
 
 <style scoped>
-.embedded.image-panel-backdrop{position:relative;inset:auto;z-index:auto;background:transparent;backdrop-filter:none;display:flex;flex:1;min-height:0;width:100%;overflow:hidden}
-.embedded .image-panel{width:100%;height:100%;min-height:0;flex:1;border:0;box-shadow:none;background:transparent}
-.embedded .panel-heading{padding:18px 22px;flex-shrink:0}
-.embedded .panel-heading h2{font-size:18px}
-.panel-scroll{min-height:0;scrollbar-width:thin;scrollbar-color:#46516a #111827;scrollbar-gutter:stable}
-.panel-scroll::-webkit-scrollbar{width:7px}
-.panel-scroll::-webkit-scrollbar-track{background:#111827}
-.panel-scroll::-webkit-scrollbar-thumb{background:#46516a;border:2px solid #111827;border-radius:8px}
-.panel-scroll::-webkit-scrollbar-thumb:hover{background:#65748f}
-.generation-action{margin-top:18px;padding-top:10px;border-top:1px solid #29334b}
-.generation-cost{margin:8px 0 0;text-align:center}
-.suggestion-help{font-size:11px;margin:9px 0}
+.embedded.image-panel-backdrop {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  background: transparent;
+  backdrop-filter: none;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden
+}
+
+.embedded .image-panel {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  border: 0;
+  box-shadow: none;
+  background: transparent
+}
+
+.embedded .panel-heading {
+  padding: 18px 22px;
+  flex-shrink: 0
+}
+
+.embedded .panel-heading h2 {
+  font-size: 18px
+}
+
+.panel-scroll {
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: #46516a #111827;
+  scrollbar-gutter: stable
+}
+
+.panel-scroll::-webkit-scrollbar {
+  width: 7px
+}
+
+.panel-scroll::-webkit-scrollbar-track {
+  background: #111827
+}
+
+.panel-scroll::-webkit-scrollbar-thumb {
+  background: #46516a;
+  border: 2px solid #111827;
+  border-radius: 8px
+}
+
+.panel-scroll::-webkit-scrollbar-thumb:hover {
+  background: #65748f
+}
+
+.generation-action {
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 1px solid #29334b
+}
+
+.generation-cost {
+  margin: 8px 0 0;
+  text-align: center
+}
+
+.suggestion-help {
+  font-size: 11px;
+  margin: 9px 0
+}
 </style>
 
 <style scoped>
-.portrait-notice-entry{margin:0 0 16px}.image-panel .portrait-notice-entry button{padding:0;border:0;background:none;color:#a5b4fc;font-size:12px;text-decoration:underline;text-underline-offset:3px}.portrait-notice-entry button:focus-visible{outline:2px solid #a5b4fc;outline-offset:3px}
-.reference-heading-actions{display:flex;align-items:center;gap:10px}
-.canvas-node-picker{margin-top:12px;padding:10px;border-radius:8px;background:#0f172a;border:1px solid #26324d}
-.canvas-picker-label{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#94a3b8;margin-bottom:8px}
-.uploading-tip{color:#38bdf8;font-size:10px}
-.canvas-node-chips{display:flex;flex-wrap:wrap;gap:6px}
-.image-panel .canvas-node-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;background:#182236;border:1px solid #334155;color:#cbd5e1;font-size:11px;max-width:100%}
-.image-panel .canvas-node-chip:hover:not(:disabled){border-color:#818cf8;color:#fff}
-.image-panel .canvas-node-chip.active{background:rgba(99,102,241,0.22);border-color:#818cf8;color:#fff}
-.image-panel .canvas-node-chip.pending{opacity:0.65;border-style:dashed}
-.canvas-node-chip img{width:22px;height:22px;border-radius:4px;object-fit:cover;flex-shrink:0}
-.canvas-node-chip .chip-badge{font-size:11px;line-height:1}
-.canvas-node-chip .chip-title{max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.canvas-node-chip .chip-check{font-size:10px;color:#a5b4fc;font-weight:700}
-.prompt-label-right{display:inline-flex;align-items:center;gap:10px}
-.image-panel .inline-fill-btn{padding:0;font-size:11px;color:#a5b4fc;text-decoration:underline}
+.portrait-notice-entry {
+  margin: 0 0 16px
+}
+
+.image-panel .portrait-notice-entry button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #a5b4fc;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px
+}
+
+.portrait-notice-entry button:focus-visible {
+  outline: 2px solid #a5b4fc;
+  outline-offset: 3px
+}
+
+.reference-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px
+}
+
+.canvas-node-picker {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #0f172a;
+  border: 1px solid #26324d
+}
+
+.canvas-picker-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-bottom: 8px
+}
+
+.uploading-tip {
+  color: #38bdf8;
+  font-size: 10px
+}
+
+.canvas-node-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px
+}
+
+.image-panel .canvas-node-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #182236;
+  border: 1px solid #334155;
+  color: #cbd5e1;
+  font-size: 11px;
+  max-width: 100%
+}
+
+.image-panel .canvas-node-chip:hover:not(:disabled) {
+  border-color: #818cf8;
+  color: #fff
+}
+
+.image-panel .canvas-node-chip.active {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: #818cf8;
+  color: #fff
+}
+
+.image-panel .canvas-node-chip.pending {
+  opacity: 0.65;
+  border-style: dashed
+}
+
+.canvas-node-chip img {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0
+}
+
+.canvas-node-chip .chip-badge {
+  font-size: 11px;
+  line-height: 1
+}
+
+.canvas-node-chip .chip-title {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap
+}
+
+.canvas-node-chip .chip-check {
+  font-size: 10px;
+  color: #a5b4fc;
+  font-weight: 700
+}
+
+.prompt-label-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px
+}
+
+.image-panel .inline-fill-btn {
+  padding: 0;
+  font-size: 11px;
+  color: #a5b4fc;
+  text-decoration: underline
+}
 </style>

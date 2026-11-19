@@ -349,15 +349,30 @@
                   </div>
 
                   <!-- 顶部悬浮操作条：重进 3D 界面 & 联动参考图生图 -->
-                  <div class="perspective-actions-bar">
-                    <button type="button" class="p-action-pill" @click.stop="openPerspectiveEditor(node)">
-                      🎥 调整 3D 视角
-                    </button>
-                    <button v-if="node.url" type="button" class="p-action-pill highlight"
-                      title="将该3D视角构图与连线的参考图结合，生成真实首帧图" @click.stop="openImageGenFromPerspective(node)">
-                      ✧ 结合参考图生图
-                    </button>
-                  </div>
+                 <!-- 顶部悬浮操作条：重进 3D 界面 & 分别生成首帧/尾帧 -->
+<div class="perspective-actions-bar">
+  <button type="button" class="p-action-pill" @click.stop="openPerspectiveEditor(node)">
+    🎥 调 3D
+  </button>
+  <button
+    v-if="node.url"
+    type="button"
+    class="p-action-pill highlight"
+    title="使用首帧 3D 构图与首帧静态描述生成真实首帧图"
+    @click.stop="openImageGenFromPerspective(node, 'start')"
+  >
+    ✧ 生首帧
+  </button>
+  <button
+    v-if="node.perspective_data?.endFrameUrl"
+    type="button"
+    class="p-action-pill highlight end-slot"
+    title="使用终点 3D 构图与尾帧静态描述生成真实尾帧图"
+    @click.stop="openImageGenFromPerspective(node, 'end')"
+  >
+    🏁 生尾帧
+  </button>
+</div>
                 </div>
 
                 <!-- 下半部分：自动解算的空间与运镜描述（允许直接手改微调） -->
@@ -442,10 +457,11 @@
               <button role="tab" :aria-selected="agentTab === 'video'" @click="agentTab = 'video'">生成视频</button>
             </div>
 
-            <ImageGenerationPanel embedded :open="imageGenerationOpen" :account-id="accountId"
-              :conversation-id="currentConvId" :nodes="nodes" :connections="connections" :canvas-busy="loading"
-              :source-node-id="imageSourceNodeId" @close="isAgentDrawerOpen = false" @insert="insertGeneratedImage"
-              @portrait-notice="portraitNoticeOpen = true" />
+           <ImageGenerationPanel embedded :open="imageGenerationOpen" :account-id="accountId"
+  :conversation-id="currentConvId" :nodes="nodes" :connections="connections" :canvas-busy="loading"
+  :source-node-id="imageSourceNodeId" :source-slot="imageSourceSlot"
+  @close="isAgentDrawerOpen = false" @insert="insertGeneratedImage"
+  @portrait-notice="portraitNoticeOpen = true" />
 
             <div v-show="agentTab === 'chat'" class="drawer-conversation">
               <div class="ai-target-picker">
@@ -1063,8 +1079,9 @@ const isAgentExpanded = ref(false);
 const activeNodeId = ref('');
 const imageGenerationOpen = computed(() => isAgentDrawerOpen.value && agentTab.value === 'image');
 const imageSourceNodeId = ref('');
+const imageSourceSlot = ref<'start' | 'end'>('start');
 
-function openImageGeneration(node?: FlowNode) {
+function openImageGeneration(node?: FlowNode, slot: 'start' | 'end' = 'start') {
   if (loading.value || !currentConvId.value) return;
   const fallbackSelectedVisual =
     node ||
@@ -1073,9 +1090,12 @@ function openImageGeneration(node?: FlowNode) {
       .find((n): n is FlowNode => !!n && (n.type === 'image' || n.type === 'perspective') && !!n.url);
 
   imageSourceNodeId.value = fallbackSelectedVisual?.id || '';
+  imageSourceSlot.value = slot;
   agentTab.value = 'image';
   isAgentDrawerOpen.value = true;
 }
+
+
 
 function insertGeneratedImage(job: ImageJob) {
   if (loading.value || job.conversation_id !== currentConvId.value) return;
@@ -1306,24 +1326,24 @@ if (payload.endDataUrl) {
   }
 }
 
-function openImageGenFromPerspective(node: FlowNode) {
+function openImageGenFromPerspective(node: FlowNode, slot: 'start' | 'end' = 'start') {
   isManualPreciseSelect.value = false;
   activeNodeId.value = node.id;
   const linkedIds = expandConnectedNodeIds([node.id]);
   selectedNodeIds.value = linkedIds;
   referencedNodeIds.value = linkedIds;
-const pData = node.perspective_data as any;
-  if (pData?.endFrameUrl?.startsWith('data:') && !pData?.endFrameAssetId && currentConvId.value) {
+
+  const pData = node.perspective_data;
+  if (slot === 'end' && pData?.endFrameUrl?.startsWith('data:') && !pData?.endFrameAssetId && currentConvId.value) {
     void uploadPerspectiveDataUrl(
       currentConvId.value,
       pData.endFrameUrl,
-      `perspective_end_${Date.now()}.png`
+      `perspective_end_${Date.now()}.jpg`
     ).then(uploaded => {
-      if (uploaded?.url) pData.endFrameUrl = uploaded.url;
-      if (uploaded?.id) pData.endFrameAssetId = uploaded.id;
+      if (uploaded?.url && node.perspective_data) node.perspective_data.endFrameUrl = uploaded.url;
+      if (uploaded?.id && node.perspective_data) node.perspective_data.endFrameAssetId = uploaded.id;
     });
-  }
-  if (!node.asset_id && node.url?.startsWith('data:') && currentConvId.value) {
+  } else if (slot === 'start' && !node.asset_id && node.url?.startsWith('data:') && currentConvId.value) {
     void uploadPerspectiveDataUrl(
       currentConvId.value,
       node.url,
@@ -1334,10 +1354,12 @@ const pData = node.perspective_data as any;
     });
   }
 
-  openImageGeneration(node);
-  notice.value = node.asset_id
-    ? '已将 3D 视角构图及连线参考图载入生图面板，可直接渲染真实首帧！'
-    : '正在同步 3D 视角截图至云端参考库，同步完成后将自动载入参考图…';
+  openImageGeneration(node, slot);
+  const ready = slot === 'end' ? !!pData?.endFrameAssetId : !!node.asset_id;
+  const slotName = slot === 'end' ? '尾帧' : '首帧';
+  notice.value = ready
+    ? `已将 3D ${slotName}构图与纯静态${slotName}描述载入生图面板！`
+    : `正在同步 3D ${slotName}截图至云端，完成后将自动挂载为参考图…`;
 }
 
 const connectedSelectionIds = computed(() => {
@@ -2519,7 +2541,9 @@ function handleApplyGlobalPlan(plan: DirectorBreakdownResponse) {
   background: linear-gradient(135deg, rgba(79, 70, 229, 0.9), rgba(14, 165, 233, 0.9));
   border-color: transparent;
 }
-
+.p-action-pill.highlight.end-slot {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.9), rgba(14, 165, 233, 0.9));
+}
 .perspective-desc-box {
   flex: 1;
   display: flex;

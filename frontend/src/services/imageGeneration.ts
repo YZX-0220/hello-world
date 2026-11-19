@@ -71,18 +71,24 @@ export function imageSourceDraft(
   force = false,
   nodes: FlowNode[] = [],
   connections: FlowConnection[] = [],
-  supportedRatios: string[] = []
+  supportedRatios: string[] = [],
+  sourceSlot: 'start' | 'end' = 'start'
 ): ImageDraft {
+  const isPerspectiveEnd = source?.type === 'perspective' && sourceSlot === 'end';
+  const pData = source?.perspective_data;
+  const targetUrl = isPerspectiveEnd ? pData?.endFrameUrl : source?.url;
+  const targetAssetId = isPerspectiveEnd ? pData?.endFrameAssetId : source?.asset_id;
+
   if (
     current.pending ||
     !source ||
     !['image', 'perspective'].includes(source.type) ||
-    !source.url
+    !targetUrl
   ) {
     return current;
   }
 
-  const currentAssetKey = source.asset_id || 'pending_upload';
+  const currentAssetKey = `${sourceSlot}:${targetAssetId || 'pending_upload'}`;
   const isNewEntry =
     force ||
     current.source_entry?.node_id !== source.id ||
@@ -90,11 +96,13 @@ export function imageSourceDraft(
   if (!isNewEntry) return current;
 
   const refs: ImageReference[] = [];
-  if (source.asset_id) {
+  if (targetAssetId) {
     refs.push({
-      asset_id: source.asset_id,
-      content_url: source.url,
-      original_name: source.title || (source.type === 'perspective' ? '3D 视角参考图' : '参考图'),
+      asset_id: targetAssetId,
+      content_url: targetUrl,
+      original_name: isPerspectiveEnd
+        ? `${source.title || '3D 视角'} · 终点构图`
+        : source.title || (source.type === 'perspective' ? '3D 视角 · 首帧构图' : '参考图'),
     });
   }
 
@@ -133,11 +141,12 @@ export function imageSourceDraft(
   };
 
   if (source.type === 'perspective') {
-    const pRatio = source.perspective_data?.aspectRatio;
+    const pRatio = pData?.aspectRatio;
     if (pRatio && (!supportedRatios.length || supportedRatios.includes(pRatio))) {
       next.aspect_ratio = pRatio;
     }
-    // 组合视角空间描述 + 连线关联文本节点的提示词
+
+    // 组合视角对应帧的纯静态描述 + 连线关联文本节点的提示词
     const linkedTexts: string[] = [];
     if (nodes.length > 0 && connections.length > 0) {
       for (const c of connections) {
@@ -149,7 +158,16 @@ export function imageSourceDraft(
         }
       }
     }
-    const combinedDesc = [source.content?.trim(), ...linkedTexts].filter(Boolean).join('\n');
+
+    const frameStaticDesc = isPerspectiveEnd
+      ? pData?.endDescription?.trim() || source.content?.trim()
+      : pData?.startDescription?.trim() || source.content?.trim();
+
+    const frameRoleGuard = isPerspectiveEnd
+      ? '【生图指令】严格遵循参考图1（3D 终点构图）的静态空间位置、镜头距离与遮挡比例渲染真实画面；若有其他参考图，仅继承其材质、光线与色调风格，切勿照搬其全景构图布局。'
+      : '【生图指令】严格遵循参考图1（3D 首帧构图）的静态机位透视与色块空间排布渲染真实画面。';
+
+    const combinedDesc = [frameRoleGuard, frameStaticDesc, ...linkedTexts].filter(Boolean).join('\n');
     if ((!next.prompt.trim() || force) && combinedDesc) {
       next.prompt = combinedDesc.slice(0, 4000);
     }

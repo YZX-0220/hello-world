@@ -1221,8 +1221,13 @@ function recalculateDescription(useLiveCamera: unknown = true) {
 }
 
 function handleConfirmSave() {
-  // 点击确认时，自动将当前 3D 视口画面定格为起始视角（若用户已手动定格过则覆盖为最新视角）
-  captureFrame('start');
+  // 只有当用户尚未定格过“起始视角”时，才自动把当前画面定格为起始视角；
+  // 如果已经定格过起始视角（例如接着又去移动镜头定格了终点视角），绝不覆盖已有的起始视角！
+  if (!startFrameDataUrl.value) {
+    captureFrame('start');
+  }
+
+  // 使用已保存的 startCamera + endCamera 重新解算空间与运镜描述（不按当前实时终点镜头重算首帧）
   recalculateDescription(false);
 
   const finalStartUrl = startFrameDataUrl.value || capturePureViewfinderDataUrl();

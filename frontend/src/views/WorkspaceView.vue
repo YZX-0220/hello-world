@@ -1290,15 +1290,19 @@ async function handleConfirmPerspective(payload: {
       })
       .catch(() => { });
 
-    if (payload.endDataUrl) {
-      uploadPerspectiveDataUrl(convId, payload.endDataUrl, `perspective_end_${Date.now()}.png`)
-        .then((uploadedEnd) => {
-          if (uploadedEnd?.url && targetNode.perspective_data) {
-            targetNode.perspective_data.endFrameUrl = uploadedEnd.url;
-          }
-        })
-        .catch(() => { });
-    }
+// handleConfirmPerspective 中上传终点图时，同时保存 endFrameAssetId
+if (payload.endDataUrl) {
+  uploadPerspectiveDataUrl(convId, payload.endDataUrl, `perspective_end_${Date.now()}.jpg`)
+    .then((uploadedEnd) => {
+      if (uploadedEnd?.url && targetNode.perspective_data) {
+        targetNode.perspective_data.endFrameUrl = uploadedEnd.url;
+        if (uploadedEnd.id) {
+          (targetNode.perspective_data as any).endFrameAssetId = uploadedEnd.id;
+        }
+      }
+    })
+    .catch(() => {});
+}
   }
 }
 
@@ -1308,7 +1312,17 @@ function openImageGenFromPerspective(node: FlowNode) {
   const linkedIds = expandConnectedNodeIds([node.id]);
   selectedNodeIds.value = linkedIds;
   referencedNodeIds.value = linkedIds;
-
+const pData = node.perspective_data as any;
+  if (pData?.endFrameUrl?.startsWith('data:') && !pData?.endFrameAssetId && currentConvId.value) {
+    void uploadPerspectiveDataUrl(
+      currentConvId.value,
+      pData.endFrameUrl,
+      `perspective_end_${Date.now()}.png`
+    ).then(uploaded => {
+      if (uploaded?.url) pData.endFrameUrl = uploaded.url;
+      if (uploaded?.id) pData.endFrameAssetId = uploaded.id;
+    });
+  }
   if (!node.asset_id && node.url?.startsWith('data:') && currentConvId.value) {
     void uploadPerspectiveDataUrl(
       currentConvId.value,

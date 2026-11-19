@@ -39,28 +39,30 @@
             </div>
 
             <!-- 新增：画布节点直接参考列表（对齐生成视频的节点参考体验） -->
-            <div v-if="canvasVisualNodes.length" class="canvas-node-picker">
-              <div class="canvas-picker-label">
-                <span>画布视觉节点（点击勾选作为参考图）：</span>
-                <span v-if="pendingUploadVisualNodes.length" class="uploading-tip">有 {{ pendingUploadVisualNodes.length }} 个视角图正在同步云端…</span>
-              </div>
-              <div class="canvas-node-chips">
-                <button
-                  v-for="cNode in canvasVisualNodes"
-                  :key="cNode.id"
-                  type="button"
-                  :class="['canvas-node-chip', { active: isCanvasNodeReferenced(cNode), pending: !cNode.asset_id }]"
-                  :disabled="inputsLocked || !cNode.asset_id || (!isCanvasNodeReferenced(cNode) && draft.reference_images.length >= maxReferences)"
-                  :title="!cNode.asset_id ? '正在同步到云端资源库，请稍候…' : `点击${isCanvasNodeReferenced(cNode) ? '取消参考' : '添加为参考图'}：${cNode.title}`"
-                  @click="toggleCanvasNodeReference(cNode)"
-                >
-                  <img :src="cNode.url" :alt="cNode.title" />
-                  <span class="chip-badge">{{ cNode.type === 'perspective' ? '🎥' : '🖼' }}</span>
-                  <span class="chip-title">{{ cNode.title }}</span>
-                  <span class="chip-check">{{ !cNode.asset_id ? '同步中' : isCanvasNodeReferenced(cNode) ? '✓' : '+' }}</span>
-                </button>
-              </div>
-            </div>
+           <div v-if="visualRefCandidates.length" class="canvas-node-picker">
+  <div class="canvas-picker-label">
+    <span>画布视觉节点（点击勾选作为参考图）：</span>
+    <span v-if="visualRefCandidates.some(i => !i.assetId)" class="uploading-tip">
+      有视角图正在同步云端…
+    </span>
+  </div>
+  <div class="canvas-node-chips">
+    <button
+      v-for="item in visualRefCandidates"
+      :key="item.key"
+      type="button"
+      :class="['canvas-node-chip', { active: isCandidateReferenced(item), pending: !item.assetId }]"
+      :disabled="inputsLocked || !item.assetId || (!isCandidateReferenced(item) && draft.reference_images.length >= maxReferences)"
+      :title="!item.assetId ? '正在同步到云端资源库，请稍候…' : `点击${isCandidateReferenced(item) ? '取消参考' : '添加为参考图'}：${item.title}`"
+      @click="toggleCandidateReference(item)"
+    >
+      <img :src="item.url" :alt="item.title" />
+      <span class="chip-badge">{{ item.badge }}</span>
+      <span class="chip-title">{{ item.title }}</span>
+      <span class="chip-check">{{ !item.assetId ? '同步中' : isCandidateReferenced(item) ? '✓' : '+' }}</span>
+    </button>
+  </div>
+</div>
 
             <div v-if="draft.reference_images.length" class="reference-grid">
               <div v-for="(image, index) in draft.reference_images" :key="image.asset_id" class="reference-card">
@@ -150,7 +152,73 @@ const canvasVisualNodes = computed(() =>
     node => (node.type === 'image' || node.type === 'perspective') && !!node.url
   )
 );
+interface VisualRefCandidate {
+  key: string;
+  title: string;
+  badge: string;
+  url: string;
+  assetId?: string;
+}
 
+const visualRefCandidates = computed<VisualRefCandidate[]>(() => {
+  const list: VisualRefCandidate[] = [];
+  for (const node of props.nodes) {
+    if (node.type === 'image' && node.url) {
+      list.push({
+        key: `${node.id}:main`,
+        title: node.title || '图片节点',
+        badge: '🖼',
+        url: node.url,
+        assetId: node.asset_id,
+      });
+    } else if (node.type === 'perspective') {
+      if (node.url) {
+        list.push({
+          key: `${node.id}:start`,
+          title: `${node.title || '视角节点'} · 首帧`,
+          badge: '🎥',
+          url: node.url,
+          assetId: node.asset_id,
+        });
+      }
+      const pData = node.perspective_data as (Record<string, any> | null | undefined);
+      if (pData?.endFrameUrl) {
+        list.push({
+          key: `${node.id}:end`,
+          title: `${node.title || '视角节点'} · 终点`,
+          badge: '🏁',
+          url: pData.endFrameUrl,
+          assetId: pData.endFrameAssetId,
+        });
+      }
+    }
+  }
+  return list;
+});
+function isCandidateReferenced(item: VisualRefCandidate): boolean {
+  return !!item.assetId && draft.value.reference_images.some(img => img.asset_id === item.assetId);
+}
+
+function toggleCandidateReference(item: VisualRefCandidate) {
+  if (inputsLocked.value || !item.assetId || !item.url) return;
+  const idx = draft.value.reference_images.findIndex(img => img.asset_id === item.assetId);
+  if (idx > -1) {
+    removeReference(idx);
+  } else if (draft.value.reference_images.length < maxReferences.value) {
+    draft.value.reference_images = sanitizeImageReferences(
+      [
+        ...draft.value.reference_images,
+        {
+          asset_id: item.assetId,
+          content_url: item.url,
+          original_name: item.title,
+        },
+      ],
+      maxReferences.value
+    );
+    suggestion.value = null;
+  }
+}
 const pendingUploadVisualNodes = computed(() =>
   canvasVisualNodes.value.filter(node => !node.asset_id)
 );

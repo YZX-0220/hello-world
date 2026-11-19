@@ -4627,6 +4627,7 @@ button:disabled {
 .guide-modal-box {
   width: 100%;
   max-width: 680px;
+  max-height: 86vh;
   background: #0f1524;
   border: 1px solid rgba(99, 102, 241, 0.35);
   border-radius: 16px;
@@ -4635,8 +4636,14 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-height: 90vh;
-  overflow-y: auto;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.guide-onboarding-banner,
+.guide-modal-header,
+.guide-modal-footer {
+  flex-shrink: 0;
 }
 
 .guide-modal-header {
@@ -4676,6 +4683,7 @@ button:disabled {
 }
 
 .countries-status-tip {
+  flex-shrink: 0;
   padding: 14px;
   border-radius: 8px;
   background: #141b2c;
@@ -4702,11 +4710,19 @@ button:disabled {
   cursor: pointer;
 }
 
+/* 限制国家列表最大高度并独立滚动 */
 .countries-multi-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 4px 0;
+  align-content: flex-start;
+  gap: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+  padding: 10px;
+  background: rgba(11, 15, 25, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  box-sizing: border-box;
 }
 
 .country-select-pill {
@@ -4714,13 +4730,13 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-width: 76px;
+  min-width: 72px;
   background: #172033;
   border: 1px solid #28374f;
   color: #cbd5e1;
-  padding: 8px 16px;
+  padding: 6px 14px;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -4750,29 +4766,41 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* 选中国家详情与负面提示词预览区也做高度兜底，防止多选后撑爆 */
 .guidance-content-box {
   background: #141b2c;
   border: 1px solid #1f2b44;
   border-radius: 10px;
-  padding: 16px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+  min-height: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .guidance-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .country-target-name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   color: #f8fafc;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lang-pill {
+  flex-shrink: 0;
   background: #1e293b;
   color: #38bdf8;
   font-size: 11px;
@@ -4818,7 +4846,7 @@ button:disabled {
 .snippet-label {
   font-size: 11px;
   color: #64748b;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 
 .snippet-text {
@@ -4827,6 +4855,8 @@ button:disabled {
   line-height: 1.45;
   font-family: monospace;
   overflow-wrap: anywhere;
+  max-height: 90px;
+  overflow-y: auto;
 }
 
 .guide-modal-footer {

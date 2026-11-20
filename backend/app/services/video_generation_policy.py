@@ -10,6 +10,7 @@ from itertools import product
 from json import dumps as json_dumps
 from json import loads as json_loads
 from re import findall as regex_findall
+from re import sub as regex_sub
 from typing import Any
 
 from app.core.config import settings
@@ -39,6 +40,12 @@ PARAM_LABELS = {
     "generate_audio": "生成声音",
 }
 POLICY_VERSION = 1
+_MODEL_VERSION_SUFFIX = r"-\d{6}$"
+
+
+def normalize_model_id(value: str | None) -> str:
+    """去掉结尾的六位版本号（如 -260128），用于跨发版匹配同一模型。"""
+    return regex_sub(_MODEL_VERSION_SUFFIX, "", (value or "").strip())
 
 
 def digest(value: Any) -> str:
@@ -120,9 +127,17 @@ async def resolve_target(session, user_id: str, config_id: str) -> GenerationTar
         else None
     )
     profile = get_profile(protocol, profile_code) if profile_code else None
-    # Exact registered IDs are safe to resolve; prefix guesses may match another model.
+    # 版本号后缀会随厂商发版变化，按去掉 -YYMMDD 后的模型名精确匹配，避免前缀误命中。
     if profile is None:
-        profile = next((p for p in list_profiles(protocol) if p.remote_model_id == model), None)
+        normalized = normalize_model_id(model)
+        profile = next(
+            (
+                p
+                for p in list_profiles(protocol)
+                if normalize_model_id(p.remote_model_id) == normalized
+            ),
+            None,
+        )
     error = ""
     if preset is None or not preset.enabled:
         error = "此通道协议未实现或已停用，请切换通道。"
@@ -133,7 +148,7 @@ async def resolve_target(session, user_id: str, config_id: str) -> GenerationTar
         profile = None
     elif (
         profile.remote_model_id
-        and profile.remote_model_id != model
+        and normalize_model_id(profile.remote_model_id) != normalize_model_id(model)
         and not (protocol == "generic_async_json_v1" or model.startswith("ep-"))
     ):
         # Opaque deployment endpoint IDs require an explicit profile binding.

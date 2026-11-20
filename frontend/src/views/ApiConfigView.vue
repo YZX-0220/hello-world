@@ -314,6 +314,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import request from '@/utils/request';
+import { matchProfileCode } from '@/services/modelProfiles';
 import ImageApiConfigPanel from '@/components/ImageApiConfigPanel.vue';
 
 const router = useRouter();
@@ -563,13 +564,11 @@ async function handleTest() {
 }
 // 新增辅助函数：根据当前选中的 remote_model_id，自动反查对应的模型档案 code
 function resolveCapabilityProfileCode(): string | null {
-  const matched = modelProfiles.value.find(
-    (m: any) =>
-      m.remote_model_id === form.remote_model_id ||
-      m.code === form.remote_model_id ||
-      (m.code && form.remote_model_id?.startsWith(m.code))
+  return (
+    matchProfileCode(modelProfiles.value, form.remote_model_id) ||
+    form.capability_profile_code ||
+    null
   );
-  return matched?.code || form.capability_profile_code || null;
 }
 async function handleSave() {
   if (!form.display_name.trim() || !form.auth.api_key.trim()) {

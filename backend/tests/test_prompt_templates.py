@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 from app.core.enums import UserStatus
 from app.core.security import new_session_token, token_sha256
+from app.db.models.cultural_guidance import PromptTemplate
 from app.db.models.user import User, UserSession
 from pytest import fixture as pytest_fixture
 from pytest import mark
@@ -125,3 +126,37 @@ async def test_prompt_templates_full_lifecycle_and_versioning(client, auth_clien
     # 再次查询应报 404
     get_after_del = await client.get(f"{TEMPLATES_URL}/{tpl_id}")
     assert get_after_del.status_code == 404
+
+
+@mark.asyncio
+async def test_created_user_template_visible_in_list(client, auth_client, db_engine):
+    """创建返回 201 后，本人列表与 scope=user 查询都必须能查到该模板。"""
+    payload = {
+        "name": "可见性回归模板",
+        "category": "negative",
+        "content": "模糊、噪点、肢体畸变",
+        "change_note": "验证创建后列表可见",
+    }
+    create_res = await auth_client.post(TEMPLATES_URL, json=payload)
+    assert create_res.status_code == 201
+    tpl_id = create_res.json()["id"]
+
+    async with AsyncSession(db_engine) as session:
+        saved = await session.get(PromptTemplate, tpl_id)
+    assert saved is not None
+    assert saved.scope == "user"
+    assert saved.user_id == "usr_tester_tpl"
+
+    owner_items = (await auth_client.get(TEMPLATES_URL)).json()["items"]
+    assert tpl_id in [item["id"] for item in owner_items]
+
+    owner_scope_items = (await auth_client.get(f"{TEMPLATES_URL}?scope=user")).json()["items"]
+    assert [item["id"] for item in owner_scope_items] == [tpl_id]
+
+    # 匿名视角不应看到他人自定义模板，但仍能看到系统预置模板
+    client.cookies.clear()
+    anon_items = (await client.get(TEMPLATES_URL)).json()["items"]
+    assert tpl_id not in [item["id"] for item in anon_items]
+    assert anon_items
+    anon_scope_items = (await client.get(f"{TEMPLATES_URL}?scope=user")).json()["items"]
+    assert anon_scope_items == []

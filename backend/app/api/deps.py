@@ -46,6 +46,19 @@ async def get_current_user(
     return await service.get_authenticated_user(token)
 
 
+async def get_optional_user(
+    request: Request,
+    session: AsyncSession = Depends(db_session),
+    redis: AsyncRedis = Depends(get_redis),
+) -> User | None:
+    """可选登录：无 Cookie 返回 None；携带无效 Token 仍抛 AUTH_REQUIRED。"""
+    token = _read_session_token(request)
+    if not token:
+        return None
+    service = AuthService(session, redis)
+    return await service.get_authenticated_user(token)
+
+
 async def require_csrf(request: Request) -> None:
     """对会修改数据的登录后请求校验 CSRF 与 Origin。
 

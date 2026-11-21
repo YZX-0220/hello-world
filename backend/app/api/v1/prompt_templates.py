@@ -5,7 +5,7 @@ from json import loads as json_loads
 from fastapi import APIRouter, Depends, Query, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.api.deps import db_session, get_current_user
+from app.api.deps import db_session, get_current_user, get_optional_user
 from app.core.errors import PROMPT_TEMPLATE_NOT_FOUND, PROMPT_TEMPLATE_VERSION_NOT_FOUND, AppError
 from app.db.models.cultural_guidance import PromptTemplate, PromptTemplateVersion
 from app.db.models.user import User
@@ -70,11 +70,14 @@ async def list_prompt_templates(
     category: str | None = Query(default=None, max_length=32),
     scope: str | None = Query(default=None, max_length=16),
     q: str | None = Query(default=None, max_length=100),
+    user: User | None = Depends(get_optional_user),
     session: AsyncSession = Depends(db_session),
 ) -> PromptTemplateListResponse:
-    """获取提示词模板列表（返回系统预置模板及模板库）。"""
+    """获取提示词模板列表（返回系统预置模板及当前用户模板）。"""
     repo = PromptTemplateRepository(session)
-    items = await repo.list_templates(category=category, scope=scope, q=q)
+    items = await repo.list_templates(
+        user_id=user.id if user else None, category=category, scope=scope, q=q
+    )
     return PromptTemplateListResponse(items=[_to_view(item) for item in items])
 
 
